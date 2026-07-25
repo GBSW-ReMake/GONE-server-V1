@@ -2,6 +2,7 @@ plugins {
     id 'java'
     id 'org.springframework.boot' version '4.1.0'
     id 'io.spring.dependency-management' version '1.1.7'
+    id 'checkstyle'
 }
 
 group = 'com.ReMake'
@@ -14,6 +15,16 @@ java {
     }
 }
 
+checkstyle {
+    toolVersion = '10.21.1'
+    // Checkstyle JAR에 번들된 공식 google_checks.xml 사용 (버전 불일치 방지)
+    config = resources.text.fromArchiveEntry(
+        configurations.checkstyle.filter { it.name.startsWith('checkstyle-') },
+        'google_checks.xml'
+    )
+    maxWarnings = 0
+}
+
 repositories {
     mavenCentral()
 }
@@ -23,6 +34,8 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
+
+
 
 tasks.named('test') {
     useJUnitPlatform()
