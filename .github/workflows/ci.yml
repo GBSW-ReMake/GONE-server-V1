@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - dev
+  push:
+    branches:
+      - main
+      - dev
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Code Checkout(코드 체크아웃)
+        uses: actions/checkout@v4
+
+      - name: JDK 17 설정
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 빌드 + 테스트
+        run: ./gradlew build
+
+      - name: 실패 시 테스트 리포트 업로드
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: build/reports/tests/
+
+      - name: Discord 알림 (성공)
+        if: success()
+        run: |
+          curl -H "Content-Type: application/json" \
+               -d '{
+                 "embeds": [{
+                   "title": "✅ CI 성공",
+                   "description": "브랜치: `${{ github.ref_name }}`\n실행자: ${{ github.actor }}",
+                   "color": 65280,
+                   "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                 }]
+               }' \
+               ${{ secrets.DISCORD_CI_WEBHOOK }}
+
+      - name: Discord 알림 (실패)
+        if: failure()
+        run: |
+          curl -H "Content-Type: application/json" \
+               -d '{
+                 "embeds": [{
+                   "title": "❌ CI 실패",
+                   "description": "브랜치: `${{ github.ref_name }}`\n실행자: ${{ github.actor }}",
+                   "color": 16711680,
+                   "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                 }]
+               }' \
+               ${{ secrets.DISCORD_CI_WEBHOOK }}
