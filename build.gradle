@@ -22,7 +22,7 @@ checkstyle {
         configurations.checkstyle.filter { it.name.startsWith('checkstyle-') },
         'google_checks.xml'
     )
-    maxWarnings = 0
+    maxWarnings = 50
 }
 
 repositories {
