@@ -1,6 +1,6 @@
 ---
-name: 버그
-about: 버그 리포트
+name: 버그 리포트
+about: 발생한 버그를 보고합니다
 labels: bug
 ---
 
