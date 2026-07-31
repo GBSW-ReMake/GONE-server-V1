@@ -30,11 +30,11 @@ public class GlobalExceptionHandler {
    * @return 에러 코드에 해당하는 HTTP 상태와 메시지를 담은 응답
    */
   @ExceptionHandler(CustomException.class)
-  public ResponseEntity<ApiResponse<Void>> handleCustomException(CustomException e) {
+  public ResponseEntity<ApiResponse<Object>> handleCustomException(CustomException e) {
     ErrorCode errorCode = e.getErrorCode();
     return ResponseEntity
         .status(errorCode.getStatus())
-        .body(ApiResponse.fail(null, errorCode.getDefaultMessage()));
+        .body(ApiResponse.fail(e.getData(), errorCode.getDefaultMessage()));
   }
 
   /**
