@@ -6,10 +6,12 @@ import jakarta.validation.constraints.Pattern;
 /**
  * 인증번호 발송 요청 DTO.
  *
+ * <p>휴대폰 번호는 하이픈 없이 {@code 01012345678} 형식만 허용합니다.
+ *
  * @param phoneNumber 인증번호를 받을 휴대폰 번호
  */
 public record PhoneSendCodeRequest(
     @NotBlank
-    @Pattern(regexp = "^01[0-9]-?\\d{3,4}-?\\d{4}$", message = "올바른 휴대폰 번호 형식이 아닙니다")
+    @Pattern(regexp = "^01[0-9]\\d{7,8}$", message = "휴대폰 번호는 하이픈 없이 01012345678 형식으로 입력해주세요")
     String phoneNumber) {
 }
