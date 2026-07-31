@@ -12,10 +12,10 @@ public class AuthController {
 
   private final AuthService authService;
 
-  @PostMapping("/sign-up")
-  public ResponseEntity<Void> signUp() {
-
-
-
-  }
+//  @PostMapping("/sign-up")
+//  public ResponseEntity<Void> signUp() {
+//
+//
+//
+//  }
 }
