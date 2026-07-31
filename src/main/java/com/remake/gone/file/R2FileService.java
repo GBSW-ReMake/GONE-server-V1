@@ -1,7 +1,7 @@
-package com.remake.gone.common.R2;
+package com.remake.gone.file;
 
-import com.remake.gone.common.R2.PresignedUploadResult;
-import com.remake.gone.common.R2.R2Properties;
+import com.remake.gone.common.config.r2.R2Properties;
+import com.remake.gone.file.dto.PresignedUploadResult;
 import java.time.Duration;
 import java.util.UUID;
 

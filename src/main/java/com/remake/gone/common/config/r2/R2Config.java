@@ -1,4 +1,4 @@
-package com.remake.gone.common.R2;
+package com.remake.gone.common.config.r2;
 
 import java.net.URI;
 import lombok.RequiredArgsConstructor;

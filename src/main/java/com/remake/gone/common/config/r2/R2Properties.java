@@ -1,4 +1,4 @@
-package com.remake.gone.common.R2;
+package com.remake.gone.common.config.r2;
 
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.boot.context.properties.ConfigurationProperties;

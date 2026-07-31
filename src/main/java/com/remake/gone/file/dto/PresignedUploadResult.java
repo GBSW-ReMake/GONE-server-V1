@@ -1,3 +1,3 @@
-package com.remake.gone.common.R2;
+package com.remake.gone.file.dto;
 
 public record PresignedUploadResult(String uploadUrl, String key) {}
