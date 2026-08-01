@@ -52,6 +52,39 @@ jobs:
     runs-on: ubuntu-22.04
     needs: checkstyle
 
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: gone
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -ppassword"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      # R2Properties(@NotBlank) 검증을 통과시키기 위한 더미 값.
+      # contextLoads()는 실제 R2 API를 호출하지 않으므로 진짜 자격 증명이 필요 없다.
+      R2_ACCOUNT_ID: dummy-account-id
+      R2_ACCESS_KEY: dummy-access-key
+      R2_SECRET_KEY: dummy-secret-key
+      R2_BUCKET: dummy-bucket
+      R2_ENDPOINT: https://dummy.r2.cloudflarestorage.com
+
     steps:
       - name: Code Checkout(코드 체크아웃)
         uses: actions/checkout@v4
