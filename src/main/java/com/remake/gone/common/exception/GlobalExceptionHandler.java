@@ -1,6 +1,7 @@
 package com.remake.gone.common.exception;
 
 import com.remake.gone.common.response.ApiResponse;
+import jakarta.validation.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
@@ -54,6 +55,30 @@ public class GlobalExceptionHandler {
         .stream()
         .map(error -> error.getField() + ": " + error.getDefaultMessage())
         .findFirst()
+        .orElse(CommonErrorCode.INVALID_REQUEST.getDefaultMessage());
+    return ResponseEntity
+        .status(CommonErrorCode.INVALID_REQUEST.getStatus())
+        .body(ApiResponse.fail(null, message, CommonErrorCode.INVALID_REQUEST.getCode()));
+  }
+
+  /**
+   * {@link ConstraintViolationException} 처리.
+   *
+   * <p>{@code @RequestBody}가 아니라 {@code @RequestParam}/{@code @PathVariable}에 붙인
+   * 검증 애노테이션(예: {@code @NotBlank}, {@code @Pattern})이 실패했을 때 발생합니다.
+   * ({@code @RequestBody} 검증 실패는 {@link MethodArgumentNotValidException}으로 별도 처리됨)
+   * 컨트롤러 클래스에 {@code @Validated}가 붙어 있어야 이 예외가 던져집니다.
+   *
+   * @param e 발생한 제약 조건 위반 예외
+   * @return {@code 400 Bad Request} 응답
+   */
+  @ExceptionHandler(ConstraintViolationException.class)
+  public ResponseEntity<ApiResponse<Void>> handleConstraintViolation(
+      ConstraintViolationException e) {
+    String message = e.getConstraintViolations()
+        .stream()
+        .findFirst()
+        .map(violation -> violation.getMessage())
         .orElse(CommonErrorCode.INVALID_REQUEST.getDefaultMessage());
     return ResponseEntity
         .status(CommonErrorCode.INVALID_REQUEST.getStatus())

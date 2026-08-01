@@ -5,7 +5,11 @@ import com.remake.gone.auth.dto.SignUpRequest;
 import com.remake.gone.auth.service.AuthService;
 import com.remake.gone.common.response.ApiResponse;
 import com.remake.gone.user.exception.UserErrorCode;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -19,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
+@Validated
 public class AuthController {
 
   private final AuthService authService;
@@ -31,7 +36,7 @@ public class AuthController {
    */
   @PostMapping("/signup")
   public ApiResponse<Void> signUp(
-      @RequestBody SignUpRequest request
+      @Valid @RequestBody SignUpRequest request
   ) {
     authService.signUp(request);
     return ApiResponse.success(null, "회원가입이 완료되었습니다.");
@@ -45,7 +50,13 @@ public class AuthController {
    */
   @GetMapping("/login-id/check")
   public ApiResponse<LoginIdCheckResponse> checkLoginId(
-      @RequestParam String loginId
+      @RequestParam
+      @NotBlank
+      @Pattern(
+          regexp = "^[a-zA-Z0-9]{4,20}$",
+          message = "로그인 ID는 영문, 숫자로만 4자 이상 20자 이하로 입력해주세요"
+      )
+      String loginId
   ) {
     boolean available = authService.isLoginIdAvailable(loginId);
     String message = available

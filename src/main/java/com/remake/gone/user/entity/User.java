@@ -42,14 +42,14 @@ public class User {
   @JoinColumn(name = "gbsw_id", nullable = false, unique = true)
   private Gbsw gbsw;
 
-  @Column(name = "login_id", nullable = false, unique = true, length = 50)
+  @Column(name = "login_id", nullable = false, unique = true, length = 20)
   private String loginId;
 
   @Column(name = "password_hash", nullable = false, length = 255)
   private String passwordHash;
 
   /** 서비스 내에서 사용하는 별명. {@link Gbsw#getName()}(실명)과는 다르다. */
-  @Column(name = "name", nullable = false, length = 50)
+  @Column(name = "name", nullable = false, length = 20)
   private String name;
 
   @Column(name = "phone_number", nullable = false, unique = true, length = 20)
