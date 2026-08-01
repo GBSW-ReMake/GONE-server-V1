@@ -38,3 +38,4 @@ out/
 
 ### secret files ###
 application-dev.yml
+.env

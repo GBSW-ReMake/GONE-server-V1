@@ -1,6 +1,7 @@
 package com.remake.gone.auth.controller;
 
 import com.remake.gone.auth.dto.LoginIdCheckResponse;
+import com.remake.gone.auth.dto.NameCheckResponse;
 import com.remake.gone.auth.dto.SignUpRequest;
 import com.remake.gone.auth.service.AuthService;
 import com.remake.gone.common.response.ApiResponse;
@@ -8,6 +9,7 @@ import com.remake.gone.user.exception.UserErrorCode;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -63,5 +65,25 @@ public class AuthController {
         ? "사용 가능한 아이디입니다."
         : UserErrorCode.LOGIN_ID_ALREADY_EXISTS.getDefaultMessage();
     return ApiResponse.success(new LoginIdCheckResponse(available), message);
+  }
+
+  /**
+   * 별명 중복 여부를 확인합니다.
+   *
+   * @param name 확인할 별명
+   * @return 사용 가능 여부
+   */
+  @GetMapping("/name/check")
+  public ApiResponse<NameCheckResponse> checkName(
+      @RequestParam
+      @NotBlank
+      @Size(max = 20, message = "별명은 20자 이하로 입력해주세요")
+      String name
+  ) {
+    boolean available = authService.isNameAvailable(name);
+    String message = available
+        ? "사용 가능한 별명입니다."
+        : UserErrorCode.NAME_ALREADY_EXISTS.getDefaultMessage();
+    return ApiResponse.success(new NameCheckResponse(available), message);
   }
 }

@@ -24,4 +24,12 @@ public interface UserRepository extends JpaRepository<User, Long> {
    * @return 이미 사용 중이면 {@code true}
    */
   boolean existsByLoginId(String loginId);
+
+  /**
+   * 해당 별명을 사용 중인 계정이 있는지 확인합니다.
+   *
+   * @param name 확인할 별명
+   * @return 이미 사용 중이면 {@code true}
+   */
+  boolean existsByName(String name);
 }

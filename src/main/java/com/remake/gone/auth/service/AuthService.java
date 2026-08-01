@@ -64,6 +64,11 @@ public class AuthService {
       throw new CustomException(UserErrorCode.LOGIN_ID_ALREADY_EXISTS);
     }
 
+    // 별명 중복 확인
+    if (!isNameAvailable(request.name())) {
+      throw new CustomException(UserErrorCode.NAME_ALREADY_EXISTS);
+    }
+
     User user = User.builder()
         .gbsw(gbsw)
         .loginId(request.loginId())
@@ -85,6 +90,16 @@ public class AuthService {
    */
   public boolean isLoginIdAvailable(String loginId) {
     return !userRepository.existsByLoginId(loginId);
+  }
+
+  /**
+   * 별명을 사용할 수 있는지 확인합니다.
+   *
+   * @param name 확인할 별명
+   * @return 사용 가능하면(중복이 없으면) {@code true}
+   */
+  public boolean isNameAvailable(String name) {
+    return !userRepository.existsByName(name);
   }
 
 }

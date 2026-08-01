@@ -1,0 +1,188 @@
+{
+  "info": {
+    "_postman_id": "e3b0c442-98fc-4e1e-8a3b-1c2d3e4f5a6b",
+    "name": "GONE - Auth API",
+    "description": "인증(Auth) 도메인 API 컬렉션. 현재 구현된 5개 엔드포인트만 포함합니다.\n\n**실행 순서**\n1. 전화번호 인증번호 발송 (`phone/send-code`) 실행\n2. 서버 콘솔 로그(`[SMS] 01099999999: 인증번호는 123456 입니다.`)에서 인증번호 확인 → 컬렉션 변수 `code`에 붙여넣기\n3. 전화번호 인증번호 확인 (`phone/verify-code`) 실행 → 성공 시 `ticket` 변수가 자동 저장됨\n4. 회원가입 (`signup`) 실행\n5. 로그인 ID 중복확인 (`login-id/check`), 별명 중복확인 (`name/check`)은 언제든 단독 실행 가능\n\n**사전 조건**: `phoneNumber` 변수 값이 `gbsw` 테이블에 미리 등록된 번호여야 회원가입이 성공합니다(없으면 404 GBSW_001). `name`(별명)도 이제 유니크 제약이라 이미 가입에 성공했던 값을 그대로 재사용하면 409로 실패합니다 — 재시도 시 `name` 변수를 바꿔주세요.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. 전화번호 인증번호 발송",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"phoneNumber\": \"{{phoneNumber}}\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/phone/send-code",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "auth", "phone", "send-code"]
+        },
+        "description": "인증번호는 실제 SMS로 발송되지 않고, dev 프로필에서는 서버 콘솔에 `[SMS] {번호}: 인증번호는 {code} 입니다.` 형태로 출력됩니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "2. 전화번호 인증번호 확인",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"phoneNumber\": \"{{phoneNumber}}\",\n  \"code\": \"{{code}}\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/phone/verify-code",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "auth", "phone", "verify-code"]
+        },
+        "description": "실행 전에 컬렉션 변수 `code`를 서버 콘솔에 출력된 실제 인증번호로 바꿔주세요. 성공하면 응답의 `data.ticket`을 컬렉션 변수 `ticket`에 자동 저장합니다(10분 유효)."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "if (pm.response.code === 200) {",
+              "    const body = pm.response.json();",
+              "    if (body.success && body.data && body.data.ticket) {",
+              "        pm.collectionVariables.set(\"ticket\", body.data.ticket);",
+              "    }",
+              "}"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "3. 로그인 ID 중복확인",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/login-id/check?loginId={{loginId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "auth", "login-id", "check"],
+          "query": [
+            { "key": "loginId", "value": "{{loginId}}" }
+          ]
+        },
+        "description": "loginId는 영문/숫자 4~20자만 허용됩니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "4. 별명 중복확인",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/name/check?name={{name}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "auth", "name", "check"],
+          "query": [
+            { "key": "name", "value": "{{name}}" }
+          ]
+        },
+        "description": "name은 20자 이하만 허용됩니다. 이미 가입에 쓰인 별명이면 available:false가 반환됩니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "5. 회원가입",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"loginId\": \"{{loginId}}\",\n  \"password\": \"{{password}}\",\n  \"name\": \"{{name}}\",\n  \"phoneNumber\": \"{{phoneNumber}}\",\n  \"ticket\": \"{{ticket}}\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/signup",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "auth", "signup"]
+        },
+        "description": "2번 요청에서 저장된 `ticket`을 사용합니다. loginId(영문/숫자 4~20자), password(영문+숫자+특수문자 포함 8~20자), name(최대 20자) 형식을 지켜야 합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "response": []
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:9091", "type": "string" },
+    { "key": "phoneNumber", "value": "01099999999", "type": "string" },
+    { "key": "code", "value": "000000", "type": "string" },
+    { "key": "ticket", "value": "", "type": "string" },
+    { "key": "loginId", "value": "testuser01", "type": "string" },
+    { "key": "password", "value": "Test1234!", "type": "string" },
+    { "key": "name", "value": "테스트유저", "type": "string" }
+  ]
+}
