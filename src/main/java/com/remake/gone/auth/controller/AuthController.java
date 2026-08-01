@@ -1,17 +1,23 @@
 package com.remake.gone.auth.controller;
 
+import com.remake.gone.auth.dto.LoginIdCheckResponse;
 import com.remake.gone.auth.dto.SignUpRequest;
 import com.remake.gone.auth.service.AuthService;
 import com.remake.gone.common.response.ApiResponse;
+import com.remake.gone.user.exception.UserErrorCode;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 인증(Auth) 관련 API 컨트롤러.
  */
-@RequestMapping("/api/v1/auth/")
+@RestController
+@RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
 public class AuthController {
 
@@ -29,5 +35,22 @@ public class AuthController {
   ) {
     authService.signUp(request);
     return ApiResponse.success(null, "회원가입이 완료되었습니다.");
+  }
+
+  /**
+   * 로그인 ID 중복 여부를 확인합니다.
+   *
+   * @param loginId 확인할 로그인 ID
+   * @return 사용 가능 여부
+   */
+  @GetMapping("/login-id/check")
+  public ApiResponse<LoginIdCheckResponse> checkLoginId(
+      @RequestParam String loginId
+  ) {
+    boolean available = authService.isLoginIdAvailable(loginId);
+    String message = available
+        ? "사용 가능한 아이디입니다."
+        : UserErrorCode.LOGIN_ID_ALREADY_EXISTS.getDefaultMessage();
+    return ApiResponse.success(new LoginIdCheckResponse(available), message);
   }
 }

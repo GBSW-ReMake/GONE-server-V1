@@ -13,7 +13,10 @@ import org.springframework.http.HttpStatus;
 public enum UserErrorCode implements ErrorCode {
 
   /** 이미 해당 명단(Gbsw)에 연결된 계정이 존재합니다. */
-  ALREADY_REGISTERED(HttpStatus.CONFLICT, "USER_001", "이미 가입된 계정입니다.");
+  ALREADY_REGISTERED(HttpStatus.CONFLICT, "USER_001", "이미 가입된 계정입니다."),
+
+  /** 이미 사용 중인 로그인 ID입니다. */
+  LOGIN_ID_ALREADY_EXISTS(HttpStatus.CONFLICT, "USER_002", "이미 사용 중인 아이디입니다.");
 
   private final HttpStatus httpStatus;
   private final String code;

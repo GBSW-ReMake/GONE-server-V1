@@ -59,6 +59,11 @@ public class AuthService {
       throw new CustomException(UserErrorCode.ALREADY_REGISTERED);
     }
 
+    // 로그인 ID 중복 확인
+    if (!isLoginIdAvailable(request.loginId())) {
+      throw new CustomException(UserErrorCode.LOGIN_ID_ALREADY_EXISTS);
+    }
+
     User user = User.builder()
         .gbsw(gbsw)
         .loginId(request.loginId())
@@ -70,6 +75,16 @@ public class AuthService {
 
     // 가입이 완전히 끝난 뒤에 티켓을 지운다 (save 실패 시 재시도할 수 있도록 티켓을 보존).
     redisRepository.delete(RedisKeyType.SIGN_UP_TICKET, request.ticket());
+  }
+
+  /**
+   * 로그인 ID를 사용할 수 있는지 확인합니다.
+   *
+   * @param loginId 확인할 로그인 ID
+   * @return 사용 가능하면(중복이 없으면) {@code true}
+   */
+  public boolean isLoginIdAvailable(String loginId) {
+    return !userRepository.existsByLoginId(loginId);
   }
 
 }
