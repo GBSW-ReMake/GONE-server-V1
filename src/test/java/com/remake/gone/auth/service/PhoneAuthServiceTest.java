@@ -86,7 +86,8 @@ class PhoneAuthServiceTest {
       // Redis에 저장한 코드와 실제로 발송한 메시지 속 코드가 같은지 확인
       assertThat(sentMessage.getValue()).contains(savedCode.getValue());
 
-      assertThat(response.expiresIn()).isEqualTo(RedisKeyType.PHONE_VERIFICATION.ttl().getSeconds());
+      assertThat(response.expiresIn())
+          .isEqualTo(RedisKeyType.PHONE_VERIFICATION.ttl().getSeconds());
     }
 
     @Test
@@ -115,7 +116,8 @@ class PhoneAuthServiceTest {
     @Test
     @DisplayName("누적 실패 횟수가 이미 최대치면 코드 확인 없이 거부한다")
     void throwsWhenTooManyAttempts() {
-      given(redisRepository.find(RedisKeyType.PHONE_VERIFICATION_FAIL_COUNT, PHONE_NUMBER, Long.class))
+      given(redisRepository
+          .find(RedisKeyType.PHONE_VERIFICATION_FAIL_COUNT, PHONE_NUMBER, Long.class))
           .willReturn(5L);
 
       assertThatThrownBy(() -> phoneAuthService.verifyCode(
@@ -131,7 +133,8 @@ class PhoneAuthServiceTest {
     @Test
     @DisplayName("저장된 인증번호가 없으면(만료) 거부한다")
     void throwsWhenExpired() {
-      given(redisRepository.find(RedisKeyType.PHONE_VERIFICATION_FAIL_COUNT, PHONE_NUMBER, Long.class))
+      given(redisRepository
+          .find(RedisKeyType.PHONE_VERIFICATION_FAIL_COUNT, PHONE_NUMBER, Long.class))
           .willReturn(null);
       given(redisRepository.find(RedisKeyType.PHONE_VERIFICATION, PHONE_NUMBER, String.class))
           .willReturn(null);
@@ -146,7 +149,8 @@ class PhoneAuthServiceTest {
     @Test
     @DisplayName("인증번호가 일치하지 않으면 실패 횟수를 늘리고 거부한다")
     void throwsWhenCodeMismatch() {
-      given(redisRepository.find(RedisKeyType.PHONE_VERIFICATION_FAIL_COUNT, PHONE_NUMBER, Long.class))
+      given(redisRepository
+          .find(RedisKeyType.PHONE_VERIFICATION_FAIL_COUNT, PHONE_NUMBER, Long.class))
           .willReturn(2L);
       given(redisRepository.find(RedisKeyType.PHONE_VERIFICATION, PHONE_NUMBER, String.class))
           .willReturn("999999"); // 요청한 CODE("123456")와 다름
@@ -165,7 +169,8 @@ class PhoneAuthServiceTest {
     @Test
     @DisplayName("일치하면 인증 관련 키를 지우고 signUpTicket을 발급한다")
     void issuesTicketOnSuccess() {
-      given(redisRepository.find(RedisKeyType.PHONE_VERIFICATION_FAIL_COUNT, PHONE_NUMBER, Long.class))
+      given(redisRepository
+          .find(RedisKeyType.PHONE_VERIFICATION_FAIL_COUNT, PHONE_NUMBER, Long.class))
           .willReturn(null);
       given(redisRepository.find(RedisKeyType.PHONE_VERIFICATION, PHONE_NUMBER, String.class))
           .willReturn(CODE);
