@@ -34,7 +34,7 @@ public class GlobalExceptionHandler {
     ErrorCode errorCode = e.getErrorCode();
     return ResponseEntity
         .status(errorCode.getStatus())
-        .body(ApiResponse.fail(e.getData(), errorCode.getDefaultMessage()));
+        .body(ApiResponse.fail(e.getData(), errorCode.getDefaultMessage(), errorCode.getCode()));
   }
 
   /**
@@ -56,7 +56,7 @@ public class GlobalExceptionHandler {
         .orElse(CommonErrorCode.INVALID_REQUEST.getDefaultMessage());
     return ResponseEntity
         .status(CommonErrorCode.INVALID_REQUEST.getStatus())
-        .body(ApiResponse.fail(null, message));
+        .body(ApiResponse.fail(null, message, CommonErrorCode.INVALID_REQUEST.getCode()));
   }
 
   /**
@@ -72,7 +72,10 @@ public class GlobalExceptionHandler {
       HttpRequestMethodNotSupportedException e) {
     return ResponseEntity
         .status(CommonErrorCode.METHOD_NOT_ALLOWED.getStatus())
-        .body(ApiResponse.fail(null, CommonErrorCode.METHOD_NOT_ALLOWED.getDefaultMessage()));
+        .body(ApiResponse.fail(
+            null,
+            CommonErrorCode.METHOD_NOT_ALLOWED.getDefaultMessage(),
+            CommonErrorCode.METHOD_NOT_ALLOWED.getCode()));
   }
 
   /**
@@ -87,6 +90,9 @@ public class GlobalExceptionHandler {
   public ResponseEntity<ApiResponse<Void>> handleException(Exception e) {
     return ResponseEntity
         .status(CommonErrorCode.INTERNAL_SERVER_ERROR.getStatus())
-        .body(ApiResponse.fail(null, CommonErrorCode.INTERNAL_SERVER_ERROR.getDefaultMessage()));
+        .body(ApiResponse.fail(
+            null,
+            CommonErrorCode.INTERNAL_SERVER_ERROR.getDefaultMessage(),
+            CommonErrorCode.INTERNAL_SERVER_ERROR.getCode()));
   }
 }

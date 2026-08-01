@@ -48,6 +48,10 @@ public class User {
   @Column(name = "password_hash", nullable = false, length = 255)
   private String passwordHash;
 
+  /** 서비스 내에서 사용하는 별명. {@link Gbsw#getName()}(실명)과는 다르다. */
+  @Column(name = "name", nullable = false, length = 50)
+  private String name;
+
   @Column(name = "phone_number", nullable = false, unique = true, length = 20)
   private String phoneNumber;
 

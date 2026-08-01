@@ -42,7 +42,8 @@ public class PhoneAuthService {
 
     boolean canSend = redisRepository.saveIfAbsent(RedisKeyType.PHONE_SEND_COOLDOWN, phoneNumber);
     if (!canSend) {
-      long remainingSeconds = redisRepository.getExpire(RedisKeyType.PHONE_SEND_COOLDOWN, phoneNumber);
+      long remainingSeconds =
+          redisRepository.getExpire(RedisKeyType.PHONE_SEND_COOLDOWN, phoneNumber);
       throw new CustomException(
           AuthErrorCode.TOO_MANY_SMS_REQUESTS,
           PhoneSendCooldownResponse.builder()
@@ -91,7 +92,7 @@ public class PhoneAuthService {
     String storedCode = redisRepository.find(
         RedisKeyType.PHONE_VERIFICATION, phoneNumber, String.class);
 
-    /**
+    /*
      * 첫 if문은 인증번호가 만료되었을 때(ttl 5분이 지나서 Redis에서 삭제되었을 때) 발생하는 예외 처리입니다.
      *
      * 두번째 if문은 사용자가 입력한 인증번호와 Redis에 저장된 인증번호가 일치하지 않을 때 발생하는 예외 처리입니다.
@@ -102,7 +103,8 @@ public class PhoneAuthService {
       throw new CustomException(AuthErrorCode.PHONE_CODE_EXPIRED);
     }
     if (!storedCode.equals(code)) {
-      long newFailCount = redisRepository.increment(RedisKeyType.PHONE_VERIFICATION_FAIL_COUNT, phoneNumber);
+      long newFailCount =
+          redisRepository.increment(RedisKeyType.PHONE_VERIFICATION_FAIL_COUNT, phoneNumber);
       throw new CustomException(
           AuthErrorCode.INVALID_VERIFICATION_CODE,
           PhoneVerifyFailResponse.builder()
@@ -111,13 +113,13 @@ public class PhoneAuthService {
               .build());
     }
 
-    /**
+    /*
      * 인증 성공 시 Redis에서 인증번호와 실패 횟수 삭제
      */
     redisRepository.delete(RedisKeyType.PHONE_VERIFICATION_FAIL_COUNT, phoneNumber);
     redisRepository.delete(RedisKeyType.PHONE_VERIFICATION, phoneNumber);
 
-    /**
+    /*
      * [ 티켓의 용도 ]
      *  전화번호 인증이 완료 된 후 다음 로직인 회원가입 (사용자 정보 입력) 진행 시, 해당 전화번호가 인증된 번호인지 확인하기 위해 사용됩니다.
      *

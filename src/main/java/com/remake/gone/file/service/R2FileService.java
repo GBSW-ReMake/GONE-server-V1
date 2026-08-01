@@ -7,10 +7,8 @@ import com.remake.gone.file.exception.FileErrorCode;
 import java.time.Duration;
 import java.util.Set;
 import java.util.UUID;
-
-import org.springframework.stereotype.Service;
-
 import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -20,6 +18,9 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
+/**
+ * Cloudflare R2에 파일을 업로드/조회하기 위한 presigned URL 발급 서비스.
+ */
 @Service
 @RequiredArgsConstructor
 public class R2FileService {
@@ -99,7 +100,7 @@ public class R2FileService {
   }
 
   /**
-   * 조회용 presigned URL 발급
+   * 조회용 presigned URL을 발급합니다.
    */
   public String generateDownloadUrl(String key) {
     GetObjectRequest objectRequest = GetObjectRequest.builder()
@@ -116,7 +117,7 @@ public class R2FileService {
   }
 
   /**
-   * 실제로 R2에 파일이 존재하는지 확인 (업로드 완료 확인용)
+   * 실제로 R2에 파일이 존재하는지 확인합니다 (업로드 완료 확인용).
    */
   public boolean checkObjectExists(String key) {
     try {

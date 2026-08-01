@@ -1,5 +1,6 @@
 package com.remake.gone.user.repository;
 
+import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.user.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -7,4 +8,12 @@ import org.springframework.data.jpa.repository.JpaRepository;
  * {@link User} 리포지토리.
  */
 public interface UserRepository extends JpaRepository<User, Long> {
+
+  /**
+   * 해당 명단(Gbsw) 레코드에 이미 연결된 계정이 있는지 확인합니다.
+   *
+   * @param gbsw 확인할 명단 레코드
+   * @return 이미 연결된 계정이 있으면 {@code true}
+   */
+  boolean existsByGbsw(Gbsw gbsw);
 }
