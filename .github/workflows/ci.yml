@@ -84,6 +84,11 @@ jobs:
       R2_SECRET_KEY: dummy-secret-key
       R2_BUCKET: dummy-bucket
       R2_ENDPOINT: https://dummy.r2.cloudflarestorage.com
+      # JwtProperties(@NotBlank/@NotNull) 검증을 통과시키기 위한 더미 값. 실제 서명 검증은
+      # JwtProviderTest 등에서 자체 값으로 하므로, 여기서는 컨텍스트 로딩만 통과하면 된다.
+      JWT_SECRET: dummy-jwt-secret-for-ci-context-loading-only
+      JWT_ACCESS_TOKEN_EXPIRATION: 1800000
+      JWT_REFRESH_TOKEN_EXPIRATION: 1209600000
 
     steps:
       - name: Code Checkout(코드 체크아웃)

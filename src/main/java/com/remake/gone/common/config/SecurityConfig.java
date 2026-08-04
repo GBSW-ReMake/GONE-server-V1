@@ -1,7 +1,12 @@
 package com.remake.gone.common.config;
 
+import com.remake.gone.common.security.JwtAuthenticationFilter;
+import com.remake.gone.common.security.RestAuthenticationEntryPoint;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -17,7 +22,11 @@ import org.springframework.security.web.SecurityFilterChain;
  */
 @Configuration
 @EnableWebSecurity
+@RequiredArgsConstructor
 public class SecurityConfig {
+
+  private final JwtAuthenticationFilter jwtAuthenticationFilter;
+  private final RestAuthenticationEntryPoint restAuthenticationEntryPoint;
 
   /**
    * 비밀번호 해시/검증에 사용할 인코더.
@@ -44,7 +53,13 @@ public class SecurityConfig {
         .httpBasic(httpBasic -> httpBasic.disable())
         .sessionManagement(session ->
             session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-        .authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
+        .exceptionHandling(exception ->
+            exception.authenticationEntryPoint(restAuthenticationEntryPoint))
+        // 로그아웃만 Access Token 인증이 필요하고, 나머지 기존 API는 그대로 permitAll 유지.
+        .authorizeHttpRequests(auth -> auth
+            .requestMatchers(HttpMethod.POST, "/api/v1/auth/logout").authenticated()
+            .anyRequest().permitAll())
+        .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
     return http.build();
   }
