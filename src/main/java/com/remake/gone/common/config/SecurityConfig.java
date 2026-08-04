@@ -4,9 +4,15 @@ import com.remake.gone.common.security.JwtAuthenticationFilter;
 import com.remake.gone.common.security.JwtProperties;
 import com.remake.gone.common.security.JwtProvider;
 import com.remake.gone.common.security.RestAuthenticationEntryPoint;
+import com.remake.gone.common.security.UserDetailsServiceImpl;
+import com.remake.gone.role.repository.UserRoleRepository;
+import com.remake.gone.user.repository.UserRepository;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.ProviderManager;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -23,9 +29,14 @@ import tools.jackson.databind.ObjectMapper;
  * CSRF/폼 로그인/HTTP Basic 등 기본 인증 방식은 비활성화한다.
  *
  * <p>JWT 관련 빈({@link JwtProvider}, {@link JwtAuthenticationFilter},
- * {@link RestAuthenticationEntryPoint})을 여기서 {@code @Bean} 메서드로 직접 등록한다.
- * {@code @Component}로 두면 {@code @WebMvcTest} 슬라이스가 이들을 스캔에서 제외해
- * {@code SecurityConfig} 구성 자체가 깨지기 때문이다.
+ * {@link RestAuthenticationEntryPoint})과 로그인 검증용 빈({@link UserDetailsServiceImpl},
+ * {@link AuthenticationManager})을 여기서 {@code @Bean} 메서드로 직접 등록한다. {@code @Component}로
+ * 두면 {@code @WebMvcTest} 슬라이스가 이들을 스캔에서 제외해 {@code SecurityConfig} 구성 자체가
+ * 깨지기 때문이다.
+ *
+ * <p>{@link AuthenticationManager}/{@link UserDetailsServiceImpl}은 로그인 시점의 자격증명
+ * 검증에만 쓰인다. 로그인 이후 매 요청의 인증은 여전히 {@link JwtAuthenticationFilter}가 JWT
+ * 서명만으로 stateless하게 처리하며, 이 두 흐름은 서로 대체 관계가 아니다.
  */
 @Configuration
 @EnableWebSecurity
@@ -39,6 +50,39 @@ public class SecurityConfig {
   @Bean
   public PasswordEncoder passwordEncoder() {
     return new BCryptPasswordEncoder();
+  }
+
+  /**
+   * 로그인 ID로 사용자를 로드하는 서비스. 로그인 시점의 자격증명 검증에서만 쓰인다.
+   *
+   * @param userRepository     사용자 조회용 리포지토리
+   * @param userRoleRepository 역할 조회용 리포지토리
+   * @return 구성된 {@link UserDetailsServiceImpl}
+   */
+  @Bean
+  public UserDetailsServiceImpl userDetailsService(
+      UserRepository userRepository,
+      UserRoleRepository userRoleRepository
+  ) {
+    return new UserDetailsServiceImpl(userRepository, userRoleRepository);
+  }
+
+  /**
+   * {@link UserDetailsServiceImpl}과 {@link PasswordEncoder}를 이용해 로그인 자격증명을
+   * 검증하는 {@link AuthenticationManager}.
+   *
+   * @param userDetailsService 사용자 로드에 쓸 서비스
+   * @param passwordEncoder    비밀번호 검증에 쓸 인코더
+   * @return 구성된 {@link AuthenticationManager}
+   */
+  @Bean
+  public AuthenticationManager authenticationManager(
+      UserDetailsServiceImpl userDetailsService,
+      PasswordEncoder passwordEncoder
+  ) {
+    DaoAuthenticationProvider provider = new DaoAuthenticationProvider(userDetailsService);
+    provider.setPasswordEncoder(passwordEncoder);
+    return new ProviderManager(provider);
   }
 
   /**

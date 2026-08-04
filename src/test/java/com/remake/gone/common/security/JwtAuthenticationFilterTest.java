@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
+import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -70,18 +71,22 @@ class JwtAuthenticationFilterTest {
   }
 
   @Test
-  @DisplayName("유효한 Access Token이면 SecurityContext에 UserPrincipal을 세팅한다")
+  @DisplayName("유효한 Access Token이면 SecurityContext에 UserPrincipal과 역할 권한을 세팅한다")
   void setsAuthenticationWhenTokenValid() throws Exception {
     MockHttpServletRequest request = new MockHttpServletRequest();
     request.addHeader("Authorization", "Bearer valid-access-token");
     MockHttpServletResponse response = new MockHttpServletResponse();
-    given(jwtProvider.getUserIdFromAccessToken("valid-access-token")).willReturn(USER_ID);
+    given(jwtProvider.parseAccessToken("valid-access-token"))
+        .willReturn(new JwtProvider.AccessTokenClaims(USER_ID, Set.of("STUDENT", "DISCIPLINE")));
 
     filter.doFilterInternal(request, response, filterChain);
 
     Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
     assertThat(authentication).isNotNull();
     assertThat(authentication.getPrincipal()).isEqualTo(new UserPrincipal(USER_ID));
+    assertThat(authentication.getAuthorities())
+        .extracting(Object::toString)
+        .containsExactlyInAnyOrder("ROLE_STUDENT", "ROLE_DISCIPLINE");
     verify(filterChain).doFilter(request, response);
   }
 
@@ -92,7 +97,7 @@ class JwtAuthenticationFilterTest {
     request.addHeader("Authorization", "Bearer forged-or-expired-token");
     MockHttpServletResponse response = new MockHttpServletResponse();
     willThrow(new JwtException("invalid signature"))
-        .given(jwtProvider).getUserIdFromAccessToken("forged-or-expired-token");
+        .given(jwtProvider).parseAccessToken("forged-or-expired-token");
 
     filter.doFilterInternal(request, response, filterChain);
 
