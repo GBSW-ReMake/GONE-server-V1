@@ -1,0 +1,8 @@
+reviews:
+  auto_review:
+    enabled: true
+    # 이 저장소는 feature -> dev -> main으로 흐르고, PR은 대부분 default 브랜치(main)가 아닌
+    # dev를 base로 연다. CodeRabbit은 기본적으로 default 브랜치 대상 PR만 자동 리뷰하므로
+    # dev도 명시적으로 추가해야 한다.
+    base_branches:
+      - "dev"
