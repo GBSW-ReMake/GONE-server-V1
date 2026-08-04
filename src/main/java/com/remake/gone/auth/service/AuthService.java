@@ -8,16 +8,26 @@ import com.remake.gone.auth.exception.AuthErrorCode;
 import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.common.redis.RedisKeyType;
 import com.remake.gone.common.redis.RedisRepository;
+import com.remake.gone.common.security.AuthUserDetails;
 import com.remake.gone.common.security.JwtProperties;
 import com.remake.gone.common.security.JwtProvider;
 import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.exception.GbswErrorCode;
 import com.remake.gone.gbsw.repository.GbswRepository;
+import com.remake.gone.role.entity.Role;
+import com.remake.gone.role.entity.UserRole;
+import com.remake.gone.role.repository.RoleRepository;
+import com.remake.gone.role.repository.UserRoleRepository;
 import com.remake.gone.user.entity.User;
 import com.remake.gone.user.exception.UserErrorCode;
 import com.remake.gone.user.repository.UserRepository;
 import io.jsonwebtoken.JwtException;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,13 +41,20 @@ public class AuthService {
 
   private final UserRepository userRepository;
   private final GbswRepository gbswRepository;
+  private final RoleRepository roleRepository;
+  private final UserRoleRepository userRoleRepository;
   private final RedisRepository redisRepository;
   private final PasswordEncoder passwordEncoder;
   private final JwtProvider jwtProvider;
   private final JwtProperties jwtProperties;
+  private final AuthenticationManager authenticationManager;
 
   /**
    * 휴대폰 인증(signUpTicket)을 검증한 뒤, 명단(Gbsw)과 연결된 회원 계정을 생성합니다.
+   *
+   * <p>가입과 동시에 {@link Gbsw#getType()}(학생/선생님)에 대응하는 기본 역할을 부여합니다.
+   * 학생회/선도부 등 부서 역할은 이 시점에 부여하지 않습니다 — 관리자가 별도 API로 나중에
+   * 부여합니다.
    *
    * @param request 회원가입 요청 정보
    */
@@ -86,6 +103,13 @@ public class AuthService {
         .build();
     userRepository.save(user);
 
+    // Gbsw.type(STUDENT/TEACHER)에 대응하는 기본 역할만 부여한다. 학생회/선도부 등 다른 role은
+    // Gbsw에 어떤 정보가 있든 여기서 절대 추론/부여하지 않는다 (관리자 API로만 사후 부여).
+    Role defaultRole = roleRepository.findByCode(gbsw.getType().name())
+        .orElseThrow(() -> new IllegalStateException(
+            "기본 역할 시드 데이터가 없습니다: " + gbsw.getType().name()));
+    userRoleRepository.save(UserRole.builder().user(user).role(defaultRole).build());
+
     // 가입이 완전히 끝난 뒤에 티켓을 지운다 (save 실패 시 재시도할 수 있도록 티켓을 보존).
     redisRepository.delete(RedisKeyType.SIGN_UP_TICKET, request.ticket());
   }
@@ -113,21 +137,27 @@ public class AuthService {
   /**
    * 로그인 ID/비밀번호를 검증하고 Access/Refresh Token을 발급합니다.
    *
+   * <p>자격증명 검증은 {@link AuthenticationManager}에 위임한다 ({@code UserDetailsServiceImpl}
+   * + {@code PasswordEncoder} 기반). 로그인 이후 매 요청의 JWT 인증은 이 흐름과 무관하게
+   * 여전히 stateless하게 처리된다.
+   *
    * @param request 로그인 요청 정보
    * @return 발급된 토큰 정보
    */
   @Transactional(readOnly = true)
   public TokenResponse login(LoginRequest request) {
-    User user = userRepository.findByLoginId(request.loginId())
-        .orElseThrow(() -> new CustomException(AuthErrorCode.INVALID_CREDENTIALS));
-
-    // 아이디가 존재하는지와 비밀번호가 맞는지를 같은 에러로 응답한다.
-    // 둘을 구분해서 응답하면 공격자가 "아이디는 맞다"는 사실만으로 계정 존재 여부를 알아낼 수 있다.
-    if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+    Authentication authentication;
+    try {
+      authentication = authenticationManager.authenticate(
+          new UsernamePasswordAuthenticationToken(request.loginId(), request.password()));
+    } catch (AuthenticationException e) {
+      // 아이디가 없을 때와 비밀번호가 틀렸을 때를 같은 에러로 응답한다.
+      // 둘을 구분해서 응답하면 공격자가 "아이디는 맞다"는 사실만으로 계정 존재 여부를 알아낼 수 있다.
       throw new CustomException(AuthErrorCode.INVALID_CREDENTIALS);
     }
 
-    return issueTokens(user.getId());
+    AuthUserDetails userDetails = (AuthUserDetails) authentication.getPrincipal();
+    return issueTokens(userDetails.userId(), userDetails.roleCodes());
   }
 
   /**
@@ -135,6 +165,8 @@ public class AuthService {
    *
    * <p>재발급 때마다 Refresh Token도 새로 발급(rotation)해 Redis 값을 교체한다. 탈취된 옛
    * Refresh Token이 재사용되면 Redis에 저장된 최신 값과 달라 아래 일치 검사에서 걸러진다.
+   * 역할(role)은 Refresh Token이 아니라 매번 최신값을 다시 조회해서 발급한다 (역할이 바뀐
+   * 뒤에도 옛 역할이 계속 실려 나가는 것을 방지).
    *
    * @param request 재발급 요청 정보 (기존 Refresh Token)
    * @return 재발급된 토큰 정보
@@ -158,7 +190,8 @@ public class AuthService {
       throw new CustomException(AuthErrorCode.INVALID_REFRESH_TOKEN);
     }
 
-    return issueTokens(userId);
+    Set<String> roleCodes = Set.copyOf(userRoleRepository.findRoleCodesByUserId(userId));
+    return issueTokens(userId, roleCodes);
   }
 
   /**
@@ -174,8 +207,8 @@ public class AuthService {
     redisRepository.delete(RedisKeyType.REFRESH_TOKEN, String.valueOf(userId));
   }
 
-  private TokenResponse issueTokens(Long userId) {
-    String accessToken = jwtProvider.createAccessToken(userId);
+  private TokenResponse issueTokens(Long userId, Set<String> roleCodes) {
+    String accessToken = jwtProvider.createAccessToken(userId, roleCodes);
     String refreshToken = jwtProvider.createRefreshToken(userId);
 
     redisRepository.save(RedisKeyType.REFRESH_TOKEN, String.valueOf(userId), refreshToken);

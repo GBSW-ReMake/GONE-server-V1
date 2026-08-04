@@ -10,6 +10,8 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -42,10 +44,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     if (token != null) {
       try {
-        Long userId = jwtProvider.getUserIdFromAccessToken(token);
-        UserPrincipal principal = new UserPrincipal(userId);
+        JwtProvider.AccessTokenClaims claims = jwtProvider.parseAccessToken(token);
+        UserPrincipal principal = new UserPrincipal(claims.userId());
+        List<GrantedAuthority> authorities = claims.roles().stream()
+            .map(role -> (GrantedAuthority) new SimpleGrantedAuthority("ROLE_" + role))
+            .toList();
         Authentication authentication =
-            new UsernamePasswordAuthenticationToken(principal, null, List.of());
+            new UsernamePasswordAuthenticationToken(principal, null, authorities);
         SecurityContextHolder.getContext().setAuthentication(authentication);
       } catch (JwtException | IllegalArgumentException e) {
         // 서명 위조/만료/타입 불일치 등 어떤 이유든 인증되지 않은 상태로만 두고 계속 진행한다.

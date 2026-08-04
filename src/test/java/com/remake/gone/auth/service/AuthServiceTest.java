@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.remake.gone.auth.dto.LoginRequest;
@@ -17,16 +18,22 @@ import com.remake.gone.auth.exception.AuthErrorCode;
 import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.common.redis.RedisKeyType;
 import com.remake.gone.common.redis.RedisRepository;
+import com.remake.gone.common.security.AuthUserDetails;
 import com.remake.gone.common.security.JwtProperties;
 import com.remake.gone.common.security.JwtProvider;
 import com.remake.gone.gbsw.entity.Gbsw;
+import com.remake.gone.gbsw.enums.GbswType;
 import com.remake.gone.gbsw.exception.GbswErrorCode;
 import com.remake.gone.gbsw.repository.GbswRepository;
-import com.remake.gone.user.entity.User;
+import com.remake.gone.role.entity.Role;
+import com.remake.gone.role.repository.RoleRepository;
+import com.remake.gone.role.repository.UserRoleRepository;
 import com.remake.gone.user.exception.UserErrorCode;
 import com.remake.gone.user.repository.UserRepository;
 import io.jsonwebtoken.JwtException;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -34,12 +41,16 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
  * {@link AuthService}에 대한 단위 테스트.
  *
- * <p>DB/Redis 대신 Mockito로 만든 가짜 객체를 주입해서, 실제 인프라 없이 signUp()의
+ * <p>DB/Redis/AuthenticationManager 대신 Mockito로 만든 가짜 객체를 주입해서, 실제 인프라 없이
  * 분기 로직만 빠르게 검증한다.
  */
 @ExtendWith(MockitoExtension.class)
@@ -52,6 +63,12 @@ class AuthServiceTest {
   private GbswRepository gbswRepository;
 
   @Mock
+  private RoleRepository roleRepository;
+
+  @Mock
+  private UserRoleRepository userRoleRepository;
+
+  @Mock
   private RedisRepository redisRepository;
 
   @Mock
@@ -62,6 +79,9 @@ class AuthServiceTest {
 
   @Mock
   private JwtProperties jwtProperties;
+
+  @Mock
+  private AuthenticationManager authenticationManager;
 
   @InjectMocks
   private AuthService authService;
@@ -169,9 +189,10 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("모든 검증을 통과하면 계정을 저장하고 signUpTicket을 삭제한다")
+    @DisplayName("모든 검증을 통과하면 계정을 저장하고 signUpTicket을 삭제하며 기본 역할을 부여한다")
     void savesUserAndDeletesTicketOnSuccess() {
-      Gbsw gbsw = Gbsw.builder().build();
+      Gbsw gbsw = Gbsw.builder().type(GbswType.STUDENT).build();
+      Role studentRole = Role.builder().code("STUDENT").name("학생").build();
       given(redisRepository.find(RedisKeyType.SIGN_UP_TICKET, TICKET, String.class))
           .willReturn(PHONE_NUMBER);
       given(gbswRepository.findByPhoneNumber(PHONE_NUMBER)).willReturn(Optional.of(gbsw));
@@ -179,6 +200,7 @@ class AuthServiceTest {
       given(userRepository.existsByLoginId("testuser01")).willReturn(false);
       given(userRepository.existsByName("테스트유저")).willReturn(false);
       given(passwordEncoder.encode("Test1234!")).willReturn("encoded-password");
+      given(roleRepository.findByCode("STUDENT")).willReturn(Optional.of(studentRole));
 
       authService.signUp(validRequest());
 
@@ -190,7 +212,48 @@ class AuthServiceTest {
               && user.getPhoneNumber().equals(PHONE_NUMBER)
               && user.getGbsw() == gbsw
       ));
+      verify(userRoleRepository).save(argThat(userRole ->
+          userRole.getRole() == studentRole
+      ));
       verify(redisRepository).delete(RedisKeyType.SIGN_UP_TICKET, TICKET);
+    }
+
+    @Test
+    @DisplayName("Gbsw.type(STUDENT/TEACHER) 외의 role은 회원가입 시 절대 부여하지 않는다")
+    void neverAssignsRolesOtherThanDefaultOnSignUp() {
+      Gbsw gbsw = Gbsw.builder().type(GbswType.TEACHER).build();
+      Role teacherRole = Role.builder().code("TEACHER").name("선생님").build();
+      given(redisRepository.find(RedisKeyType.SIGN_UP_TICKET, TICKET, String.class))
+          .willReturn(PHONE_NUMBER);
+      given(gbswRepository.findByPhoneNumber(PHONE_NUMBER)).willReturn(Optional.of(gbsw));
+      given(userRepository.existsByGbsw(gbsw)).willReturn(false);
+      given(userRepository.existsByLoginId("testuser01")).willReturn(false);
+      given(userRepository.existsByName("테스트유저")).willReturn(false);
+      given(passwordEncoder.encode("Test1234!")).willReturn("encoded-password");
+      given(roleRepository.findByCode("TEACHER")).willReturn(Optional.of(teacherRole));
+
+      authService.signUp(validRequest());
+
+      // Gbsw.type에 대응하는 role만 딱 한 번 조회/부여되고, 학생회 등 다른 role은 건드리지 않는다.
+      verify(roleRepository, times(1)).findByCode(any());
+      verify(userRoleRepository, times(1)).save(any());
+    }
+
+    @Test
+    @DisplayName("기본 역할 시드 데이터가 없으면 예외를 던진다")
+    void throwsWhenDefaultRoleSeedMissing() {
+      Gbsw gbsw = Gbsw.builder().type(GbswType.STUDENT).build();
+      given(redisRepository.find(RedisKeyType.SIGN_UP_TICKET, TICKET, String.class))
+          .willReturn(PHONE_NUMBER);
+      given(gbswRepository.findByPhoneNumber(PHONE_NUMBER)).willReturn(Optional.of(gbsw));
+      given(userRepository.existsByGbsw(gbsw)).willReturn(false);
+      given(userRepository.existsByLoginId("testuser01")).willReturn(false);
+      given(userRepository.existsByName("테스트유저")).willReturn(false);
+      given(passwordEncoder.encode("Test1234!")).willReturn("encoded-password");
+      given(roleRepository.findByCode("STUDENT")).willReturn(Optional.empty());
+
+      assertThatThrownBy(() -> authService.signUp(validRequest()))
+          .isInstanceOf(IllegalStateException.class);
     }
   }
 
@@ -235,51 +298,30 @@ class AuthServiceTest {
   @DisplayName("login")
   class Login {
 
-    private User user(String encodedPassword) {
-      return User.builder()
-          .id(USER_ID)
-          .loginId("testuser01")
-          .passwordHash(encodedPassword)
-          .name("테스트유저")
-          .phoneNumber(PHONE_NUMBER)
-          .build();
-    }
-
     @Test
-    @DisplayName("존재하지 않는 로그인 ID면 거부한다")
-    void throwsWhenLoginIdNotFound() {
-      given(userRepository.findByLoginId("nouser")).willReturn(Optional.empty());
-
-      assertThatThrownBy(() -> authService.login(new LoginRequest("nouser", "Test1234!")))
-          .isInstanceOf(CustomException.class)
-          .extracting(e -> ((CustomException) e).getErrorCode())
-          .isEqualTo(AuthErrorCode.INVALID_CREDENTIALS);
-
-      // 아이디가 없을 때와 비밀번호가 틀렸을 때를 같은 에러로 응답해야 하므로,
-      // 토큰 발급까지 가면 안 된다(부작용 없음을 확인).
-      verify(jwtProvider, never()).createAccessToken(any());
-    }
-
-    @Test
-    @DisplayName("비밀번호가 일치하지 않으면 거부한다")
-    void throwsWhenPasswordMismatch() {
-      given(userRepository.findByLoginId("testuser01"))
-          .willReturn(Optional.of(user("encoded-password")));
-      given(passwordEncoder.matches("wrong-password", "encoded-password")).willReturn(false);
+    @DisplayName("자격증명이 유효하지 않으면 거부한다")
+    void throwsWhenAuthenticationFails() {
+      given(authenticationManager.authenticate(any()))
+          .willThrow(new BadCredentialsException("bad credentials"));
 
       assertThatThrownBy(() -> authService.login(new LoginRequest("testuser01", "wrong-password")))
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(AuthErrorCode.INVALID_CREDENTIALS);
+
+      // 자격증명 검증에 실패했으니 토큰 발급까지 가면 안 된다(부작용 없음을 확인).
+      verify(jwtProvider, never()).createAccessToken(any(), any());
     }
 
     @Test
-    @DisplayName("아이디/비밀번호가 맞으면 토큰을 발급하고 Refresh Token을 Redis에 저장한다")
+    @DisplayName("자격증명이 유효하면 principal의 역할로 토큰을 발급하고 Refresh Token을 Redis에 저장한다")
     void issuesTokensOnSuccess() {
-      given(userRepository.findByLoginId("testuser01"))
-          .willReturn(Optional.of(user("encoded-password")));
-      given(passwordEncoder.matches("Test1234!", "encoded-password")).willReturn(true);
-      given(jwtProvider.createAccessToken(USER_ID)).willReturn("access-token");
+      AuthUserDetails userDetails =
+          new AuthUserDetails(USER_ID, "testuser01", "encoded-password", Set.of("STUDENT"));
+      Authentication authentication =
+          new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
+      given(authenticationManager.authenticate(any())).willReturn(authentication);
+      given(jwtProvider.createAccessToken(USER_ID, Set.of("STUDENT"))).willReturn("access-token");
       given(jwtProvider.createRefreshToken(USER_ID)).willReturn("refresh-token");
       given(jwtProperties.accessTokenExpiration()).willReturn(1_800_000L);
 
@@ -338,12 +380,14 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("검증을 통과하면 새 토큰을 발급하고 Redis 값을 교체(rotation)한다")
+    @DisplayName("검증을 통과하면 최신 역할로 새 토큰을 발급하고 Redis 값을 교체(rotation)한다")
     void rotatesTokensOnSuccess() {
       given(jwtProvider.getUserIdFromRefreshToken(REFRESH_TOKEN)).willReturn(USER_ID);
       given(redisRepository.find(RedisKeyType.REFRESH_TOKEN, String.valueOf(USER_ID), String.class))
           .willReturn(REFRESH_TOKEN);
-      given(jwtProvider.createAccessToken(USER_ID)).willReturn("new-access-token");
+      given(userRoleRepository.findRoleCodesByUserId(USER_ID)).willReturn(List.of("STUDENT"));
+      given(jwtProvider.createAccessToken(USER_ID, Set.of("STUDENT")))
+          .willReturn("new-access-token");
       given(jwtProvider.createRefreshToken(USER_ID)).willReturn("new-refresh-token");
       given(jwtProperties.accessTokenExpiration()).willReturn(1_800_000L);
 
