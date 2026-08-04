@@ -283,8 +283,10 @@ class AuthControllerTest {
      * 붙지 않는다(addFilters 값과 무관하게 SecurityContextHolderFilter가 동작하지 않음을
      * 확인함). 그래서 MockMvc 요청으로는 @AuthenticationPrincipal 주입도, 인증 강제(401)도
      * 검증할 수 없다. 대신 컨트롤러 메서드를 직접 호출해 "principal.userId()를 그대로
-     * 서비스에 넘기는지"만 이 테스트로 확인한다. 인증 필요 여부 자체(401 처리)는
-     * SecurityConfig/RestAuthenticationEntryPoint 책임이며, 그쪽은 별도로 단위 테스트한다.
+     * 서비스에 넘기는지"만 이 테스트로 확인한다. 인증 필터 자체의 헤더 파싱/검증 실패 처리는
+     * {@link com.remake.gone.common.security.JwtAuthenticationFilterTest}에서, 인증 실패
+     * 시 401 응답 포맷은 {@link com.remake.gone.common.security.RestAuthenticationEntryPointTest}
+     * 에서 각각 단위 테스트한다.
      */
     @Test
     @DisplayName("인증된 사용자의 userId로 로그아웃 서비스를 호출한다")
