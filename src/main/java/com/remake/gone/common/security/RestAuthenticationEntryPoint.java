@@ -1,6 +1,5 @@
 package com.remake.gone.common.security;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.remake.gone.common.exception.CommonErrorCode;
 import com.remake.gone.common.response.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
@@ -11,6 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * 인증이 필요한 API에 인증 정보 없이(또는 무효한 토큰으로) 접근했을 때의 응답을 처리한다.
