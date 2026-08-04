@@ -8,15 +8,18 @@ import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import javax.crypto.SecretKey;
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Component;
 
 /**
  * Access/Refresh Token의 발급과 검증을 담당한다.
  *
  * <p>두 토큰 모두 같은 서명 키를 쓰지만, {@code tokenType} 클레임으로 종류를 구분한다.
  * Access Token으로 재발급을 시도하거나 그 반대로 쓰는 것을 막기 위함이다.
+ *
+ * <p>{@code @Component}가 아니라 {@code SecurityConfig}의 {@code @Bean} 메서드로 등록한다.
+ * {@code @WebMvcTest} 슬라이스는 {@code Filter}/{@code Controller} 등 정해진 역할이 아닌 일반
+ * 컴포넌트는 스캔에서 제외하므로, 이 클래스를 직접 스캔에 의존하면 슬라이스 테스트의
+ * {@code SecurityConfig}가 이 빈을 찾지 못해 깨진다.
  */
-@Component
 @RequiredArgsConstructor
 public class JwtProvider {
 

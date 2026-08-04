@@ -5,19 +5,27 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import com.remake.gone.auth.dto.LoginRequest;
+import com.remake.gone.auth.dto.ReissueRequest;
 import com.remake.gone.auth.dto.SignUpRequest;
+import com.remake.gone.auth.dto.TokenResponse;
 import com.remake.gone.auth.exception.AuthErrorCode;
 import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.common.redis.RedisKeyType;
 import com.remake.gone.common.redis.RedisRepository;
+import com.remake.gone.common.security.JwtProperties;
+import com.remake.gone.common.security.JwtProvider;
 import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.exception.GbswErrorCode;
 import com.remake.gone.gbsw.repository.GbswRepository;
+import com.remake.gone.user.entity.User;
 import com.remake.gone.user.exception.UserErrorCode;
 import com.remake.gone.user.repository.UserRepository;
+import io.jsonwebtoken.JwtException;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -49,11 +57,18 @@ class AuthServiceTest {
   @Mock
   private PasswordEncoder passwordEncoder;
 
+  @Mock
+  private JwtProvider jwtProvider;
+
+  @Mock
+  private JwtProperties jwtProperties;
+
   @InjectMocks
   private AuthService authService;
 
   private static final String TICKET = "valid-ticket";
   private static final String PHONE_NUMBER = "01099999999";
+  private static final Long USER_ID = 1L;
 
   private SignUpRequest validRequest() {
     return new SignUpRequest("testuser01", "Test1234!", "테스트유저", PHONE_NUMBER, TICKET);
@@ -213,6 +228,144 @@ class AuthServiceTest {
       given(userRepository.existsByName("free")).willReturn(false);
 
       assertThat(authService.isNameAvailable("free")).isTrue();
+    }
+  }
+
+  @Nested
+  @DisplayName("login")
+  class Login {
+
+    private User user(String encodedPassword) {
+      return User.builder()
+          .id(USER_ID)
+          .loginId("testuser01")
+          .passwordHash(encodedPassword)
+          .name("테스트유저")
+          .phoneNumber(PHONE_NUMBER)
+          .build();
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 로그인 ID면 거부한다")
+    void throwsWhenLoginIdNotFound() {
+      given(userRepository.findByLoginId("nouser")).willReturn(Optional.empty());
+
+      assertThatThrownBy(() -> authService.login(new LoginRequest("nouser", "Test1234!")))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(AuthErrorCode.INVALID_CREDENTIALS);
+
+      // 아이디가 없을 때와 비밀번호가 틀렸을 때를 같은 에러로 응답해야 하므로,
+      // 토큰 발급까지 가면 안 된다(부작용 없음을 확인).
+      verify(jwtProvider, never()).createAccessToken(any());
+    }
+
+    @Test
+    @DisplayName("비밀번호가 일치하지 않으면 거부한다")
+    void throwsWhenPasswordMismatch() {
+      given(userRepository.findByLoginId("testuser01"))
+          .willReturn(Optional.of(user("encoded-password")));
+      given(passwordEncoder.matches("wrong-password", "encoded-password")).willReturn(false);
+
+      assertThatThrownBy(() -> authService.login(new LoginRequest("testuser01", "wrong-password")))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(AuthErrorCode.INVALID_CREDENTIALS);
+    }
+
+    @Test
+    @DisplayName("아이디/비밀번호가 맞으면 토큰을 발급하고 Refresh Token을 Redis에 저장한다")
+    void issuesTokensOnSuccess() {
+      given(userRepository.findByLoginId("testuser01"))
+          .willReturn(Optional.of(user("encoded-password")));
+      given(passwordEncoder.matches("Test1234!", "encoded-password")).willReturn(true);
+      given(jwtProvider.createAccessToken(USER_ID)).willReturn("access-token");
+      given(jwtProvider.createRefreshToken(USER_ID)).willReturn("refresh-token");
+      given(jwtProperties.accessTokenExpiration()).willReturn(1_800_000L);
+
+      TokenResponse response = authService.login(new LoginRequest("testuser01", "Test1234!"));
+
+      assertThat(response.accessToken()).isEqualTo("access-token");
+      assertThat(response.refreshToken()).isEqualTo("refresh-token");
+      assertThat(response.accessTokenExpiresIn()).isEqualTo(1_800L);
+      verify(redisRepository)
+          .save(RedisKeyType.REFRESH_TOKEN, String.valueOf(USER_ID), "refresh-token");
+    }
+  }
+
+  @Nested
+  @DisplayName("reissue")
+  class Reissue {
+
+    private static final String REFRESH_TOKEN = "old-refresh-token";
+
+    @Test
+    @DisplayName("Refresh Token 서명이 무효/만료됐으면 거부한다")
+    void throwsWhenTokenInvalid() {
+      willThrow(new JwtException("invalid"))
+          .given(jwtProvider).getUserIdFromRefreshToken(REFRESH_TOKEN);
+
+      assertThatThrownBy(() -> authService.reissue(new ReissueRequest(REFRESH_TOKEN)))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(AuthErrorCode.INVALID_REFRESH_TOKEN);
+    }
+
+    @Test
+    @DisplayName("Redis에 저장된 Refresh Token이 없으면(만료/로그아웃) 거부한다")
+    void throwsWhenNotFoundInRedis() {
+      given(jwtProvider.getUserIdFromRefreshToken(REFRESH_TOKEN)).willReturn(USER_ID);
+      given(redisRepository.find(RedisKeyType.REFRESH_TOKEN, String.valueOf(USER_ID), String.class))
+          .willReturn(null);
+
+      assertThatThrownBy(() -> authService.reissue(new ReissueRequest(REFRESH_TOKEN)))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(AuthErrorCode.INVALID_REFRESH_TOKEN);
+    }
+
+    @Test
+    @DisplayName("Redis에 저장된 값과 다르면(이미 재발급에 쓰여 폐기된 토큰 재사용) 거부한다")
+    void throwsWhenTokenReused() {
+      given(jwtProvider.getUserIdFromRefreshToken(REFRESH_TOKEN)).willReturn(USER_ID);
+      given(redisRepository.find(RedisKeyType.REFRESH_TOKEN, String.valueOf(USER_ID), String.class))
+          .willReturn("newer-refresh-token-issued-already");
+
+      assertThatThrownBy(() -> authService.reissue(new ReissueRequest(REFRESH_TOKEN)))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(AuthErrorCode.INVALID_REFRESH_TOKEN);
+    }
+
+    @Test
+    @DisplayName("검증을 통과하면 새 토큰을 발급하고 Redis 값을 교체(rotation)한다")
+    void rotatesTokensOnSuccess() {
+      given(jwtProvider.getUserIdFromRefreshToken(REFRESH_TOKEN)).willReturn(USER_ID);
+      given(redisRepository.find(RedisKeyType.REFRESH_TOKEN, String.valueOf(USER_ID), String.class))
+          .willReturn(REFRESH_TOKEN);
+      given(jwtProvider.createAccessToken(USER_ID)).willReturn("new-access-token");
+      given(jwtProvider.createRefreshToken(USER_ID)).willReturn("new-refresh-token");
+      given(jwtProperties.accessTokenExpiration()).willReturn(1_800_000L);
+
+      TokenResponse response = authService.reissue(new ReissueRequest(REFRESH_TOKEN));
+
+      assertThat(response.accessToken()).isEqualTo("new-access-token");
+      assertThat(response.refreshToken()).isEqualTo("new-refresh-token");
+      verify(redisRepository)
+          .save(RedisKeyType.REFRESH_TOKEN, String.valueOf(USER_ID), "new-refresh-token");
+    }
+  }
+
+  @Nested
+  @DisplayName("logout")
+  class Logout {
+
+    @Test
+    @DisplayName("Redis에 저장된 Refresh Token을 삭제한다")
+    void deletesRefreshToken() {
+      authService.logout(USER_ID);
+
+      verify(redisRepository).delete(RedisKeyType.REFRESH_TOKEN, String.valueOf(USER_ID));
     }
   }
 }

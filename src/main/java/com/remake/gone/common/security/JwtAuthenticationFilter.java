@@ -11,7 +11,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
@@ -21,8 +20,10 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * {@code permitAll}이므로, 인증이 실제로 필요한 경로인지는 {@code SecurityConfig}의
  * {@code authorizeHttpRequests}가 판단한다. 이 필터는 "토큰이 유효하면 인증 정보를 세팅"까지만
  * 책임진다.
+ *
+ * <p>{@code @Component}가 아니라 {@code SecurityConfig}의 {@code @Bean} 메서드로 등록한다
+ * ({@link JwtProvider} 클래스 주석 참고).
  */
-@Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 

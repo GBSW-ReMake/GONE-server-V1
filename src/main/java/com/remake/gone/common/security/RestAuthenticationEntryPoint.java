@@ -9,7 +9,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
-import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -18,8 +17,10 @@ import tools.jackson.databind.ObjectMapper;
  * <p>{@link com.remake.gone.common.exception.GlobalExceptionHandler}는 컨트롤러 내부에서 던진
  * 예외만 잡을 수 있고, Security 필터 체인 단계에서 걸리는 인증 실패는 잡지 못한다. 그래서 이
  * 진입점에서 직접 나머지 API와 동일한 {@link ApiResponse} 포맷으로 응답을 만든다.
+ *
+ * <p>{@code @Component}가 아니라 {@code SecurityConfig}의 {@code @Bean} 메서드로 등록한다
+ * ({@link JwtProvider} 클래스 주석 참고).
  */
-@Component
 @RequiredArgsConstructor
 public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
