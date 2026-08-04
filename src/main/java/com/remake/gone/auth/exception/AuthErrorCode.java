@@ -31,7 +31,13 @@ public enum AuthErrorCode implements ErrorCode {
       HttpStatus.BAD_REQUEST, "AUTH_005", "유효하지 않거나 만료된 티켓입니다. 인증을 다시 진행해주세요."),
 
   /** 티켓에 저장된 휴대폰 번호와 요청한 휴대폰 번호가 일치하지 않습니다. */
-  PHONE_NUMBER_MISMATCH(HttpStatus.BAD_REQUEST, "AUTH_006", "인증된 휴대폰 번호와 일치하지 않습니다.");
+  PHONE_NUMBER_MISMATCH(HttpStatus.BAD_REQUEST, "AUTH_006", "인증된 휴대폰 번호와 일치하지 않습니다."),
+
+  /** 로그인 ID가 없거나 비밀번호가 일치하지 않습니다. 계정 존재 여부를 유추할 수 없도록 동일 메시지를 사용합니다. */
+  INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "AUTH_007", "아이디 또는 비밀번호가 일치하지 않습니다."),
+
+  /** Refresh Token이 위조/만료되었거나, Redis에 저장된 최신 토큰과 일치하지 않습니다(재사용 시도 포함). */
+  INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "AUTH_008", "유효하지 않거나 만료된 토큰입니다. 다시 로그인해주세요.");
 
   private final HttpStatus httpStatus;
   private final String code;

@@ -2,6 +2,7 @@ package com.remake.gone.user.repository;
 
 import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.user.entity.User;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 /**
@@ -32,4 +33,12 @@ public interface UserRepository extends JpaRepository<User, Long> {
    * @return 이미 사용 중이면 {@code true}
    */
   boolean existsByName(String name);
+
+  /**
+   * 로그인 ID로 계정을 조회합니다.
+   *
+   * @param loginId 조회할 로그인 ID
+   * @return 계정 정보, 없으면 {@link Optional#empty()}
+   */
+  Optional<User> findByLoginId(String loginId);
 }

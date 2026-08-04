@@ -1,16 +1,22 @@
 package com.remake.gone.auth.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.remake.gone.auth.dto.TokenResponse;
+import com.remake.gone.auth.exception.AuthErrorCode;
 import com.remake.gone.auth.service.AuthService;
 import com.remake.gone.common.exception.CustomException;
+import com.remake.gone.common.response.ApiResponse;
+import com.remake.gone.common.security.UserPrincipal;
 import com.remake.gone.user.exception.UserErrorCode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -174,6 +180,123 @@ class AuthControllerTest {
     void returns400WhenTooLong() throws Exception {
       mockMvc.perform(get("/api/v1/auth/name/check").param("name", "가".repeat(21)))
           .andExpect(status().isBadRequest());
+    }
+  }
+
+  @Nested
+  @DisplayName("POST /api/v1/auth/login")
+  class Login {
+
+    private static final String VALID_BODY = """
+        {
+          "loginId": "testuser01",
+          "password": "Test1234!"
+        }
+        """;
+
+    @Test
+    @DisplayName("아이디/비밀번호가 맞으면 토큰을 반환한다")
+    void returns200WithTokens() throws Exception {
+      given(authService.login(any()))
+          .willReturn(new TokenResponse("access-token", "refresh-token", 1_800L));
+
+      mockMvc.perform(post("/api/v1/auth/login")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content(VALID_BODY))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.data.accessToken").value("access-token"))
+          .andExpect(jsonPath("$.data.refreshToken").value("refresh-token"));
+    }
+
+    @Test
+    @DisplayName("아이디/비밀번호가 틀리면 401을 반환한다")
+    void returns401WhenInvalidCredentials() throws Exception {
+      willThrow(new CustomException(AuthErrorCode.INVALID_CREDENTIALS))
+          .given(authService).login(any());
+
+      mockMvc.perform(post("/api/v1/auth/login")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content(VALID_BODY))
+          .andExpect(status().isUnauthorized())
+          .andExpect(jsonPath("$.code").value("AUTH_007"));
+    }
+
+    @Test
+    @DisplayName("loginId가 비어있으면 400을 반환하고 서비스는 호출되지 않는다")
+    void returns400WhenLoginIdBlank() throws Exception {
+      String body = VALID_BODY.replace("\"testuser01\"", "\"\"");
+
+      mockMvc.perform(post("/api/v1/auth/login")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content(body))
+          .andExpect(status().isBadRequest());
+
+      verifyNoInteractions(authService);
+    }
+  }
+
+  @Nested
+  @DisplayName("POST /api/v1/auth/reissue")
+  class Reissue {
+
+    private static final String VALID_BODY = """
+        {
+          "refreshToken": "some-refresh-token"
+        }
+        """;
+
+    @Test
+    @DisplayName("Refresh Token이 유효하면 새 토큰을 반환한다")
+    void returns200WithNewTokens() throws Exception {
+      given(authService.reissue(any()))
+          .willReturn(new TokenResponse("new-access-token", "new-refresh-token", 1_800L));
+
+      mockMvc.perform(post("/api/v1/auth/reissue")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content(VALID_BODY))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.data.accessToken").value("new-access-token"));
+    }
+
+    @Test
+    @DisplayName("Refresh Token이 유효하지 않으면 401을 반환한다")
+    void returns401WhenInvalid() throws Exception {
+      willThrow(new CustomException(AuthErrorCode.INVALID_REFRESH_TOKEN))
+          .given(authService).reissue(any());
+
+      mockMvc.perform(post("/api/v1/auth/reissue")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content(VALID_BODY))
+          .andExpect(status().isUnauthorized())
+          .andExpect(jsonPath("$.code").value("AUTH_008"));
+    }
+  }
+
+  @Nested
+  @DisplayName("POST /api/v1/auth/logout")
+  class Logout {
+
+    private static final Long USER_ID = 1L;
+
+    /*
+     * 이 프로젝트의 @WebMvcTest 슬라이스는 Spring Security 필터 체인이 MockMvc에 실제로
+     * 붙지 않는다(addFilters 값과 무관하게 SecurityContextHolderFilter가 동작하지 않음을
+     * 확인함). 그래서 MockMvc 요청으로는 @AuthenticationPrincipal 주입도, 인증 강제(401)도
+     * 검증할 수 없다. 대신 컨트롤러 메서드를 직접 호출해 "principal.userId()를 그대로
+     * 서비스에 넘기는지"만 이 테스트로 확인한다. 인증 필터 자체의 헤더 파싱/검증 실패 처리는
+     * {@link com.remake.gone.common.security.JwtAuthenticationFilterTest}에서, 인증 실패
+     * 시 401 응답 포맷은 {@link com.remake.gone.common.security.RestAuthenticationEntryPointTest}
+     * 에서 각각 단위 테스트한다.
+     */
+    @Test
+    @DisplayName("인증된 사용자의 userId로 로그아웃 서비스를 호출한다")
+    void callsServiceWithAuthenticatedUserId() {
+      AuthController controller = new AuthController(authService);
+
+      ApiResponse<Void> response = controller.logout(new UserPrincipal(USER_ID));
+
+      assertThat(response.success()).isTrue();
+      verify(authService).logout(USER_ID);
     }
   }
 }
