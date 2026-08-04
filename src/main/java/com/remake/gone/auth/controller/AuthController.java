@@ -1,16 +1,21 @@
 package com.remake.gone.auth.controller;
 
 import com.remake.gone.auth.dto.LoginIdCheckResponse;
+import com.remake.gone.auth.dto.LoginRequest;
 import com.remake.gone.auth.dto.NameCheckResponse;
+import com.remake.gone.auth.dto.ReissueRequest;
 import com.remake.gone.auth.dto.SignUpRequest;
+import com.remake.gone.auth.dto.TokenResponse;
 import com.remake.gone.auth.service.AuthService;
 import com.remake.gone.common.response.ApiResponse;
+import com.remake.gone.common.security.UserPrincipal;
 import com.remake.gone.user.exception.UserErrorCode;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -85,5 +90,47 @@ public class AuthController {
         ? "사용 가능한 별명입니다."
         : UserErrorCode.NAME_ALREADY_EXISTS.getDefaultMessage();
     return ApiResponse.success(new NameCheckResponse(available), message);
+  }
+
+  /**
+   * 로그인 ID/비밀번호를 검증하고 Access/Refresh Token을 발급합니다.
+   *
+   * @param request 로그인 요청 정보
+   * @return 발급된 토큰 정보
+   */
+  @PostMapping("/login")
+  public ApiResponse<TokenResponse> login(
+      @Valid @RequestBody LoginRequest request
+  ) {
+    TokenResponse response = authService.login(request);
+    return ApiResponse.success(response, "로그인에 성공했습니다.");
+  }
+
+  /**
+   * Refresh Token으로 Access/Refresh Token을 재발급합니다.
+   *
+   * @param request 기존 Refresh Token
+   * @return 재발급된 토큰 정보
+   */
+  @PostMapping("/reissue")
+  public ApiResponse<TokenResponse> reissue(
+      @Valid @RequestBody ReissueRequest request
+  ) {
+    TokenResponse response = authService.reissue(request);
+    return ApiResponse.success(response, "토큰이 재발급되었습니다.");
+  }
+
+  /**
+   * 로그아웃합니다. Access Token 인증이 필요합니다({@code SecurityConfig} 참고).
+   *
+   * @param principal 인증 필터가 Access Token에서 추출한 현재 사용자
+   * @return 성공 여부만 담은 응답
+   */
+  @PostMapping("/logout")
+  public ApiResponse<Void> logout(
+      @AuthenticationPrincipal UserPrincipal principal
+  ) {
+    authService.logout(principal.userId());
+    return ApiResponse.success(null, "로그아웃되었습니다.");
   }
 }
