@@ -14,7 +14,15 @@ public enum RedisKeyType {
   PHONE_SEND_COOLDOWN("auth:phone:send-cooldown:", Duration.ofSeconds(30)),
 
   /** 휴대폰 인증번호 확인 실패 횟수 저장 키. value: 누적 실패 횟수, TTL 5분. */
-  PHONE_VERIFICATION_FAIL_COUNT("auth:phone:fail-count:", Duration.ofMinutes(5));
+  PHONE_VERIFICATION_FAIL_COUNT("auth:phone:fail-count:", Duration.ofMinutes(5)),
+
+  /**
+   * 로그인 시 발급한 Refresh Token 저장 키. identifier: userId, value: 최신 Refresh Token 문자열, TTL 14일.
+   *
+   * <p>재발급(reissue) 때마다 값을 새 토큰으로 교체(rotation)한다. TTL은
+   * {@code jwt.refresh-token-expiration}(application.yml)과 값을 맞춰야 한다.
+   */
+  REFRESH_TOKEN("auth:refresh:", Duration.ofDays(14));
 
   private final String prefix;
   private final Duration ttl;
