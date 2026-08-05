@@ -147,6 +147,10 @@ public class AuthService {
       // 학생 명단이면 항상 채워져 있어야 하는 값들이다 — 엑셀 명단 입력 오류 등 데이터 이상.
       throw new IllegalStateException("학생 명단에 학번 정보가 없습니다: gbswId=" + gbsw.getId());
     }
+    // classNo를 0채움하지 않는다 — 이 학교는 한 학년에 반이 4개뿐이라 항상 1자리이고, 그래야
+    // grade(1자리)+classNo(1자리)+number(2자리 0채움) = 고정 4자리라는 유일성 근거가 성립한다
+    // (docs/20.md 리스크 섹션 참고). 반이 10개 이상으로 늘어나 classNo가 2자리가 되면 이 전제가
+    // 깨지므로, 그때는 number처럼 2자리로 0채움하도록 포맷을 함께 바꿔야 한다.
     return "%d%d%02d%s".formatted(grade, classNo, number, gbsw.getName());
   }
 
