@@ -25,7 +25,7 @@ public class UserDetailsServiceImpl implements UserDetailsService {
   @Override
   public UserDetails loadUserByUsername(String identifier) {
     User user = userRepository.findFirstByLoginIdOrPhoneNumber(identifier, identifier)
-        .orElseThrow(() -> new UsernameNotFoundException("계정을 찾을 수 없습니다: " + identifier));
+        .orElseThrow(() -> new UsernameNotFoundException("계정을 찾을 수 없습니다."));
 
     Set<String> roleCodes = Set.copyOf(userRoleRepository.findRoleCodesByUserId(user.getId()));
 
