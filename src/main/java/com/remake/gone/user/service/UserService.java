@@ -37,4 +37,20 @@ public class UserService {
     user.setName(newName);
     userRepository.save(user);
   }
+
+  /**
+   * 본인의 프로필 사진 key를 변경합니다. R2에 실제로 업로드됐는지는 호출하는 쪽
+   * ({@code FileController})에서 이미 확인했다고 가정한다.
+   *
+   * @param userId 변경할 사용자 ID (Access Token에서 추출됨)
+   * @param key    R2에 업로드된 이미지 객체의 key
+   */
+  @Transactional
+  public void updateProfileImage(Long userId, String key) {
+    User user = userRepository.findById(userId)
+        .orElseThrow(() -> new IllegalStateException("인증된 사용자를 찾을 수 없습니다: " + userId));
+
+    user.setProfileImageKey(key);
+    userRepository.save(user);
+  }
 }
