@@ -22,7 +22,13 @@ public enum RedisKeyType {
    * <p>재발급(reissue) 때마다 값을 새 토큰으로 교체(rotation)한다. TTL은
    * {@code jwt.refresh-token-expiration}(application.yml)과 값을 맞춰야 한다.
    */
-  REFRESH_TOKEN("auth:refresh:", Duration.ofDays(14));
+  REFRESH_TOKEN("auth:refresh:", Duration.ofDays(14)),
+
+  /** NEIS 급식 정보 캐시 키. identifier: 날짜(yyyyMMdd), value: 그날 급식 응답, TTL 6시간. */
+  MEAL_INFO("neis:meal:", Duration.ofHours(6)),
+
+  /** NEIS 시간표 캐시 키. identifier: {@code grade:classNo:날짜}, value: 시간표 응답, TTL 6시간. */
+  TIMETABLE("neis:timetable:", Duration.ofHours(6));
 
   private final String prefix;
   private final Duration ttl;
