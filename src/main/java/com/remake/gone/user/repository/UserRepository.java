@@ -41,4 +41,14 @@ public interface UserRepository extends JpaRepository<User, Long> {
    * @return 계정 정보, 없으면 {@link Optional#empty()}
    */
   Optional<User> findByLoginId(String loginId);
+
+  /**
+   * 로그인 ID 또는 전화번호와 일치하는 계정을 조회합니다. 로그인 시 입력값이 로그인 ID인지
+   * 전화번호인지 미리 판별하지 않고 단일 쿼리로 조회하기 위해 사용합니다.
+   *
+   * @param loginId     로그인 ID로 매칭할 값
+   * @param phoneNumber 전화번호로 매칭할 값
+   * @return 계정 정보, 없으면 {@link Optional#empty()}
+   */
+  Optional<User> findFirstByLoginIdOrPhoneNumber(String loginId, String phoneNumber);
 }
