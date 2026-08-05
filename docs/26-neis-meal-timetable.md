@@ -47,10 +47,7 @@
 
 ## 엔드포인트
 
-두 API 모두 `gbsw` 패키지에 넣는다 — 둘 다 "학교" 관련 공개 정보라는 게 이유(회원 개인 정보가
-아니라 학교 단위 데이터). URL도 그에 맞춰 `/api/v1/gbsw/*`로 묶는다.
-
-### `GET /api/v1/gbsw/meals`
+### `GET /api/v1/meals`
 - 요청: `date`(쿼리, 선택, `yyyyMMdd`, 기본값 오늘(KST)), `mealType`(쿼리, 선택,
   `BREAKFAST`/`LUNCH`/`DINNER` — NEIS의 `MMEAL_SC_CODE` 1/2/3에 대응, 생략 시 그날 전체)
 - 응답: `MealsResponse(date: String, meals: List<MealResponse>)`,
@@ -58,40 +55,71 @@
   - `dishes`는 `DDISH_NM`을 `<br/>` 기준으로 분리한 리스트(알레르기 코드 `(1.2.5...)`는 별도
     파싱 없이 요리명 문자열에 그대로 남겨둠 — 아래 리스크 참고)
 - 데이터 없음(주말/방학 등): `200 OK` + `meals: []` (에러 아님)
-- NEIS 쪽 진짜 에러/네트워크 실패: `502 Bad Gateway` + `GbswErrorCode.EXTERNAL_API_ERROR`(신규,
+- NEIS 쪽 진짜 에러/네트워크 실패: `502 Bad Gateway` + `NeisErrorCode.EXTERNAL_API_ERROR`(신규,
   아래 참고)
 - 인증/권한 요구사항: 없음(비인증, 공개 정보)
 
-### `GET /api/v1/gbsw/timetables`
+### `GET /api/v1/timetables`
 - 요청: `grade`(쿼리, 필수, 학년), `classNm`(쿼리, 필수, 반), `date`(쿼리, 선택, `yyyyMMdd`,
   기본값 오늘(KST))
 - 응답: `TimetableResponse(date: String, grade: int, classNm: String, periods:
   List<PeriodResponse>)`, `PeriodResponse(period: int, subject: String)`
 - 데이터 없음(공강/방학 등): `200 OK` + `periods: []`
-- NEIS 쪽 진짜 에러/네트워크 실패: `502 Bad Gateway` + `GbswErrorCode.EXTERNAL_API_ERROR`
+- NEIS 쪽 진짜 에러/네트워크 실패: `502 Bad Gateway` + `NeisErrorCode.EXTERNAL_API_ERROR`
 - 인증/권한 요구사항: 없음(비인증)
 
 ## 응답 예시 (실제 NEIS 라이브 호출 결과 기반)
 
-### `GET /api/v1/gbsw/meals?date=20250304` — 정상(데이터 있음)
+### `GET /api/v1/meals?date=20260810` — 정상(데이터 있음)
+> 아래 예시는 이 이슈 작업 중 실제 라이브 호출로 받은 진짜 데이터다. 오늘(2026-08-05)은
+> 방학 기간이라 급식/시간표 둘 다 데이터가 없어서, 데이터가 있는 가장 가까운 날짜로 대신
+> 확인했다.
+
 ```json
 {
   "success": true,
   "data": {
-    "date": "20250304",
+    "date": "20260810",
     "meals": [
       {
         "mealType": "조식",
         "dishes": [
-          "쌀밥(조)",
-          "미니버터크루아상/잼 (1.2.5.6.13)",
-          "매운쇠고기국 (5.6.16)",
-          "소시지어묵조림 (1.2.5.6.10.13.15.16)",
-          "맑은달걀찜 (1.2.9)",
-          "배추김치 (9)",
-          "딸기우유 (2)"
+          "흑미밥",
+          "딸기잼파이(소마) (1.2.5.6)",
+          "얼큰돈육감자국 (5.6.10)",
+          "두부엿장조림 (5.6.13)",
+          "콩나물무침 (5)",
+          "치킨너겟&소스 (1.2.5.6.12.13.15)",
+          "배추김치 (9)"
         ],
-        "calorie": "780.9 Kcal"
+        "calorie": "926.1 Kcal"
+      },
+      {
+        "mealType": "중식",
+        "dishes": [
+          "아욱된장국 (5.6)",
+          "꽈리고추진미조림 (5.6.13.17)",
+          "돼지고기수육 (5.6.10)",
+          "양파초절이 (5.6.13)",
+          "궁채장아찌",
+          "모듬파전 (1.5.6.9.17)",
+          "배추김치 (9)",
+          "사과즙음료(의중) (13)",
+          "모듬야채쌈 (5.6.13)"
+        ],
+        "calorie": "653.5 Kcal"
+      },
+      {
+        "mealType": "석식",
+        "dishes": [
+          "참치마요구운주먹밥 (1.2.5.6.10)",
+          "베트남쌀국수(의중) (5.6.13.15.16.18)",
+          "돌나물미나리겉절이 (5.6.13)",
+          "무농약레몬단무지",
+          "새우만두(소마) (1.5.6.9.10.15.16.17.18)",
+          "자두에이드"
+        ],
+        "calorie": "1198.3 Kcal"
       }
     ]
   },
@@ -100,30 +128,28 @@
 }
 ```
 
-### `GET /api/v1/gbsw/meals?date=20250809` — 정상(해당 날짜 데이터 없음, 방학 등)
+### `GET /api/v1/meals?date=20260805` — 정상(오늘, 방학이라 데이터 없음)
 ```json
 {
   "success": true,
-  "data": { "date": "20250809", "meals": [] },
+  "data": { "date": "20260805", "meals": [] },
   "message": "급식 정보를 조회했습니다.",
   "code": null
 }
 ```
 
-### `GET /api/v1/gbsw/timetables?grade=3&classNm=1&date=20250331` — 정상(데이터 있음)
+### `GET /api/v1/timetables?grade=3&classNm=1&date=20260323` — 정상(데이터 있음)
 ```json
 {
   "success": true,
   "data": {
-    "date": "20250331",
+    "date": "20260323",
     "grade": 3,
     "classNm": "1",
     "periods": [
       { "period": 1, "subject": "자율활동" },
-      { "period": 2, "subject": "* 요구사항 확인" },
-      { "period": 3, "subject": "* 요구사항 확인" },
-      { "period": 4, "subject": "* 게임 웹 프로그래밍" },
-      { "period": 5, "subject": "* 게임 웹 프로그래밍" }
+      { "period": 2, "subject": "정보 통신" },
+      { "period": 3, "subject": "* 요구사항 확인" }
     ]
   },
   "message": "시간표를 조회했습니다.",
@@ -140,7 +166,7 @@
   "success": false,
   "data": null,
   "message": "외부 학교 정보 서비스와 통신 중 문제가 발생했습니다.",
-  "code": "GBSW_002"
+  "code": "NEIS_001"
 }
 ```
 
@@ -151,17 +177,12 @@
 ## 설계
 
 ### 패키지 구조
-기존 `gbsw` 패키지(지금은 `Gbsw` 엔티티/리포지토리만 있음, 학적 명단 대조 용도) 안에 급식/시간표
-기능을 함께 넣는다 — 회원가입용 학적 대조 로직과는 무관하지만, 둘 다 "학교 단위 공개 정보"라는
-공통점으로 묶는다.
-- `gbsw/config/NeisProperties.java` — API 키/학교 코드 설정값
-- `gbsw/config/NeisConfig.java` — `RestClient` 빈 등록
-- `gbsw/service/NeisClient.java` — 실제 HTTP 호출 + 3가지 응답 형태 파싱을 캡슐화(공용)
-- `gbsw/service/MealService.java`, `gbsw/service/TimetableService.java` — `NeisClient`에 의존
-- `gbsw/controller/MealController.java`, `gbsw/controller/TimetableController.java`
-- `gbsw/dto/*` — `MealType`, `MealsResponse`, `MealResponse`, `TimetableResponse`,
-  `PeriodResponse`
-- 기존 `GbswErrorCode`(`GBSW_001` 하나만 있음)에 `EXTERNAL_API_ERROR`(`GBSW_002`) 추가
+- `neis` — 외부 연동 전용(다른 도메인과 무관): `NeisProperties`(API 키/학교 코드 설정값),
+  `NeisClient`(실제 HTTP 호출 + 3가지 응답 형태 파싱을 캡슐화), `NeisErrorCode`(신규)
+- `meal` — `MealController`, `MealService`, `dto/*`, `MealType`
+- `timetable` — `TimetableController`, `TimetableService`, `dto/*`
+- `meal`/`timetable` 서비스가 `NeisClient`에 의존하는 구조(기존 `FileController`가
+  `R2FileService`에 의존하는 것과 같은 결)
 
 ### HTTP 클라이언트
 - Spring `RestClient`(Spring Framework 6.1+, 이 프로젝트가 이미 Spring Boot 4.1이라 사용
@@ -187,8 +208,8 @@
   - "데이터 없음"(주말/방학)도 빈 리스트로 그대로 캐싱한다 — 안 그러면 방학 내내 매 요청마다
     NEIS를 계속 호출하게 됨.
 
-### 에러 처리 — 기존 `GbswErrorCode`에 항목 추가
-- `EXTERNAL_API_ERROR`(502, `GBSW_002`) — NEIS가 `ERROR-*` 코드를 반환했거나 네트워크 자체가
+### 에러 처리 — 신규 `NeisErrorCode`
+- `EXTERNAL_API_ERROR`(502, `NEIS_001`) — NEIS가 `ERROR-*` 코드를 반환했거나 네트워크 자체가
   실패한 경우. 실제 NEIS 코드/메시지는 `log.error(...)`로 남긴다(#24에서 만든 로깅 습관을
   그대로 따름).
 - "데이터 없음"(`INFO-200`)은 에러로 취급하지 않고 빈 리스트로 정상 응답한다(위 엔드포인트
@@ -199,12 +220,8 @@
   `NEIS_ATPT_OFCDC_SC_CODE`, `NEIS_SD_SCHUL_CODE` 더미값 추가(R2/JWT와 동일 패턴)
 - `src/main/resources/application-dev.yml` — 이미 로컬에 `neis:` 섹션 추가 완료(git 미포함)
 - `common/redis/RedisKeyType.java` — `MEAL_INFO`, `TIMETABLE` 키 타입 추가
-- `gbsw/exception/GbswErrorCode.java` — `EXTERNAL_API_ERROR`(`GBSW_002`) 추가(기존
-  `NOT_REGISTERED_PHONE_NUMBER` 하나뿐이던 enum에 항목 추가, 새 enum 아님)
-- 신규 파일: `gbsw/config/NeisProperties.java`, `gbsw/config/NeisConfig.java`,
-  `gbsw/service/NeisClient.java`, `gbsw/service/MealService.java`,
-  `gbsw/service/TimetableService.java`, `gbsw/controller/MealController.java`,
-  `gbsw/controller/TimetableController.java`, `gbsw/dto/*`
+- 신규 파일: `neis/config/NeisProperties.java`, `neis/config/NeisConfig.java`,
+  `neis/NeisClient.java`, `neis/exception/NeisErrorCode.java`, `meal/**`, `timetable/**`
 - 테스트: `MealServiceTest`/`TimetableServiceTest`(신규, `NeisClient`를 mock), `NeisClient`
   자체는 실제 파싱 로직(정상/빈 데이터/에러 3가지 응답 형태)을 더미 JSON 문자열로 단위 테스트.
   `MealControllerTest`/`TimetableControllerTest`(신규, 요청 검증)
