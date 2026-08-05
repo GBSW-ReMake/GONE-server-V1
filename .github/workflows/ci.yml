@@ -78,6 +78,9 @@ jobs:
 
       - name: Discord 알림 (Checkstyle 실패)
         if: failure()
+        # 시크릿 미설정(예: fork PR) 등으로 알림 발송 자체가 실패해도, 이미 확정된
+        # checkstyle 실패 결과와 무관한 별개 문제이므로 job 전체를 추가로 실패시키지 않는다.
+        continue-on-error: true
         env:
           DISCORD_CI_WEBHOOK: ${{ secrets.DISCORD_CI_WEBHOOK }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -173,13 +176,17 @@ jobs:
       - name: 테스트 결과 요약 집계
         if: always()
         run: |
-          # JUnit XML(testsuite 태그의 tests/failures/errors/skipped 속성)을 합산한다.
+          # JUnit XML의 <testsuite ...> 여는 태그 한 줄(파일당 정확히 1개)만 뽑아서 그 안의
+          # tests/failures/errors/skipped 속성을 합산한다. 파일 전체를 grep하면 <system-out>에
+          # 캡처된 테스트 콘솔 로그(예: Hibernate/Spring 로그) 안에 우연히 같은 패턴의 문자열이
+          # 찍혀 있을 때 중복 집계될 수 있어, 반드시 <testsuite 줄로 먼저 좁힌다.
           TOTAL=0; FAILED=0; ERRORS=0; SKIPPED=0
           if compgen -G "build/test-results/test/*.xml" > /dev/null; then
-            TOTAL=$(grep -oh 'tests="[0-9]*"' build/test-results/test/*.xml | grep -o '[0-9]*' | awk '{s+=$1} END{print s+0}')
-            FAILED=$(grep -oh 'failures="[0-9]*"' build/test-results/test/*.xml | grep -o '[0-9]*' | awk '{s+=$1} END{print s+0}')
-            ERRORS=$(grep -oh 'errors="[0-9]*"' build/test-results/test/*.xml | grep -o '[0-9]*' | awk '{s+=$1} END{print s+0}')
-            SKIPPED=$(grep -oh 'skipped="[0-9]*"' build/test-results/test/*.xml | grep -o '[0-9]*' | awk '{s+=$1} END{print s+0}')
+            SUITE_LINES=$(grep -h '<testsuite ' build/test-results/test/*.xml)
+            TOTAL=$(echo "$SUITE_LINES" | grep -o 'tests="[0-9]*"' | grep -o '[0-9]*' | awk '{s+=$1} END{print s+0}')
+            FAILED=$(echo "$SUITE_LINES" | grep -o 'failures="[0-9]*"' | grep -o '[0-9]*' | awk '{s+=$1} END{print s+0}')
+            ERRORS=$(echo "$SUITE_LINES" | grep -o 'errors="[0-9]*"' | grep -o '[0-9]*' | awk '{s+=$1} END{print s+0}')
+            SKIPPED=$(echo "$SUITE_LINES" | grep -o 'skipped="[0-9]*"' | grep -o '[0-9]*' | awk '{s+=$1} END{print s+0}')
           fi
           PASSED=$(( TOTAL - FAILED - ERRORS - SKIPPED ))
           echo "TEST_SUMMARY=${PASSED} passed, $((FAILED + ERRORS)) failed, ${SKIPPED} skipped" >> "$GITHUB_ENV"
@@ -217,6 +224,9 @@ jobs:
 
       - name: Discord 알림 (성공)
         if: success()
+        # 알림 발송 실패(시크릿 미설정 등)가 이미 통과한 빌드/테스트 결과를 뒤집어 job을
+        # 실패로 만들지 않도록 한다.
+        continue-on-error: true
         env:
           DISCORD_CI_WEBHOOK: ${{ secrets.DISCORD_CI_WEBHOOK }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -246,6 +256,9 @@ jobs:
 
       - name: Discord 알림 (실패)
         if: failure()
+        # 알림 발송 자체의 실패(시크릿 미설정 등)를 이미 확정된 빌드/테스트 실패와 별개로
+        # 다룬다 — 알림 실패로 인해 원인이 더 헷갈리는 추가 실패 스텝이 쌓이지 않게 한다.
+        continue-on-error: true
         env:
           DISCORD_CI_WEBHOOK: ${{ secrets.DISCORD_CI_WEBHOOK }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
