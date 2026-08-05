@@ -53,20 +53,24 @@ class AuthControllerTest {
         {
           "loginId": "testuser01",
           "password": "Test1234!",
-          "name": "테스트유저",
           "phoneNumber": "01099999999",
           "ticket": "some-ticket"
         }
         """;
 
     @Test
-    @DisplayName("형식이 올바르면 200과 성공 메시지를 반환한다")
+    @DisplayName("형식이 올바르면 200과 함께 로그인 토큰을 반환한다")
     void returns200WhenValid() throws Exception {
+      given(authService.signUp(any()))
+          .willReturn(new TokenResponse("access-token", "refresh-token", 1_800L));
+
       mockMvc.perform(post("/api/v1/auth/signup")
               .contentType(MediaType.APPLICATION_JSON)
               .content(VALID_BODY))
           .andExpect(status().isOk())
-          .andExpect(jsonPath("$.success").value(true));
+          .andExpect(jsonPath("$.success").value(true))
+          .andExpect(jsonPath("$.data.accessToken").value("access-token"))
+          .andExpect(jsonPath("$.data.refreshToken").value("refresh-token"));
     }
 
     @Test
