@@ -91,13 +91,19 @@
 - 선생님 계정(`Gbsw.type == TEACHER`)은 `grade`/`classNo`가 `null`이라 이 엔드포인트를 쓸 수
   없다 — `GbswErrorCode.NO_CLASS_ASSIGNED`로 명확히 400 응답한다(500/NPE 방지).
 
-## 응답 예시 (실제 NEIS 라이브 호출 결과 기반)
-
-### `GET /api/v1/meals?date=20260810` — 정상(데이터 있음)
+## 요청/응답 목데이터 (실제 NEIS 라이브 호출 결과 기반)
 > 아래 예시는 이 이슈 작업 중 실제 라이브 호출로 받은 진짜 데이터다. 오늘(2026-08-05)은
 > 방학 기간이라 급식/시간표 둘 다 데이터가 없어서, 데이터가 있는 가장 가까운 날짜로 대신
-> 확인했다.
+> 확인했다. 프론트가 실제로 보내는 요청과 받는 응답을 한 쌍으로 묶어 각 케이스마다 명시한다.
 
+### 1) 급식 — 데이터 있는 날
+**요청**
+```http
+GET /api/v1/meals?date=20260810 HTTP/1.1
+```
+(인증 불필요 — `Authorization` 헤더 없이 호출)
+
+**응답** `200 OK`
 ```json
 {
   "success": true,
@@ -151,7 +157,13 @@
 }
 ```
 
-### `GET /api/v1/meals?date=20260805` — 정상(오늘, 방학이라 데이터 없음)
+### 2) 급식 — 데이터 없는 날(방학/주말, 에러 아님)
+**요청**
+```http
+GET /api/v1/meals?date=20260805 HTTP/1.1
+```
+
+**응답** `200 OK`
 ```json
 {
   "success": true,
@@ -161,7 +173,16 @@
 }
 ```
 
-### `GET /api/v1/timetables?date=20260323` (Access Token: 3학년 1반 학생 계정) — 정상(데이터 있음)
+### 3) 시간표 — 본인 학급 자동 조회(데이터 있음)
+**요청**
+```http
+GET /api/v1/timetables?date=20260323 HTTP/1.1
+Authorization: Bearer {accessToken}
+```
+(이 토큰의 `userId`가 가리키는 계정의 `Gbsw.grade=3`, `Gbsw.classNo=1`인 경우 — `grade`/
+`classNm`은 요청에 없다. 클라이언트는 몰라도 되고 보낼 필요도 없다)
+
+**응답** `200 OK`
 ```json
 {
   "success": true,
@@ -183,7 +204,26 @@
 > 과목/활동 종류를 나타내는 학교 자체 표기로 추정되나 의미가 명확하지 않아 임의로 제거하지
 > 않고 원문 그대로 내려준다. 프론트에서 벗겨내고 싶으면 그건 프론트 표시 로직에서 처리).
 
-### 에러 응답 예시 — NEIS 쪽 진짜 에러(인증키 문제 등)
+### 4) 시간표 — 선생님 계정으로 호출(학급 정보 없음)
+**요청**
+```http
+GET /api/v1/timetables HTTP/1.1
+Authorization: Bearer {accessToken}
+```
+(이 토큰의 `userId`가 가리키는 계정의 `Gbsw.type=TEACHER`, `grade=null`인 경우)
+
+**응답** `400 Bad Request`
+```json
+{
+  "success": false,
+  "data": null,
+  "message": "학급 정보가 없는 계정입니다.",
+  "code": "GBSW_002"
+}
+```
+
+### 5) 급식/시간표 공통 — NEIS 쪽 진짜 에러(인증키 문제, 네트워크 실패 등)
+**응답** `502 Bad Gateway`
 ```json
 {
   "success": false,
