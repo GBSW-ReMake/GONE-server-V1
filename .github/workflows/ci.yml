@@ -51,7 +51,7 @@ jobs:
         run: |
           # PR에서 온 이벤트인지 push인지에 따라 다른 컨텍스트(github.event.*)에서 값을 가져온다.
           # PR 제목/커밋 메시지는 사용자가 자유롭게 입력하는 값이라, run 스크립트 본문에 직접
-          # ${{ }}로 끼워넣지 않고 env로 받아 셸 변수로만 다룬다(스크립트 인젝션 방지).
+          # 표현식으로 끼워넣지 않고 env로 받아 셸 변수로만 다룬다(스크립트 인젝션 방지).
           if [ "$EVENT_NAME" = "pull_request" ]; then
             SHA="$PR_SHA"
             MSG="$PR_TITLE"
@@ -197,7 +197,7 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           # PR 제목/커밋 메시지는 사용자가 자유롭게 입력하는 값이라, run 스크립트 본문에 직접
-          # ${{ }}로 끼워넣지 않고 env로 받아 셸 변수로만 다룬다(스크립트 인젝션 방지).
+          # 표현식으로 끼워넣지 않고 env로 받아 셸 변수로만 다룬다(스크립트 인젝션 방지).
           if [ "$EVENT_NAME" = "pull_request" ]; then
             SHA="$PR_SHA"
             MSG="$PR_TITLE"
