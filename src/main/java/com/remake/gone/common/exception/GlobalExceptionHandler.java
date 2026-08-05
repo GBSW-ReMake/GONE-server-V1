@@ -1,7 +1,9 @@
 package com.remake.gone.common.exception;
 
 import com.remake.gone.common.response.ApiResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
@@ -20,6 +22,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * @see CustomException
  * @see CommonErrorCode
  */
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -154,13 +157,18 @@ public class GlobalExceptionHandler {
   /**
    * 처리되지 않은 모든 예외에 대한 폴백 처리기.
    *
-   * <p>예상치 못한 서버 오류 발생 시 {@code 500 Internal Server Error}를 반환합니다.
+   * <p>예상치 못한 서버 오류 발생 시 {@code 500 Internal Server Error}를 반환합니다. 위의 다른
+   * 핸들러들과 달리 이 경우는 예상된 비즈니스 흐름이 아니므로, 원인 진단을 위해 요청
+   * 메서드/경로와 전체 스택트레이스를 ERROR 레벨로 남긴다.
    *
-   * @param e 발생한 예외
+   * @param e       발생한 예외
+   * @param request 예외가 발생한 요청
    * @return {@code 500 Internal Server Error} 응답
    */
   @ExceptionHandler(Exception.class)
-  public ResponseEntity<ApiResponse<Void>> handleException(Exception e) {
+  public ResponseEntity<ApiResponse<Void>> handleException(
+      Exception e, HttpServletRequest request) {
+    log.error("{} {} 처리 중 예상치 못한 예외 발생", request.getMethod(), request.getRequestURI(), e);
     return ResponseEntity
         .status(CommonErrorCode.INTERNAL_SERVER_ERROR.getStatus())
         .body(ApiResponse.fail(
