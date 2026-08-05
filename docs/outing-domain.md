@@ -39,6 +39,20 @@
   데이터를 보고 상황을 파악하는 쪽이다.
 
 ## 정책 가정 (확정 전 — 리뷰 시 조율 필요)
+- **외출증은 공적 문서라, 서비스 닉네임/프로필 사진에 더해 실명 + 학년/반을 별도로 같이
+  담는다.** 닉네임/사진을 빼는 게 아니라 "둘 다" 보여준다 — 앱 화면에서는 평소처럼
+  닉네임/사진으로 보여주되, 외출증이라는 공적 문서 성격상 실제 신원(실명/학년/반)도 옆에
+  명시돼 있어야 한다는 요구사항. 이 프로젝트는 `User.name`(서비스 닉네임)과
+  `Gbsw.name`(학교 명단 원본 실명)을 이미 별개 개념으로 분리해두고 있다(`User.java` 주석
+  확인) — 그 구분을 그대로 활용한다. 학생 쪽 응답 필드:
+  - `studentNickname` — `User.name`(별명)
+  - `studentProfileImageUrl` — `User.profileImageKey`가 있으면
+    `R2FileService.generateDownloadUrl(key)`(기존 메서드, 신규 아님)로 만든 presigned
+    URL, 없으면 `null`
+  - `studentRealName` — `Gbsw.name`(실명, 공적 문서용)
+  - `studentGrade` / `studentClassNo` — `Gbsw.grade`/`Gbsw.classNo`
+  선생님은 승인 주체일 뿐이라 실명(`teacherName`, `Gbsw.name`)만 표시하고 닉네임/사진은
+  담지 않는다 — 필요하면 리뷰 시 알려달라.
 - **출발/도착은 선도부 확인 없이 학생 본인이 직접 버튼으로 보고하되, 그 순간의 GPS 좌표를
   같이 받아 학교 반경 안에 있을 때만 성립하도록 실시간 검증한다** (4/5번 엔드포인트). 선도부가
   하던 물리적 확인을 위치 기반 검증으로 대체하는 셈이다. 완전히 막을 수는 없다(GPS 위치 모킹
@@ -178,7 +192,11 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
   "success": true,
   "data": {
     "id": 501,
-    "studentName": "3405홍길동",
+    "studentNickname": "길동이",
+    "studentProfileImageUrl": "https://.../profile/1/abc.jpg?X-Amz-...",
+    "studentRealName": "홍길동",
+    "studentGrade": 3,
+    "studentClassNo": 4,
     "teacherName": "김선생",
     "reason": "치과 진료",
     "outingDate": "20260814",
@@ -203,7 +221,13 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 6. 중복 확인: `(studentUserId, outingDate, timeSlot)`로 `PENDING`/`APPROVED`/`DEPARTED`
    상태 레코드 존재 여부 조회 → 있으면 거부
 7. `Outing` 저장(`PENDING`, `start_time`/`end_time`은 `timeSlot`에서 채움)
-8. 응답 DTO 변환 후 반환
+8. 응답 DTO 변환:
+   - `studentNickname = student.getName()`, `studentProfileImageUrl =
+     student.getProfileImageKey() != null ? r2FileService.generateDownloadUrl(key) : null`
+   - `studentRealName = student.getGbsw().getName()`, `studentGrade =
+     student.getGbsw().getGrade()`, `studentClassNo = student.getGbsw().getClassNo()`
+   - `teacherName = teacher.getGbsw().getName()`
+   (위 "정책 가정" 참고 — 닉네임/사진은 `User`, 실명/학년/반은 `Gbsw`에서 따로 가져온다)
 
 **에러**
 - `outingDate`가 과거이거나 이번 주 범위를 벗어남(다음 주 이후 등) → `400` `OUTING_001`
@@ -392,7 +416,11 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
   "data": [
     {
       "id": 501,
-      "studentName": "3405홍길동",
+      "studentNickname": "길동이",
+      "studentProfileImageUrl": "https://.../profile/1/abc.jpg?X-Amz-...",
+      "studentRealName": "홍길동",
+      "studentGrade": 3,
+      "studentClassNo": 4,
       "reason": "치과 진료",
       "timeSlot": "LUNCH",
       "departedAt": "2026-08-14T12:31:05",
