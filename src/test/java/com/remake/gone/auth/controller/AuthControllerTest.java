@@ -189,7 +189,7 @@ class AuthControllerTest {
 
     private static final String VALID_BODY = """
         {
-          "loginId": "testuser01",
+          "identifier": "testuser01",
           "password": "Test1234!"
         }
         """;
@@ -222,8 +222,8 @@ class AuthControllerTest {
     }
 
     @Test
-    @DisplayName("loginId가 비어있으면 400을 반환하고 서비스는 호출되지 않는다")
-    void returns400WhenLoginIdBlank() throws Exception {
+    @DisplayName("identifier가 비어있으면 400을 반환하고 서비스는 호출되지 않는다")
+    void returns400WhenIdentifierBlank() throws Exception {
       String body = VALID_BODY.replace("\"testuser01\"", "\"\"");
 
       mockMvc.perform(post("/api/v1/auth/login")
@@ -232,6 +232,20 @@ class AuthControllerTest {
           .andExpect(status().isBadRequest());
 
       verifyNoInteractions(authService);
+    }
+
+    @Test
+    @DisplayName("전화번호로도 로그인 요청을 보낼 수 있다")
+    void returns200WhenLoggingInWithPhoneNumber() throws Exception {
+      given(authService.login(any()))
+          .willReturn(new TokenResponse("access-token", "refresh-token", 1_800L));
+      String body = VALID_BODY.replace("\"testuser01\"", "\"01099999999\"");
+
+      mockMvc.perform(post("/api/v1/auth/login")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content(body))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.data.accessToken").value("access-token"));
     }
   }
 
