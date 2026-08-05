@@ -18,6 +18,9 @@ jobs:
       - name: Code Checkout(코드 체크아웃)
         uses: actions/checkout@v4
 
+      - name: 시작 시각 기록
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: JDK 17 설정
         uses: actions/setup-java@v4
         with:
@@ -34,19 +37,73 @@ jobs:
           name: checkstyle-report
           path: build/reports/checkstyle/
 
+      - name: 알림용 컨텍스트 수집
+        if: failure()
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_SHA: ${{ github.sha }}
+          PUSH_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          # PR에서 온 이벤트인지 push인지에 따라 다른 컨텍스트(github.event.*)에서 값을 가져온다.
+          # PR 제목/커밋 메시지는 사용자가 자유롭게 입력하는 값이라, run 스크립트 본문에 직접
+          # ${{ }}로 끼워넣지 않고 env로 받아 셸 변수로만 다룬다(스크립트 인젝션 방지).
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            SHA="$PR_SHA"
+            MSG="$PR_TITLE"
+            PR_FIELD="[#$PR_NUMBER $PR_TITLE]($PR_URL)"
+          else
+            SHA="$PUSH_SHA"
+            MSG="$(printf '%s' "$PUSH_COMMIT_MESSAGE" | head -1)"
+            PR_FIELD="push to \`$REF_NAME\`"
+          fi
+
+          # Checkstyle 리포트(main.xml/test.xml)의 <error 태그 개수 = 위반 건수.
+          VIOLATIONS=0
+          if compgen -G "build/reports/checkstyle/*.xml" > /dev/null; then
+            VIOLATIONS=$(grep -oh '<error ' build/reports/checkstyle/*.xml 2>/dev/null | wc -l)
+          fi
+
+          {
+            echo "PR_FIELD=$PR_FIELD"
+            echo "SHORT_SHA=${SHA:0:7}"
+            echo "COMMIT_MSG=$MSG"
+            echo "VIOLATIONS=$VIOLATIONS"
+            echo "ELAPSED=$(( $(date +%s) - JOB_START ))s"
+          } >> "$GITHUB_ENV"
+
       - name: Discord 알림 (Checkstyle 실패)
         if: failure()
+        env:
+          DISCORD_CI_WEBHOOK: ${{ secrets.DISCORD_CI_WEBHOOK }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          curl -H "Content-Type: application/json" \
-               -d '{
-                 "embeds": [{
-                   "title": "❌ Checkstyle 실패",
-                   "description": "브랜치: `${{ github.ref_name }}`\n실행자: ${{ github.actor }}",
-                   "color": 16711680,
-                   "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                 }]
-               }' \
-               ${{ secrets.DISCORD_CI_WEBHOOK }}
+          PAYLOAD=$(jq -n \
+            --arg title "❌ Checkstyle 실패" \
+            --arg actor "$GITHUB_ACTOR" \
+            --arg avatar "https://github.com/$GITHUB_ACTOR.png" \
+            --arg pr "$PR_FIELD" \
+            --arg commit "\`$SHORT_SHA\` $COMMIT_MSG" \
+            --arg violations "${VIOLATIONS}건" \
+            --arg elapsed "$ELAPSED" \
+            --arg url "$RUN_URL" \
+            '{embeds: [{
+              title: $title,
+              color: 16711680,
+              author: {name: $actor, icon_url: $avatar},
+              fields: [
+                {name: "브랜치/PR", value: $pr, inline: true},
+                {name: "커밋", value: $commit, inline: true},
+                {name: "위반 건수", value: $violations, inline: true},
+                {name: "소요 시간", value: $elapsed, inline: true}
+              ],
+              url: $url
+            }]}')
+          curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_CI_WEBHOOK"
 
   build-and-test:
     runs-on: ubuntu-22.04
@@ -94,6 +151,9 @@ jobs:
       - name: Code Checkout(코드 체크아웃)
         uses: actions/checkout@v4
 
+      - name: 시작 시각 기록
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: JDK 17 설정
         uses: actions/setup-java@v4
         with:
@@ -110,30 +170,105 @@ jobs:
           name: test-results
           path: build/reports/tests/
 
+      - name: 테스트 결과 요약 집계
+        if: always()
+        run: |
+          # JUnit XML(testsuite 태그의 tests/failures/errors/skipped 속성)을 합산한다.
+          TOTAL=0; FAILED=0; ERRORS=0; SKIPPED=0
+          if compgen -G "build/test-results/test/*.xml" > /dev/null; then
+            TOTAL=$(grep -oh 'tests="[0-9]*"' build/test-results/test/*.xml | grep -o '[0-9]*' | awk '{s+=$1} END{print s+0}')
+            FAILED=$(grep -oh 'failures="[0-9]*"' build/test-results/test/*.xml | grep -o '[0-9]*' | awk '{s+=$1} END{print s+0}')
+            ERRORS=$(grep -oh 'errors="[0-9]*"' build/test-results/test/*.xml | grep -o '[0-9]*' | awk '{s+=$1} END{print s+0}')
+            SKIPPED=$(grep -oh 'skipped="[0-9]*"' build/test-results/test/*.xml | grep -o '[0-9]*' | awk '{s+=$1} END{print s+0}')
+          fi
+          PASSED=$(( TOTAL - FAILED - ERRORS - SKIPPED ))
+          echo "TEST_SUMMARY=${PASSED} passed, $((FAILED + ERRORS)) failed, ${SKIPPED} skipped" >> "$GITHUB_ENV"
+
+      - name: 알림용 컨텍스트 수집
+        if: always()
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_SHA: ${{ github.sha }}
+          PUSH_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          # PR 제목/커밋 메시지는 사용자가 자유롭게 입력하는 값이라, run 스크립트 본문에 직접
+          # ${{ }}로 끼워넣지 않고 env로 받아 셸 변수로만 다룬다(스크립트 인젝션 방지).
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            SHA="$PR_SHA"
+            MSG="$PR_TITLE"
+            PR_FIELD="[#$PR_NUMBER $PR_TITLE]($PR_URL)"
+          else
+            SHA="$PUSH_SHA"
+            MSG="$(printf '%s' "$PUSH_COMMIT_MESSAGE" | head -1)"
+            PR_FIELD="push to \`$REF_NAME\`"
+          fi
+
+          {
+            echo "PR_FIELD=$PR_FIELD"
+            echo "SHORT_SHA=${SHA:0:7}"
+            echo "COMMIT_MSG=$MSG"
+            echo "ELAPSED=$(( $(date +%s) - JOB_START ))s"
+          } >> "$GITHUB_ENV"
+
       - name: Discord 알림 (성공)
         if: success()
+        env:
+          DISCORD_CI_WEBHOOK: ${{ secrets.DISCORD_CI_WEBHOOK }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          curl -H "Content-Type: application/json" \
-               -d '{
-                 "embeds": [{
-                   "title": "✅ CI 성공",
-                   "description": "브랜치: `${{ github.ref_name }}`\n실행자: ${{ github.actor }}",
-                   "color": 65280,
-                   "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                 }]
-               }' \
-               ${{ secrets.DISCORD_CI_WEBHOOK }}
+          PAYLOAD=$(jq -n \
+            --arg title "✅ CI 성공" \
+            --arg actor "$GITHUB_ACTOR" \
+            --arg avatar "https://github.com/$GITHUB_ACTOR.png" \
+            --arg pr "$PR_FIELD" \
+            --arg commit "\`$SHORT_SHA\` $COMMIT_MSG" \
+            --arg tests "$TEST_SUMMARY" \
+            --arg elapsed "$ELAPSED" \
+            --arg url "$RUN_URL" \
+            '{embeds: [{
+              title: $title,
+              color: 65280,
+              author: {name: $actor, icon_url: $avatar},
+              fields: [
+                {name: "브랜치/PR", value: $pr, inline: true},
+                {name: "커밋", value: $commit, inline: true},
+                {name: "테스트", value: $tests, inline: true},
+                {name: "소요 시간", value: $elapsed, inline: true}
+              ],
+              url: $url
+            }]}')
+          curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_CI_WEBHOOK"
 
       - name: Discord 알림 (실패)
         if: failure()
+        env:
+          DISCORD_CI_WEBHOOK: ${{ secrets.DISCORD_CI_WEBHOOK }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          curl -H "Content-Type: application/json" \
-               -d '{
-                 "embeds": [{
-                   "title": "❌ CI 실패",
-                   "description": "브랜치: `${{ github.ref_name }}`\n실행자: ${{ github.actor }}",
-                   "color": 16711680,
-                   "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                 }]
-               }' \
-               ${{ secrets.DISCORD_CI_WEBHOOK }}
+          PAYLOAD=$(jq -n \
+            --arg title "❌ CI 실패" \
+            --arg actor "$GITHUB_ACTOR" \
+            --arg avatar "https://github.com/$GITHUB_ACTOR.png" \
+            --arg pr "$PR_FIELD" \
+            --arg commit "\`$SHORT_SHA\` $COMMIT_MSG" \
+            --arg tests "$TEST_SUMMARY" \
+            --arg elapsed "$ELAPSED" \
+            --arg url "$RUN_URL" \
+            '{embeds: [{
+              title: $title,
+              color: 16711680,
+              author: {name: $actor, icon_url: $avatar},
+              fields: [
+                {name: "브랜치/PR", value: $pr, inline: true},
+                {name: "커밋", value: $commit, inline: true},
+                {name: "테스트", value: $tests, inline: true},
+                {name: "소요 시간", value: $elapsed, inline: true}
+              ],
+              url: $url
+            }]}')
+          curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_CI_WEBHOOK"
