@@ -12,6 +12,7 @@ import com.remake.gone.common.security.AuthUserDetails;
 import com.remake.gone.common.security.JwtProperties;
 import com.remake.gone.common.security.JwtProvider;
 import com.remake.gone.gbsw.entity.Gbsw;
+import com.remake.gone.gbsw.enums.GbswType;
 import com.remake.gone.gbsw.exception.GbswErrorCode;
 import com.remake.gone.gbsw.repository.GbswRepository;
 import com.remake.gone.role.entity.Role;
@@ -23,6 +24,7 @@ import com.remake.gone.user.exception.UserErrorCode;
 import com.remake.gone.user.repository.UserRepository;
 import io.jsonwebtoken.JwtException;
 import java.util.Set;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -38,6 +40,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class AuthService {
+
+  /** 교사 기본 닉네임의 랜덤 구분자 자릿수 (예: {@code "T-a1b-김선생"}의 {@code "a1b"}). */
+  private static final int TEACHER_NAME_SUFFIX_LENGTH = 3;
+
+  /** 교사 기본 닉네임이 동명이인과 겹칠 때 랜덤 구분자를 다시 뽑아보는 최대 횟수. */
+  private static final int MAX_TEACHER_NAME_ATTEMPTS = 5;
 
   private final UserRepository userRepository;
   private final GbswRepository gbswRepository;
@@ -89,16 +97,11 @@ public class AuthService {
       throw new CustomException(UserErrorCode.LOGIN_ID_ALREADY_EXISTS);
     }
 
-    // 별명 중복 확인
-    if (!isNameAvailable(request.name())) {
-      throw new CustomException(UserErrorCode.NAME_ALREADY_EXISTS);
-    }
-
     User user = User.builder()
         .gbsw(gbsw)
         .loginId(request.loginId())
         .passwordHash(passwordEncoder.encode(request.password()))
-        .name(request.name())
+        .name(generateDefaultName(gbsw))
         .phoneNumber(phoneNumber)
         .build();
     userRepository.save(user);
@@ -112,6 +115,49 @@ public class AuthService {
 
     // 가입이 완전히 끝난 뒤에 티켓을 지운다 (save 실패 시 재시도할 수 있도록 티켓을 보존).
     redisRepository.delete(RedisKeyType.SIGN_UP_TICKET, request.ticket());
+  }
+
+  /**
+   * 학적(Gbsw) 정보로 회원가입 시 채워줄 기본 닉네임을 생성합니다.
+   *
+   * <p>학생은 학번(학년+반+번호)과 학적 실명을 조합하고, 교사는 학번이 없으므로 랜덤 구분자와
+   * 학적 실명을 조합합니다. 자세한 형식과 유일성 근거는 {@code docs/20.md} 참고.
+   *
+   * @param gbsw 가입 대상 학적 레코드
+   * @return 생성된 기본 닉네임
+   */
+  private String generateDefaultName(Gbsw gbsw) {
+    if (gbsw.getType() == GbswType.TEACHER) {
+      return generateTeacherDefaultName(gbsw);
+    }
+    return generateStudentDefaultName(gbsw);
+  }
+
+  private String generateStudentDefaultName(Gbsw gbsw) {
+    Integer grade = gbsw.getGrade();
+    Integer classNo = gbsw.getClassNo();
+    Integer number = gbsw.getNumber();
+    if (grade == null || classNo == null || number == null) {
+      // 학생 명단이면 항상 채워져 있어야 하는 값들이다 — 엑셀 명단 입력 오류 등 데이터 이상.
+      throw new IllegalStateException("학생 명단에 학번 정보가 없습니다: gbswId=" + gbsw.getId());
+    }
+    return "%d%d%02d%s".formatted(grade, classNo, number, gbsw.getName());
+  }
+
+  private String generateTeacherDefaultName(Gbsw gbsw) {
+    String candidate = "T-%s-%s".formatted(randomNameSuffix(), gbsw.getName());
+    for (int attempt = 1;
+        attempt < MAX_TEACHER_NAME_ATTEMPTS && userRepository.existsByName(candidate);
+        attempt++) {
+      candidate = "T-%s-%s".formatted(randomNameSuffix(), gbsw.getName());
+    }
+    // 재시도를 다 써도 겹치는 극희귀 경우, save() 시점의 DB unique 위반이 기존 경합 처리
+    // 경로(DataIntegrityViolationException -> 409)로 안전하게 흡수한다.
+    return candidate;
+  }
+
+  private String randomNameSuffix() {
+    return UUID.randomUUID().toString().replace("-", "").substring(0, TEACHER_NAME_SUFFIX_LENGTH);
   }
 
   /**
