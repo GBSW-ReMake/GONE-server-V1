@@ -124,12 +124,10 @@ API 호출 없음. 영문+숫자+특수문자 모두 포함 8~20자(클라이언
 // Response data
 {
   "name": "3118정문경",
-  "nameCustomized": false,
   "hasProfileImage": false
 }
 ```
-- `nameCustomized: false`면 "이 이름은 자동으로 만들어졌어요, 바꾸시겠어요?" 같은 유도 문구를
-  보여줄 수 있다(강제 아님 — 그냥 두고 넘어가도 됨).
+- 별도 "자동 생성된 값이에요" 안내는 없음 — 그냥 편집 가능한 입력창에 프리필해서 보여주면 됨.
 
 ### `PATCH /api/v1/users/me/name` (인증 필요, 사용자가 값을 바꿨을 때만 호출)
 ```json
