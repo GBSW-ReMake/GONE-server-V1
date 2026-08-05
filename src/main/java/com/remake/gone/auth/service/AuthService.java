@@ -135,7 +135,7 @@ public class AuthService {
   }
 
   /**
-   * 로그인 ID/비밀번호를 검증하고 Access/Refresh Token을 발급합니다.
+   * 로그인 ID 또는 전화번호 + 비밀번호를 검증하고 Access/Refresh Token을 발급합니다.
    *
    * <p>자격증명 검증은 {@link AuthenticationManager}에 위임한다 ({@code UserDetailsServiceImpl}
    * + {@code PasswordEncoder} 기반). 로그인 이후 매 요청의 JWT 인증은 이 흐름과 무관하게
@@ -149,7 +149,7 @@ public class AuthService {
     Authentication authentication;
     try {
       authentication = authenticationManager.authenticate(
-          new UsernamePasswordAuthenticationToken(request.loginId(), request.password()));
+          new UsernamePasswordAuthenticationToken(request.identifier(), request.password()));
     } catch (AuthenticationException e) {
       // 아이디가 없을 때와 비밀번호가 틀렸을 때를 같은 에러로 응답한다.
       // 둘을 구분해서 응답하면 공격자가 "아이디는 맞다"는 사실만으로 계정 존재 여부를 알아낼 수 있다.
