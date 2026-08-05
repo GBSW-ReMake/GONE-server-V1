@@ -20,6 +20,7 @@ import com.remake.gone.neis.NeisClient;
 import com.remake.gone.neis.dto.NeisTimetableRow;
 import com.remake.gone.timetable.dto.PeriodResponse;
 import com.remake.gone.timetable.dto.TimetableResponse;
+import com.remake.gone.timetable.exception.TimetableErrorCode;
 import com.remake.gone.user.entity.User;
 import com.remake.gone.user.repository.UserRepository;
 import java.time.LocalDate;
@@ -139,6 +140,20 @@ class TimetableServiceTest {
       TimetableResponse response = timetableService.getMyTimetable(USER_ID, DATE);
 
       assertThat(response.periods()).extracting(PeriodResponse::period).containsExactly(1, 3);
+    }
+
+    @Test
+    @DisplayName("3학년인데 학과 매핑에 없는 class_no면 500을 던진다")
+    void throwsWhenGradeThreeClassNoNotInMapping() {
+      given(userRepository.findById(USER_ID))
+          .willReturn(Optional.of(userWith(studentGbsw(3, 5))));
+      given(redisRepository.find(RedisKeyType.TIMETABLE, "3:5:20260323", TimetableResponse.class))
+          .willReturn(null);
+
+      assertThatThrownBy(() -> timetableService.getMyTimetable(USER_ID, DATE))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(TimetableErrorCode.UNKNOWN_CLASS_MAPPING);
     }
 
     @Test

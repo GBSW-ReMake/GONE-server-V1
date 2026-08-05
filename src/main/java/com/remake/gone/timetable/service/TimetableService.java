@@ -10,6 +10,7 @@ import com.remake.gone.neis.NeisClient;
 import com.remake.gone.neis.dto.NeisTimetableRow;
 import com.remake.gone.timetable.dto.PeriodResponse;
 import com.remake.gone.timetable.dto.TimetableResponse;
+import com.remake.gone.timetable.exception.TimetableErrorCode;
 import com.remake.gone.user.entity.User;
 import com.remake.gone.user.repository.UserRepository;
 import java.time.LocalDate;
@@ -19,6 +20,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
@@ -28,6 +30,7 @@ import org.springframework.stereotype.Service;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class TimetableService {
 
   private static final DateTimeFormatter YMD_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
@@ -94,6 +97,10 @@ public class TimetableService {
 
     if (grade == 3) {
       DepartmentMapping mapping = GRADE_3_DEPARTMENT_MAP.get(classNo);
+      if (mapping == null) {
+        log.error("3학년 학과 매핑에 없는 class_no: {}", classNo);
+        throw new CustomException(TimetableErrorCode.UNKNOWN_CLASS_MAPPING);
+      }
       params.put("DDDEP_NM", mapping.department());
       params.put("CLASS_NM", String.valueOf(mapping.neisClassNo()));
     } else {
