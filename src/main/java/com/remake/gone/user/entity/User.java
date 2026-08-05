@@ -52,10 +52,6 @@ public class User {
   @Column(name = "name", nullable = false, unique = true, length = 20)
   private String name;
 
-  /** 가입 시 자동 생성된 기본 닉네임을 사용자가 직접 바꿨는지 여부(접근 제어 용도 아님). */
-  @Column(name = "name_customized", nullable = false)
-  private boolean nameCustomized;
-
   @Column(name = "phone_number", nullable = false, unique = true, length = 20)
   private String phoneNumber;
 
