@@ -7,6 +7,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.common.response.ApiResponse;
@@ -20,31 +22,39 @@ import com.remake.gone.user.service.UserService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * {@link FileController}에 대한 단위 테스트.
+ * {@link FileController}에 대한 웹 계층(슬라이스) 테스트.
  *
- * <p>이 프로젝트의 {@code @WebMvcTest} 슬라이스는 {@code @AuthenticationPrincipal}을 실제로
- * 채워주지 못하므로({@code AuthControllerTest}의 로그아웃 테스트와 같은 이유), 컨트롤러를
- * 직접 호출해서 principal 전달과 분기 로직을 검증한다.
+ * <p>이 프로젝트의 {@code @WebMvcTest} 슬라이스는 Spring Security 필터 체인이 MockMvc에 실제로
+ * 붙지 않아 {@code @AuthenticationPrincipal} 주입을 검증할 수 없다({@code AuthControllerTest}의
+ * 로그아웃 테스트와 같은 이유). 그래서 요청 검증(Bean Validation)은 MockMvc로, principal이
+ * 관련된 분기 로직(keyPrefix, 소유권 확인)은 컨트롤러를 직접 호출해서 검증한다.
  */
-@ExtendWith(MockitoExtension.class)
+@WebMvcTest(FileController.class)
+@AutoConfigureMockMvc(addFilters = false)
 class FileControllerTest {
 
-  @Mock
+  @Autowired
+  private MockMvc mockMvc;
+
+  @MockitoBean
   private R2FileService r2FileService;
 
-  @Mock
+  @MockitoBean
   private UserService userService;
 
-  @InjectMocks
-  private FileController fileController;
-
   private static final Long USER_ID = 1L;
+
+  private FileController controller() {
+    return new FileController(r2FileService, userService);
+  }
 
   @Nested
   @DisplayName("POST /api/v1/files/profile-image/upload-url")
@@ -59,13 +69,42 @@ class FileControllerTest {
           eq("profile/1"), eq("photo.jpg"), eq("image/jpeg"), eq(204_800L)))
           .willReturn(expected);
 
-      ApiResponse<ImageUploadUrlResponse> response = fileController.getProfileImageUploadUrl(
+      ApiResponse<ImageUploadUrlResponse> response = controller().getProfileImageUploadUrl(
           new UserPrincipal(USER_ID),
           new ImageUploadUrlRequest("photo.jpg", "image/jpeg", 204_800L)
       );
 
       assertThat(response.success()).isTrue();
       assertThat(response.data()).isEqualTo(expected);
+    }
+
+    @Test
+    @DisplayName("fileName이 비어있으면 400을 반환하고 서비스는 호출되지 않는다")
+    void returns400WhenFileNameBlank() throws Exception {
+      mockMvc.perform(post("/api/v1/files/profile-image/upload-url")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content("{\"fileName\": \"\", \"contentType\": \"image/jpeg\", \"fileSize\": 100}"))
+          .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("contentType이 비어있으면 400을 반환한다")
+    void returns400WhenContentTypeBlank() throws Exception {
+      mockMvc.perform(post("/api/v1/files/profile-image/upload-url")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content("{\"fileName\": \"a.jpg\", \"contentType\": \"\", \"fileSize\": 100}"))
+          .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("fileSize가 0 이하면 400을 반환한다")
+    void returns400WhenFileSizeNotPositive() throws Exception {
+      String body = "{\"fileName\": \"a.jpg\", \"contentType\": \"image/jpeg\", \"fileSize\": 0}";
+
+      mockMvc.perform(post("/api/v1/files/profile-image/upload-url")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content(body))
+          .andExpect(status().isBadRequest());
     }
   }
 
@@ -78,7 +117,7 @@ class FileControllerTest {
     void savesProfileImageWhenObjectExists() {
       given(r2FileService.checkObjectExists("profile/1/abc.jpg")).willReturn(true);
 
-      ApiResponse<Void> response = fileController.confirmProfileImageUpload(
+      ApiResponse<Void> response = controller().confirmProfileImageUpload(
           new UserPrincipal(USER_ID), new ProfileImageConfirmRequest("profile/1/abc.jpg"));
 
       assertThat(response.success()).isTrue();
@@ -90,13 +129,49 @@ class FileControllerTest {
     void throwsWhenObjectMissing() {
       given(r2FileService.checkObjectExists("profile/1/missing.jpg")).willReturn(false);
 
-      assertThatThrownBy(() -> fileController.confirmProfileImageUpload(
+      assertThatThrownBy(() -> controller().confirmProfileImageUpload(
           new UserPrincipal(USER_ID), new ProfileImageConfirmRequest("profile/1/missing.jpg")))
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(FileErrorCode.UPLOAD_CONFIRM_FAILED);
 
       verify(userService, never()).updateProfileImage(any(), any());
+    }
+
+    @Test
+    @DisplayName("다른 사용자 소유의 key면 R2 존재 여부와 무관하게 거부한다")
+    void throwsWhenKeyOwnedByAnotherUser() {
+      assertThatThrownBy(() -> controller().confirmProfileImageUpload(
+          new UserPrincipal(USER_ID), new ProfileImageConfirmRequest("profile/2/other.jpg")))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(FileErrorCode.UPLOAD_CONFIRM_FAILED);
+
+      verify(r2FileService, never()).checkObjectExists(any());
+      verify(userService, never()).updateProfileImage(any(), any());
+    }
+
+    @Test
+    @DisplayName("userId 접두사 매칭은 문자열 접두사가 아니라 경로 구분자 기준이어야 한다")
+    void rejectsKeyWhosePrefixOnlyPartiallyMatches() {
+      // userId=1의 keyPrefix("profile/1")는 userId=12의 key("profile/12/...")와
+      // 문자열로는 접두사가 겹치므로, "/"까지 포함해 비교하지 않으면 잘못 통과할 수 있다.
+      assertThatThrownBy(() -> controller().confirmProfileImageUpload(
+          new UserPrincipal(USER_ID), new ProfileImageConfirmRequest("profile/12/other.jpg")))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(FileErrorCode.UPLOAD_CONFIRM_FAILED);
+
+      verify(r2FileService, never()).checkObjectExists(any());
+    }
+
+    @Test
+    @DisplayName("key가 비어있으면 400을 반환한다")
+    void returns400WhenKeyBlank() throws Exception {
+      mockMvc.perform(post("/api/v1/files/profile-image/confirm")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content("{\"key\": \"\"}"))
+          .andExpect(status().isBadRequest());
     }
   }
 }

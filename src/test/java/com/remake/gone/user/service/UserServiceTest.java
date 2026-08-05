@@ -7,6 +7,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import com.remake.gone.common.exception.CommonErrorCode;
 import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.user.dto.MyProfileResponse;
 import com.remake.gone.user.entity.User;
@@ -67,12 +68,14 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("존재하지 않는 사용자면 예외를 던진다")
+    @DisplayName("존재하지 않는 사용자면 인증 만료로 취급해 401을 던진다")
     void throwsWhenUserNotFound() {
       given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
       assertThatThrownBy(() -> userService.getMyProfile(USER_ID))
-          .isInstanceOf(IllegalStateException.class);
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(CommonErrorCode.UNAUTHORIZED);
     }
   }
 
@@ -121,12 +124,14 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("존재하지 않는 사용자면 예외를 던진다")
+    @DisplayName("존재하지 않는 사용자면 인증 만료로 취급해 401을 던진다")
     void throwsWhenUserNotFound() {
       given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
 
       assertThatThrownBy(() -> userService.changeName(USER_ID, "새이름"))
-          .isInstanceOf(IllegalStateException.class);
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(CommonErrorCode.UNAUTHORIZED);
     }
   }
 
@@ -144,6 +149,17 @@ class UserServiceTest {
 
       assertThat(user.getProfileImageKey()).isEqualTo("profile/1/new.jpg");
       verify(userRepository).save(user);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 사용자면 인증 만료로 취급해 401을 던진다")
+    void throwsWhenUserNotFound() {
+      given(userRepository.findById(USER_ID)).willReturn(Optional.empty());
+
+      assertThatThrownBy(() -> userService.updateProfileImage(USER_ID, "profile/1/new.jpg"))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(CommonErrorCode.UNAUTHORIZED);
     }
   }
 }
