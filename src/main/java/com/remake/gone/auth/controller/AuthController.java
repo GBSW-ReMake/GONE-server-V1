@@ -36,17 +36,18 @@ public class AuthController {
   private final AuthService authService;
 
   /**
-   * 휴대폰 인증을 마친 사용자의 회원가입을 처리합니다.
+   * 휴대폰 인증을 마친 사용자의 회원가입을 처리합니다. 가입 직후 클라이언트가 별도 로그인 없이
+   * 바로 이어서 이름/프로필 사진을 설정할 수 있도록 Access/Refresh Token을 함께 발급합니다.
    *
    * @param request 회원가입 요청 정보
-   * @return 성공 여부만 담은 응답
+   * @return 발급된 토큰 정보
    */
   @PostMapping("/signup")
-  public ApiResponse<Void> signUp(
+  public ApiResponse<TokenResponse> signUp(
       @Valid @RequestBody SignUpRequest request
   ) {
-    authService.signUp(request);
-    return ApiResponse.success(null, "회원가입이 완료되었습니다.");
+    TokenResponse response = authService.signUp(request);
+    return ApiResponse.success(response, "회원가입이 완료되었습니다.");
   }
 
   /**
