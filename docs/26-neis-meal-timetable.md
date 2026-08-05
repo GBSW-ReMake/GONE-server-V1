@@ -60,13 +60,36 @@
 - 인증/권한 요구사항: 없음(비인증, 공개 정보)
 
 ### `GET /api/v1/timetables`
-- 요청: `grade`(쿼리, 필수, 학년), `classNm`(쿼리, 필수, 반), `date`(쿼리, 선택, `yyyyMMdd`,
-  기본값 오늘(KST))
+- 요청: `date`(쿼리, 선택, `yyyyMMdd`, 기본값 오늘(KST))만 받는다. `grade`/`classNm`은
+  클라이언트가 보내지 않는다 — **Access Token의 `userId`로 로그인 계정을 특정하고, 그 계정의
+  `Gbsw`(학교 명단) 레코드에 이미 저장된 `grade`/`classNo`를 서버가 조회해서 사용한다.**
+  (아래 "본인 학급 자동 조회" 참고)
 - 응답: `TimetableResponse(date: String, grade: int, classNm: String, periods:
   List<PeriodResponse>)`, `PeriodResponse(period: int, subject: String)`
 - 데이터 없음(공강/방학 등): `200 OK` + `periods: []`
 - NEIS 쪽 진짜 에러/네트워크 실패: `502 Bad Gateway` + `NeisErrorCode.EXTERNAL_API_ERROR`
-- 인증/권한 요구사항: 없음(비인증)
+- 선생님 계정으로 호출(`Gbsw.grade`가 `null`): `400 Bad Request` +
+  `GbswErrorCode.NO_CLASS_ASSIGNED`(신규, `GBSW_002`)
+- 인증/권한 요구사항: **Access Token 필요**(`SecurityConfig`에
+  `.requestMatchers("/api/v1/timetables/**").authenticated()` 추가). 급식(`/api/v1/meals`)은
+  학교 공통 정보라 그대로 비인증 유지.
+
+### 본인 학급 자동 조회 (userId → Gbsw.grade/classNo)
+- 클라이언트가 학년/반을 알 필요도, 보낼 필요도 없게 한다 — 로그인 상태만으로 본인 시간표가
+  나온다.
+- 흐름: `JwtAuthenticationFilter`가 Access Token의 `userId` 클레임만으로(별도 DB 조회 없이)
+  `UserPrincipal(userId)`를 `SecurityContext`에 심어준다(기존 방식 그대로, 변경 없음) →
+  `TimetableController`가 `@AuthenticationPrincipal UserPrincipal principal`로 받음 →
+  `TimetableService`가 `principal.userId()`로 `User`를 조회하고 `user.getGbsw()`(LAZY, 연관
+  엔티티 1회 추가 조회)에서 `grade`/`classNo`를 꺼내 기존 NEIS 조회 로직에 그대로 넘김.
+- **학년/반을 Access Token 클레임에 직접 넣지 않는 이유**: 토큰은 만료 전까지(현재
+  30분) 재검증 없이 신뢰되는데, 진급/반편성처럼 바뀔 수 있는 값을 토큰에 박아두면 그 사이
+  낡은 값을 계속 쓰게 된다. `userId`만 토큰에 두고 나머지는 매 요청 DB에서 최신값을 읽는 현재
+  `UserPrincipal` 설계 원칙(주석: "추후 이름/권한 등이 필요해지면 그때 확장")을 그대로 따른다.
+- 요청마다 DB 조회가 1회 늘지만(`User` PK 조회 + `Gbsw` LAZY 로딩), NEIS 응답 자체가 6시간
+  캐싱되므로 부담은 미미하다.
+- 선생님 계정(`Gbsw.type == TEACHER`)은 `grade`/`classNo`가 `null`이라 이 엔드포인트를 쓸 수
+  없다 — `GbswErrorCode.NO_CLASS_ASSIGNED`로 명확히 400 응답한다(500/NPE 방지).
 
 ## 응답 예시 (실제 NEIS 라이브 호출 결과 기반)
 
@@ -138,7 +161,7 @@
 }
 ```
 
-### `GET /api/v1/timetables?grade=3&classNm=1&date=20260323` — 정상(데이터 있음)
+### `GET /api/v1/timetables?date=20260323` (Access Token: 3학년 1반 학생 계정) — 정상(데이터 있음)
 ```json
 {
   "success": true,
@@ -183,6 +206,9 @@
 - `timetable` — `TimetableController`, `TimetableService`, `dto/*`
 - `meal`/`timetable` 서비스가 `NeisClient`에 의존하는 구조(기존 `FileController`가
   `R2FileService`에 의존하는 것과 같은 결)
+- `TimetableService`는 추가로 `UserRepository`에도 의존(`userId` → `User` → `Gbsw`의
+  `grade`/`classNo` 조회용). `MealService`는 사용자 정보가 필요 없어 그대로 `NeisClient`만
+  의존.
 
 ### HTTP 클라이언트
 - Spring `RestClient`(Spring Framework 6.1+, 이 프로젝트가 이미 Spring Boot 4.1이라 사용
@@ -201,7 +227,9 @@
 - NEIS 쪽에 "요청제한횟수: 제한없음"이라고는 되어 있지만, 매 프론트 요청마다 외부 API를
   왕복하면 지연시간도 늘고 NEIS 장애에도 취약해진다. `RedisKeyType`에
   `MEAL_INFO("neis:meal:", 6시간)`, `TIMETABLE("neis:timetable:", 6시간)` 추가.
-  - 캐시 키: 급식은 `{date}`, 시간표는 `{grade}:{classNm}:{date}`
+  - 캐시 키: 급식은 `{date}`, 시간표는 `{grade}:{classNo}:{date}`(이제 `grade`/`classNo`가
+    클라이언트 쿼리 파라미터가 아니라 `Gbsw`에서 조회한 값이라는 점만 다르고, 키 형태 자체는
+    그대로 — 같은 반 학생들이 같은 캐시를 공유한다)
   - TTL 6시간을 고른 이유: 급식/시간표는 보통 하루 안에 안 바뀌지만, 정정 공지가 아주 드물게
     있을 수 있어 무기한 캐싱은 피하고 하루 안에 최소 몇 번은 최신화되게 함(자정 이후 재조회
     시 자연스럽게 그날 데이터로 갱신).
@@ -215,16 +243,25 @@
 - "데이터 없음"(`INFO-200`)은 에러로 취급하지 않고 빈 리스트로 정상 응답한다(위 엔드포인트
   섹션 참고).
 
+### 에러 처리 — `GbswErrorCode` 추가분
+- `NO_CLASS_ASSIGNED`(400, `GBSW_002`) — `/api/v1/timetables` 요청자의 `Gbsw.grade`가
+  `null`인 경우(선생님 계정). 기존 `GbswErrorCode`(`gbsw` 패키지, `GBSW_001`이 이미 있음)에
+  이어서 추가.
+
 ## 영향 받는 기존 코드/테스트
 - `.github/workflows/ci.yml` — `build-and-test` job env에 `NEIS_API_KEY`,
   `NEIS_ATPT_OFCDC_SC_CODE`, `NEIS_SD_SCHUL_CODE` 더미값 추가(R2/JWT와 동일 패턴)
 - `src/main/resources/application-dev.yml` — 이미 로컬에 `neis:` 섹션 추가 완료(git 미포함)
 - `common/redis/RedisKeyType.java` — `MEAL_INFO`, `TIMETABLE` 키 타입 추가
+- `common/config/SecurityConfig.java` — `.requestMatchers("/api/v1/timetables/**")`도
+  `.authenticated()` 목록에 추가(`/api/v1/users/**`, `/api/v1/files/**`와 같은 줄)
+- `gbsw/exception/GbswErrorCode.java` — `NO_CLASS_ASSIGNED`(`GBSW_002`) 추가
 - 신규 파일: `neis/config/NeisProperties.java`, `neis/config/NeisConfig.java`,
   `neis/NeisClient.java`, `neis/exception/NeisErrorCode.java`, `meal/**`, `timetable/**`
-- 테스트: `MealServiceTest`/`TimetableServiceTest`(신규, `NeisClient`를 mock), `NeisClient`
-  자체는 실제 파싱 로직(정상/빈 데이터/에러 3가지 응답 형태)을 더미 JSON 문자열로 단위 테스트.
-  `MealControllerTest`/`TimetableControllerTest`(신규, 요청 검증)
+- 테스트: `MealServiceTest`(신규, `NeisClient` mock)/`TimetableServiceTest`(신규, `NeisClient`
+  +`UserRepository` mock, 선생님 계정 400 케이스 포함), `NeisClient` 자체는 실제 파싱 로직
+  (정상/빈 데이터/에러 3가지 응답 형태)을 더미 JSON 문자열로 단위 테스트.
+  `MealControllerTest`(비인증)/`TimetableControllerTest`(신규, 인증 필요 + 요청 검증)
 
 ## 리스크 및 고려사항
 - **`DDISH_NM`의 알레르기 코드는 파싱하지 않는다**: `"미니버터크루아상/잼 (1.2.5.6.13)"`처럼
