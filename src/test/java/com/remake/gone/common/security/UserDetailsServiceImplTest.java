@@ -35,13 +35,14 @@ class UserDetailsServiceImplTest {
 
   @Test
   @DisplayName("로그인 ID로 사용자를 찾으면 역할과 함께 AuthUserDetails로 반환한다")
-  void loadsUserWithRoles() {
+  void loadsUserByLoginIdWithRoles() {
     User user = User.builder()
         .id(1L)
         .loginId("testuser01")
         .passwordHash("encoded-password")
         .build();
-    given(userRepository.findByLoginId("testuser01")).willReturn(Optional.of(user));
+    given(userRepository.findFirstByLoginIdOrPhoneNumber("testuser01", "testuser01"))
+        .willReturn(Optional.of(user));
     given(userRoleRepository.findRoleCodesByUserId(1L)).willReturn(List.of("STUDENT"));
 
     UserDetails result = userDetailsService.loadUserByUsername("testuser01");
@@ -55,9 +56,32 @@ class UserDetailsServiceImplTest {
   }
 
   @Test
-  @DisplayName("존재하지 않는 로그인 ID면 UsernameNotFoundException을 던진다")
+  @DisplayName("전화번호로 사용자를 찾으면 역할과 함께 AuthUserDetails로 반환한다")
+  void loadsUserByPhoneNumberWithRoles() {
+    User user = User.builder()
+        .id(2L)
+        .loginId("testuser02")
+        .passwordHash("encoded-password")
+        .phoneNumber("01099999999")
+        .build();
+    given(userRepository.findFirstByLoginIdOrPhoneNumber("01099999999", "01099999999"))
+        .willReturn(Optional.of(user));
+    given(userRoleRepository.findRoleCodesByUserId(2L)).willReturn(List.of("TEACHER"));
+
+    UserDetails result = userDetailsService.loadUserByUsername("01099999999");
+
+    assertThat(result).isInstanceOf(AuthUserDetails.class);
+    AuthUserDetails authUserDetails = (AuthUserDetails) result;
+    assertThat(authUserDetails.userId()).isEqualTo(2L);
+    assertThat(authUserDetails.getUsername()).isEqualTo("testuser02");
+    assertThat(authUserDetails.roleCodes()).containsExactly("TEACHER");
+  }
+
+  @Test
+  @DisplayName("로그인 ID/전화번호 어느 쪽으로도 못 찾으면 UsernameNotFoundException을 던진다")
   void throwsWhenUserNotFound() {
-    given(userRepository.findByLoginId("nouser")).willReturn(Optional.empty());
+    given(userRepository.findFirstByLoginIdOrPhoneNumber("nouser", "nouser"))
+        .willReturn(Optional.empty());
 
     assertThatThrownBy(() -> userDetailsService.loadUserByUsername("nouser"))
         .isInstanceOf(UsernameNotFoundException.class);
