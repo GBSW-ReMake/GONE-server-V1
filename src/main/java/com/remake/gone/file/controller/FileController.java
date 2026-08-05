@@ -9,6 +9,7 @@ import com.remake.gone.file.dto.ProfileImageConfirmRequest;
 import com.remake.gone.file.exception.FileErrorCode;
 import com.remake.gone.file.service.R2FileService;
 import com.remake.gone.user.service.UserService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -40,17 +41,23 @@ public class FileController {
   @PostMapping("/profile-image/upload-url")
   public ApiResponse<ImageUploadUrlResponse> getProfileImageUploadUrl(
       @AuthenticationPrincipal UserPrincipal principal,
-      @RequestBody ImageUploadUrlRequest request
+      @Valid @RequestBody ImageUploadUrlRequest request
   ) {
-    String keyPrefix = "profile/" + principal.userId();
     ImageUploadUrlResponse response = r2FileService.generateUploadUrl(
-        keyPrefix, request.fileName(), request.contentType(), request.fileSize()
+        keyPrefix(principal.userId()), request.fileName(), request.contentType(),
+        request.fileSize()
     );
     return ApiResponse.success(response, "업로드 URL이 발급되었습니다.");
   }
 
   /**
    * 클라이언트가 presigned URL로 업로드를 마친 프로필 이미지를 확정하고, 본인 계정에 저장합니다.
+   *
+   * <p>넘어온 {@code key}가 본인의 {@link #keyPrefix(Long)} 아래 있는지 먼저 확인한다 —
+   * 그렇지 않으면 다른 사용자의 업로드 key를 알아내 자신의 프로필 사진으로 등록하는 수평 권한
+   * 오용이 가능해진다. 소유권이 아니거나 R2에 실제로 없는 경우 모두 같은
+   * {@link FileErrorCode#UPLOAD_CONFIRM_FAILED} 응답으로 처리해, 어느 쪽 이유인지 외부에
+   * 노출하지 않는다.
    *
    * @param principal 인증 필터가 Access Token에서 추출한 현재 사용자
    * @param request   업로드된 객체의 key
@@ -59,13 +66,27 @@ public class FileController {
   @PostMapping("/profile-image/confirm")
   public ApiResponse<Void> confirmProfileImageUpload(
       @AuthenticationPrincipal UserPrincipal principal,
-      @RequestBody ProfileImageConfirmRequest request
+      @Valid @RequestBody ProfileImageConfirmRequest request
   ) {
+    if (!request.key().startsWith(keyPrefix(principal.userId()) + "/")) {
+      throw new CustomException(FileErrorCode.UPLOAD_CONFIRM_FAILED);
+    }
     boolean exists = r2FileService.checkObjectExists(request.key());
     if (!exists) {
       throw new CustomException(FileErrorCode.UPLOAD_CONFIRM_FAILED);
     }
     userService.updateProfileImage(principal.userId(), request.key());
     return ApiResponse.success(null, "업로드가 확인되었습니다.");
+  }
+
+  /**
+   * 프로필 이미지 저장 시 사용할 이 사용자 전용 key 접두사 (끝에 {@code /} 없음).
+   *
+   * <p>소유권 확인 시에는 반드시 {@code keyPrefix(userId) + "/"}처럼 구분자를 붙여 비교해야
+   * 한다 — 안 그러면 예를 들어 userId=1의 접두사 {@code "profile/1"}이 다른 사용자
+   * (userId=12)의 key {@code "profile/12/..."}에도 문자열로는 매칭돼버린다.
+   */
+  private String keyPrefix(Long userId) {
+    return "profile/" + userId;
   }
 }

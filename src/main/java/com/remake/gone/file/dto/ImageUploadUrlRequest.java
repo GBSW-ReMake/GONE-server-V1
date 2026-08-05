@@ -1,5 +1,8 @@
 package com.remake.gone.file.dto;
 
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Positive;
+
 /**
  * 프로필 이미지 업로드 URL 발급 요청 DTO.
  *
@@ -8,7 +11,7 @@ package com.remake.gone.file.dto;
  * @param fileSize    업로드할 파일의 크기(byte)
  */
 public record ImageUploadUrlRequest(
-    String fileName,
-    String contentType,
-    long fileSize
+    @NotBlank String fileName,
+    @NotBlank String contentType,
+    @Positive long fileSize
 ) {}

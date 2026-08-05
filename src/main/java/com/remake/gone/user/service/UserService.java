@@ -1,5 +1,6 @@
 package com.remake.gone.user.service;
 
+import com.remake.gone.common.exception.CommonErrorCode;
 import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.user.dto.MyProfileResponse;
 import com.remake.gone.user.entity.User;
@@ -26,8 +27,7 @@ public class UserService {
    */
   @Transactional(readOnly = true)
   public MyProfileResponse getMyProfile(Long userId) {
-    User user = userRepository.findById(userId)
-        .orElseThrow(() -> new IllegalStateException("인증된 사용자를 찾을 수 없습니다: " + userId));
+    User user = findAuthenticatedUser(userId);
 
     return new MyProfileResponse(user.getName(), user.getProfileImageKey() != null);
   }
@@ -42,8 +42,7 @@ public class UserService {
    */
   @Transactional
   public void changeName(Long userId, String newName) {
-    User user = userRepository.findById(userId)
-        .orElseThrow(() -> new IllegalStateException("인증된 사용자를 찾을 수 없습니다: " + userId));
+    User user = findAuthenticatedUser(userId);
 
     if (!newName.equals(user.getName()) && userRepository.existsByName(newName)) {
       throw new CustomException(UserErrorCode.NAME_ALREADY_EXISTS);
@@ -62,10 +61,19 @@ public class UserService {
    */
   @Transactional
   public void updateProfileImage(Long userId, String key) {
-    User user = userRepository.findById(userId)
-        .orElseThrow(() -> new IllegalStateException("인증된 사용자를 찾을 수 없습니다: " + userId));
+    User user = findAuthenticatedUser(userId);
 
     user.setProfileImageKey(key);
     userRepository.save(user);
+  }
+
+  /**
+   * Access Token의 userId로 사용자를 조회한다. 토큰은 유효했지만(서명/만료 통과) 그 시점 이후
+   * 계정이 삭제되는 등의 이유로 더는 존재하지 않는 상황이므로, 서버 오류(500)가 아니라
+   * "인증이 더 이상 유효하지 않다"는 의미로 {@link CommonErrorCode#UNAUTHORIZED}(401)를 던진다.
+   */
+  private User findAuthenticatedUser(Long userId) {
+    return userRepository.findById(userId)
+        .orElseThrow(() -> new CustomException(CommonErrorCode.UNAUTHORIZED));
   }
 }
