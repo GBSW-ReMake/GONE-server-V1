@@ -64,10 +64,14 @@ public class AuthService {
    * 학생회/선도부 등 부서 역할은 이 시점에 부여하지 않습니다 — 관리자가 별도 API로 나중에
    * 부여합니다.
    *
+   * <p>가입 직후 클라이언트가 별도 로그인 없이 곧바로 이름/프로필 사진 설정 화면으로 이어갈 수
+   * 있도록, {@code login()}과 동일하게 Access/Refresh Token을 바로 발급해 반환한다.
+   *
    * @param request 회원가입 요청 정보
+   * @return 발급된 토큰 정보
    */
   @Transactional
-  public void signUp(SignUpRequest request) {
+  public TokenResponse signUp(SignUpRequest request) {
     String phoneNumber = request.phoneNumber();
 
     String verifiedPhone = redisRepository.find(
@@ -115,6 +119,8 @@ public class AuthService {
 
     // 가입이 완전히 끝난 뒤에 티켓을 지운다 (save 실패 시 재시도할 수 있도록 티켓을 보존).
     redisRepository.delete(RedisKeyType.SIGN_UP_TICKET, request.ticket());
+
+    return issueTokens(user.getId(), Set.of(defaultRole.getCode()));
   }
 
   /**
