@@ -12,29 +12,26 @@
 
 ### 급식식단정보 — `GET https://open.neis.go.kr/hub/mealServiceDietInfo`
 **요청 인자**
-| 이름 | 필수 | 설명 |
-|---|---|---|
-| KEY | 필수 | 인증키 |
-| Type | 필수 | `json` 고정 사용 |
-| pIndex | 필수 | 페이지 위치 |
-| pSize | 필수 | 페이지당 건수 |
-| ATPT_OFCDC_SC_CODE | 필수 | 시도교육청코드 — 우리 학교 고정값 `R10`(서버 설정으로 고정, 클라이언트가 안 보냄) |
-| SD_SCHUL_CODE | 필수 | 행정표준코드 — 우리 학교 고정값 `8750829`(위와 동일) |
-| MMEAL_SC_CODE | 선택 | 식사코드(1=조식, 2=중식, 3=석식) |
-| MLSV_YMD | 선택 | 급식일자(`yyyyMMdd`) |
+- `KEY` (필수) — 인증키
+- `Type` (필수) — `json` 고정 사용
+- `pIndex` (필수) — 페이지 위치
+- `pSize` (필수) — 페이지당 건수
+- `ATPT_OFCDC_SC_CODE` (필수) — 시도교육청코드. 우리 학교 고정값 `R10`(서버 설정으로 고정,
+  클라이언트가 안 보냄)
+- `SD_SCHUL_CODE` (필수) — 행정표준코드. 우리 학교 고정값 `8750829`(위와 동일)
+- `MMEAL_SC_CODE` (선택) — 식사코드(1=조식, 2=중식, 3=석식)
+- `MLSV_YMD` (선택) — 급식일자(`yyyyMMdd`)
 
 **출력 필드(우리가 쓰는 것만)**: `MMEAL_SC_NM`(식사명), `MLSV_YMD`(급식일자), `DDISH_NM`(요리명,
 `<br/>`로 구분된 여러 줄 문자열), `CAL_INFO`(칼로리)
 
 ### 고등학교시간표 — `GET https://open.neis.go.kr/hub/hisTimetable`
 **요청 인자**
-| 이름 | 필수 | 설명 |
-|---|---|---|
-| KEY / Type / pIndex / pSize | 필수 | 위와 동일 |
-| ATPT_OFCDC_SC_CODE / SD_SCHUL_CODE | 필수 | 위와 동일(서버 고정값) |
-| GRADE | 선택(우리는 필수로 씀) | 학년 |
-| CLASS_NM | 선택(우리는 필수로 씀) | 학급명(반) |
-| ALL_TI_YMD | 선택 | 시간표일자(`yyyyMMdd`) |
+- `KEY` / `Type` / `pIndex` / `pSize` (필수) — 위 급식 API와 동일
+- `ATPT_OFCDC_SC_CODE` / `SD_SCHUL_CODE` (필수) — 위와 동일(서버 고정값)
+- `GRADE` (명세상 선택, 우리는 필수로 씀) — 학년
+- `CLASS_NM` (명세상 선택, 우리는 필수로 씀) — 학급명(반)
+- `ALL_TI_YMD` (선택) — 시간표일자(`yyyyMMdd`)
 
 **출력 필드(우리가 쓰는 것만)**: `ALL_TI_YMD`(일자), `GRADE`, `CLASS_NM`, `PERIO`(교시),
 `ITRT_CNTNT`(수업내용=과목명)
