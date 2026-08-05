@@ -141,11 +141,11 @@ public class SecurityConfig {
             session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .exceptionHandling(exception ->
             exception.authenticationEntryPoint(restAuthenticationEntryPoint))
-        // 로그아웃, 본인 정보 변경, 프로필 사진 업로드는 Access Token 인증이 필요하고,
+        // 로그아웃, 본인 정보 조회/변경, 프로필 사진 업로드는 Access Token 인증이 필요하고,
         // 나머지 기존 API는 그대로 permitAll 유지.
         .authorizeHttpRequests(auth -> auth
             .requestMatchers(HttpMethod.POST, "/api/v1/auth/logout").authenticated()
-            .requestMatchers(HttpMethod.PATCH, "/api/v1/users/me/name").authenticated()
+            .requestMatchers("/api/v1/users/**").authenticated()
             .requestMatchers("/api/v1/files/**").authenticated()
             .anyRequest().permitAll())
         .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

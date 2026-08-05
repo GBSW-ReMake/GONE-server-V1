@@ -1,6 +1,7 @@
 package com.remake.gone.user.service;
 
 import com.remake.gone.common.exception.CustomException;
+import com.remake.gone.user.dto.MyProfileResponse;
 import com.remake.gone.user.entity.User;
 import com.remake.gone.user.exception.UserErrorCode;
 import com.remake.gone.user.repository.UserRepository;
@@ -16,6 +17,20 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserService {
 
   private final UserRepository userRepository;
+
+  /**
+   * 본인의 프로필 정보를 조회합니다.
+   *
+   * @param userId 조회할 사용자 ID (Access Token에서 추출됨)
+   * @return 현재 닉네임과 프로필 사진 설정 여부
+   */
+  @Transactional(readOnly = true)
+  public MyProfileResponse getMyProfile(Long userId) {
+    User user = userRepository.findById(userId)
+        .orElseThrow(() -> new IllegalStateException("인증된 사용자를 찾을 수 없습니다: " + userId));
+
+    return new MyProfileResponse(user.getName(), user.getProfileImageKey() != null);
+  }
 
   /**
    * 본인의 별명을 변경합니다.

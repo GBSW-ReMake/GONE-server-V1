@@ -2,11 +2,13 @@ package com.remake.gone.user.controller;
 
 import com.remake.gone.common.response.ApiResponse;
 import com.remake.gone.common.security.UserPrincipal;
+import com.remake.gone.user.dto.MyProfileResponse;
 import com.remake.gone.user.dto.UpdateNameRequest;
 import com.remake.gone.user.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,6 +23,20 @@ import org.springframework.web.bind.annotation.RestController;
 public class UserController {
 
   private final UserService userService;
+
+  /**
+   * 본인의 프로필 정보를 조회합니다. Access Token 인증이 필요합니다({@code SecurityConfig} 참고).
+   *
+   * @param principal 인증 필터가 Access Token에서 추출한 현재 사용자
+   * @return 현재 닉네임과 프로필 사진 설정 여부
+   */
+  @GetMapping("/me")
+  public ApiResponse<MyProfileResponse> getMyProfile(
+      @AuthenticationPrincipal UserPrincipal principal
+  ) {
+    MyProfileResponse response = userService.getMyProfile(principal.userId());
+    return ApiResponse.success(response, "프로필 조회에 성공했습니다.");
+  }
 
   /**
    * 본인의 별명을 변경합니다. Access Token 인증이 필요합니다({@code SecurityConfig} 참고).
