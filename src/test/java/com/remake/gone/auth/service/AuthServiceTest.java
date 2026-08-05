@@ -91,7 +91,13 @@ class AuthServiceTest {
   private static final Long USER_ID = 1L;
 
   private SignUpRequest validRequest() {
-    return new SignUpRequest("testuser01", "Test1234!", "테스트유저", PHONE_NUMBER, TICKET);
+    return new SignUpRequest("testuser01", "Test1234!", PHONE_NUMBER, TICKET);
+  }
+
+  private void stubTokenIssuance() {
+    given(jwtProvider.createAccessToken(any(), any())).willReturn("access-token");
+    given(jwtProvider.createRefreshToken(any())).willReturn("refresh-token");
+    given(jwtProperties.accessTokenExpiration()).willReturn(1_800_000L);
   }
 
   @Nested
@@ -172,43 +178,27 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("별명이 이미 사용 중이면 가입을 거부한다")
-    void throwsWhenNameDuplicate() {
-      Gbsw gbsw = Gbsw.builder().build();
-      given(redisRepository.find(RedisKeyType.SIGN_UP_TICKET, TICKET, String.class))
-          .willReturn(PHONE_NUMBER);
-      given(gbswRepository.findByPhoneNumber(PHONE_NUMBER)).willReturn(Optional.of(gbsw));
-      given(userRepository.existsByGbsw(gbsw)).willReturn(false);
-      given(userRepository.existsByLoginId("testuser01")).willReturn(false);
-      given(userRepository.existsByName("테스트유저")).willReturn(true);
-
-      assertThatThrownBy(() -> authService.signUp(validRequest()))
-          .isInstanceOf(CustomException.class)
-          .extracting(e -> ((CustomException) e).getErrorCode())
-          .isEqualTo(UserErrorCode.NAME_ALREADY_EXISTS);
-    }
-
-    @Test
-    @DisplayName("모든 검증을 통과하면 계정을 저장하고 signUpTicket을 삭제하며 기본 역할을 부여한다")
+    @DisplayName("모든 검증을 통과하면 계정을 저장하고 signUpTicket을 삭제하며 기본 역할을 부여하고 토큰을 발급한다")
     void savesUserAndDeletesTicketOnSuccess() {
-      Gbsw gbsw = Gbsw.builder().type(GbswType.STUDENT).build();
+      Gbsw gbsw = Gbsw.builder()
+          .type(GbswType.STUDENT).name("정문경").grade(3).classNo(1).number(18).build();
       Role studentRole = Role.builder().code("STUDENT").name("학생").build();
       given(redisRepository.find(RedisKeyType.SIGN_UP_TICKET, TICKET, String.class))
           .willReturn(PHONE_NUMBER);
       given(gbswRepository.findByPhoneNumber(PHONE_NUMBER)).willReturn(Optional.of(gbsw));
       given(userRepository.existsByGbsw(gbsw)).willReturn(false);
       given(userRepository.existsByLoginId("testuser01")).willReturn(false);
-      given(userRepository.existsByName("테스트유저")).willReturn(false);
       given(passwordEncoder.encode("Test1234!")).willReturn("encoded-password");
       given(roleRepository.findByCode("STUDENT")).willReturn(Optional.of(studentRole));
+      stubTokenIssuance();
 
-      authService.signUp(validRequest());
+      TokenResponse response = authService.signUp(validRequest());
 
-      // save에 넘어간 User가 요청 내용과 정확히 일치하는지까지 검증
+      // save에 넘어간 User가 요청 내용과 학번 기반 기본 닉네임을 정확히 담고 있는지 검증
       verify(userRepository).save(argThat(user ->
           user.getLoginId().equals("testuser01")
               && user.getPasswordHash().equals("encoded-password")
-              && user.getName().equals("테스트유저")
+              && user.getName().equals("3118정문경")
               && user.getPhoneNumber().equals(PHONE_NUMBER)
               && user.getGbsw() == gbsw
       ));
@@ -216,21 +206,102 @@ class AuthServiceTest {
           userRole.getRole() == studentRole
       ));
       verify(redisRepository).delete(RedisKeyType.SIGN_UP_TICKET, TICKET);
+      assertThat(response.accessToken()).isEqualTo("access-token");
+      assertThat(response.refreshToken()).isEqualTo("refresh-token");
     }
 
     @Test
-    @DisplayName("Gbsw.type(STUDENT/TEACHER) 외의 role은 회원가입 시 절대 부여하지 않는다")
-    void neverAssignsRolesOtherThanDefaultOnSignUp() {
-      Gbsw gbsw = Gbsw.builder().type(GbswType.TEACHER).build();
+    @DisplayName("번호가 한 자리면 0을 채워 학번을 4자리로 맞춘다")
+    void padsSingleDigitNumberInStudentDefaultName() {
+      Gbsw gbsw = Gbsw.builder()
+          .type(GbswType.STUDENT).name("정문경").grade(3).classNo(1).number(5).build();
+      Role studentRole = Role.builder().code("STUDENT").name("학생").build();
+      given(redisRepository.find(RedisKeyType.SIGN_UP_TICKET, TICKET, String.class))
+          .willReturn(PHONE_NUMBER);
+      given(gbswRepository.findByPhoneNumber(PHONE_NUMBER)).willReturn(Optional.of(gbsw));
+      given(userRepository.existsByGbsw(gbsw)).willReturn(false);
+      given(userRepository.existsByLoginId("testuser01")).willReturn(false);
+      given(passwordEncoder.encode("Test1234!")).willReturn("encoded-password");
+      given(roleRepository.findByCode("STUDENT")).willReturn(Optional.of(studentRole));
+      stubTokenIssuance();
+
+      authService.signUp(validRequest());
+
+      verify(userRepository).save(argThat(user -> user.getName().equals("3105정문경")));
+    }
+
+    @Test
+    @DisplayName("학생 명단인데 학번 정보(학년/반/번호)가 없으면 예외를 던진다")
+    void throwsWhenStudentGbswMissingClassInfo() {
+      Gbsw gbsw = Gbsw.builder().type(GbswType.STUDENT).name("정문경").build(); // grade 등 누락
+      given(redisRepository.find(RedisKeyType.SIGN_UP_TICKET, TICKET, String.class))
+          .willReturn(PHONE_NUMBER);
+      given(gbswRepository.findByPhoneNumber(PHONE_NUMBER)).willReturn(Optional.of(gbsw));
+      given(userRepository.existsByGbsw(gbsw)).willReturn(false);
+      given(userRepository.existsByLoginId("testuser01")).willReturn(false);
+
+      assertThatThrownBy(() -> authService.signUp(validRequest()))
+          .isInstanceOf(IllegalStateException.class);
+
+      verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("교사는 T-랜덤코드-실명 형식의 기본 닉네임을 부여받는다")
+    void generatesTeacherDefaultNameWithRandomSuffix() {
+      Gbsw gbsw = Gbsw.builder().type(GbswType.TEACHER).name("김선생").build();
       Role teacherRole = Role.builder().code("TEACHER").name("선생님").build();
       given(redisRepository.find(RedisKeyType.SIGN_UP_TICKET, TICKET, String.class))
           .willReturn(PHONE_NUMBER);
       given(gbswRepository.findByPhoneNumber(PHONE_NUMBER)).willReturn(Optional.of(gbsw));
       given(userRepository.existsByGbsw(gbsw)).willReturn(false);
       given(userRepository.existsByLoginId("testuser01")).willReturn(false);
-      given(userRepository.existsByName("테스트유저")).willReturn(false);
+      given(userRepository.existsByName(any())).willReturn(false);
       given(passwordEncoder.encode("Test1234!")).willReturn("encoded-password");
       given(roleRepository.findByCode("TEACHER")).willReturn(Optional.of(teacherRole));
+      stubTokenIssuance();
+
+      authService.signUp(validRequest());
+
+      verify(userRepository).save(argThat(user -> user.getName().matches("^T-[0-9a-f]{3}-김선생$")));
+    }
+
+    @Test
+    @DisplayName("교사 기본 닉네임이 동명이인과 겹치면 랜덤코드를 다시 뽑는다")
+    void regeneratesTeacherDefaultNameOnCollision() {
+      Gbsw gbsw = Gbsw.builder().type(GbswType.TEACHER).name("김선생").build();
+      Role teacherRole = Role.builder().code("TEACHER").name("선생님").build();
+      given(redisRepository.find(RedisKeyType.SIGN_UP_TICKET, TICKET, String.class))
+          .willReturn(PHONE_NUMBER);
+      given(gbswRepository.findByPhoneNumber(PHONE_NUMBER)).willReturn(Optional.of(gbsw));
+      given(userRepository.existsByGbsw(gbsw)).willReturn(false);
+      given(userRepository.existsByLoginId("testuser01")).willReturn(false);
+      // 첫 번째로 뽑은 랜덤코드는 이미 존재(충돌), 두 번째는 사용 가능
+      given(userRepository.existsByName(any())).willReturn(true, false);
+      given(passwordEncoder.encode("Test1234!")).willReturn("encoded-password");
+      given(roleRepository.findByCode("TEACHER")).willReturn(Optional.of(teacherRole));
+      stubTokenIssuance();
+
+      authService.signUp(validRequest());
+
+      verify(userRepository, times(2)).existsByName(any());
+      verify(userRepository).save(argThat(user -> user.getName().matches("^T-[0-9a-f]{3}-김선생$")));
+    }
+
+    @Test
+    @DisplayName("Gbsw.type(STUDENT/TEACHER) 외의 role은 회원가입 시 절대 부여하지 않는다")
+    void neverAssignsRolesOtherThanDefaultOnSignUp() {
+      Gbsw gbsw = Gbsw.builder().type(GbswType.TEACHER).name("김선생").build();
+      Role teacherRole = Role.builder().code("TEACHER").name("선생님").build();
+      given(redisRepository.find(RedisKeyType.SIGN_UP_TICKET, TICKET, String.class))
+          .willReturn(PHONE_NUMBER);
+      given(gbswRepository.findByPhoneNumber(PHONE_NUMBER)).willReturn(Optional.of(gbsw));
+      given(userRepository.existsByGbsw(gbsw)).willReturn(false);
+      given(userRepository.existsByLoginId("testuser01")).willReturn(false);
+      given(userRepository.existsByName(any())).willReturn(false);
+      given(passwordEncoder.encode("Test1234!")).willReturn("encoded-password");
+      given(roleRepository.findByCode("TEACHER")).willReturn(Optional.of(teacherRole));
+      stubTokenIssuance();
 
       authService.signUp(validRequest());
 
@@ -242,13 +313,13 @@ class AuthServiceTest {
     @Test
     @DisplayName("기본 역할 시드 데이터가 없으면 예외를 던진다")
     void throwsWhenDefaultRoleSeedMissing() {
-      Gbsw gbsw = Gbsw.builder().type(GbswType.STUDENT).build();
+      Gbsw gbsw = Gbsw.builder()
+          .type(GbswType.STUDENT).name("정문경").grade(3).classNo(1).number(18).build();
       given(redisRepository.find(RedisKeyType.SIGN_UP_TICKET, TICKET, String.class))
           .willReturn(PHONE_NUMBER);
       given(gbswRepository.findByPhoneNumber(PHONE_NUMBER)).willReturn(Optional.of(gbsw));
       given(userRepository.existsByGbsw(gbsw)).willReturn(false);
       given(userRepository.existsByLoginId("testuser01")).willReturn(false);
-      given(userRepository.existsByName("테스트유저")).willReturn(false);
       given(passwordEncoder.encode("Test1234!")).willReturn("encoded-password");
       given(roleRepository.findByCode("STUDENT")).willReturn(Optional.empty());
 
