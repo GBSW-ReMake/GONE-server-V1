@@ -20,6 +20,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 
 /**
  * {@link GlobalExceptionHandler}에 대한 단위 테스트.
@@ -80,6 +81,22 @@ class GlobalExceptionHandlerTest {
       assertThat(event.getFormattedMessage()).contains("GET").contains("/api/v1/example");
       assertThat(event.getThrowableProxy().getClassName())
           .isEqualTo(RuntimeException.class.getName());
+    }
+  }
+
+  @Nested
+  @DisplayName("handleMissingServletRequestParameter")
+  class HandleMissingServletRequestParameter {
+
+    @Test
+    @DisplayName("필수 요청 파라미터가 없으면 500이 아니라 400 COMMON_001로 응답한다")
+    void returns400InsteadOfInternalServerError() {
+      ResponseEntity<ApiResponse<Void>> response = handler.handleMissingServletRequestParameter(
+          new MissingServletRequestParameterException("query", "String"));
+
+      assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+      assertThat(response.getBody().success()).isFalse();
+      assertThat(response.getBody().code()).isEqualTo("COMMON_001");
     }
   }
 }

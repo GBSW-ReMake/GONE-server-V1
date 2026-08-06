@@ -2,34 +2,83 @@ package com.remake.gone.user.service;
 
 import com.remake.gone.common.exception.CommonErrorCode;
 import com.remake.gone.common.exception.CustomException;
+import com.remake.gone.file.service.R2FileService;
+import com.remake.gone.gbsw.entity.Gbsw;
+import com.remake.gone.gbsw.enums.GbswType;
 import com.remake.gone.user.dto.MyProfileResponse;
+import com.remake.gone.user.dto.UserSearchResponse;
 import com.remake.gone.user.entity.User;
 import com.remake.gone.user.exception.UserErrorCode;
 import com.remake.gone.user.repository.UserRepository;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 로그인한 본인의 회원 정보(별명, 프로필 사진 등)를 관리하는 서비스.
+ * 로그인한 본인의 회원 정보(별명, 프로필 사진 등)를 관리하고, 가입된 사용자를 실명으로
+ * 검색하는 서비스.
  */
 @Service
 @RequiredArgsConstructor
 public class UserService {
 
   private final UserRepository userRepository;
+  private final R2FileService r2FileService;
 
   /**
    * 본인의 프로필 정보를 조회합니다.
    *
    * @param userId 조회할 사용자 ID (Access Token에서 추출됨)
-   * @return 현재 닉네임과 프로필 사진 설정 여부
+   * @return 현재 닉네임, 프로필 사진 설정 여부/URL, 실명/학년/반
    */
   @Transactional(readOnly = true)
   public MyProfileResponse getMyProfile(Long userId) {
     User user = findAuthenticatedUser(userId);
 
-    return new MyProfileResponse(user.getName(), user.getProfileImageKey() != null);
+    boolean hasProfileImage = user.getProfileImageKey() != null;
+    String profileImageUrl = hasProfileImage
+        ? r2FileService.generateDownloadUrl(user.getProfileImageKey())
+        : null;
+    Gbsw gbsw = user.getGbsw();
+    return new MyProfileResponse(
+        user.getName(), hasProfileImage, profileImageUrl,
+        gbsw.getName(), gbsw.getGrade(), gbsw.getClassNo());
+  }
+
+  /**
+   * 실명에 검색어가 부분 일치하는 가입된 사용자를 검색합니다.
+   *
+   * @param query 검색어(실명 부분 일치)
+   * @return 검색 결과 목록. 학생이면 학년/반을 포함하고, 선생님이면 {@code null}
+   */
+  @Transactional(readOnly = true)
+  public List<UserSearchResponse> search(String query) {
+    return userRepository.searchByRealNameContaining(escapeLikeWildcards(query)).stream()
+        .map(this::toSearchResponse)
+        .toList();
+  }
+
+  /**
+   * 검색어에 포함된 LIKE 와일드카드({@code %}, {@code _})와 이스케이프 문자 자체를 리터럴로
+   * 취급하도록 이스케이프한다. 이게 없으면 검색어에 {@code %}만 입력해도 전체 사용자가 매칭된다.
+   */
+  private String escapeLikeWildcards(String query) {
+    return query
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_");
+  }
+
+  private UserSearchResponse toSearchResponse(User user) {
+    Gbsw gbsw = user.getGbsw();
+    boolean isStudent = gbsw.getType() == GbswType.STUDENT;
+    return new UserSearchResponse(
+        user.getId(),
+        user.getName(),
+        gbsw.getName(),
+        isStudent ? gbsw.getGrade() : null,
+        isStudent ? gbsw.getClassNo() : null);
   }
 
   /**

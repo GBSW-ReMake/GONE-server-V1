@@ -8,6 +8,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -62,6 +63,28 @@ public class GlobalExceptionHandler {
     return ResponseEntity
         .status(CommonErrorCode.INVALID_REQUEST.getStatus())
         .body(ApiResponse.fail(null, message, CommonErrorCode.INVALID_REQUEST.getCode()));
+  }
+
+  /**
+   * {@link MissingServletRequestParameterException} 처리.
+   *
+   * <p>필수(기본값 미지정) {@code @RequestParam}이 요청에 아예 없을 때 발생한다. {@code @NotBlank}
+   * 등 제약 조건 검증({@link ConstraintViolationException})은 파라미터가 "있지만 값이 잘못된"
+   * 경우만 잡고, 파라미터 자체가 없는 경우는 Spring MVC가 이 예외를 먼저 던지므로 별도로 처리해야
+   * {@link #handleException} 폴백으로 떨어져 {@code 500}이 되는 걸 막을 수 있다.
+   *
+   * @param e 발생한 예외
+   * @return {@code 400 Bad Request} 응답
+   */
+  @ExceptionHandler(MissingServletRequestParameterException.class)
+  public ResponseEntity<ApiResponse<Void>> handleMissingServletRequestParameter(
+      MissingServletRequestParameterException e) {
+    return ResponseEntity
+        .status(CommonErrorCode.INVALID_REQUEST.getStatus())
+        .body(ApiResponse.fail(
+            null,
+            CommonErrorCode.INVALID_REQUEST.getDefaultMessage(),
+            CommonErrorCode.INVALID_REQUEST.getCode()));
   }
 
   /**

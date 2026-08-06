@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -14,8 +15,10 @@ import com.remake.gone.common.response.ApiResponse;
 import com.remake.gone.common.security.UserPrincipal;
 import com.remake.gone.user.dto.MyProfileResponse;
 import com.remake.gone.user.dto.UpdateNameRequest;
+import com.remake.gone.user.dto.UserSearchResponse;
 import com.remake.gone.user.exception.UserErrorCode;
 import com.remake.gone.user.service.UserService;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -54,14 +57,48 @@ class UserControllerTest {
     @DisplayName("인증된 사용자의 userId로 프로필을 조회한다")
     void callsServiceWithAuthenticatedUserId() {
       UserController controller = new UserController(userService);
-      given(userService.getMyProfile(USER_ID))
-          .willReturn(new MyProfileResponse("3118정문경", false));
+      MyProfileResponse expected =
+          new MyProfileResponse("3118정문경", false, null, "김정문", 3, 1);
+      given(userService.getMyProfile(USER_ID)).willReturn(expected);
 
       ApiResponse<MyProfileResponse> response =
           controller.getMyProfile(new UserPrincipal(USER_ID));
 
       assertThat(response.success()).isTrue();
-      assertThat(response.data()).isEqualTo(new MyProfileResponse("3118정문경", false));
+      assertThat(response.data()).isEqualTo(expected);
+    }
+  }
+
+  @Nested
+  @DisplayName("GET /api/v1/users/search")
+  class Search {
+
+    @Test
+    @DisplayName("query가 비어있으면 400을 반환한다")
+    void returns400WhenQueryBlank() throws Exception {
+      mockMvc.perform(get("/api/v1/users/search").param("query", ""))
+          .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("query가 없으면 400을 반환한다")
+    void returns400WhenQueryMissing() throws Exception {
+      mockMvc.perform(get("/api/v1/users/search"))
+          .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("검색어로 서비스를 호출하고 결과를 그대로 반환한다")
+    void callsServiceWithQuery() {
+      UserController controller = new UserController(userService);
+      List<UserSearchResponse> expected =
+          List.of(new UserSearchResponse(55L, "영희", "이영희", 3, 1));
+      given(userService.search("영희")).willReturn(expected);
+
+      ApiResponse<List<UserSearchResponse>> response = controller.search("영희");
+
+      assertThat(response.success()).isTrue();
+      assertThat(response.data()).isEqualTo(expected);
     }
   }
 

@@ -3,6 +3,7 @@ package com.remake.gone.user.repository;
 import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.user.entity.User;
 import jakarta.persistence.LockModeType;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -67,4 +68,18 @@ public interface UserRepository extends JpaRepository<User, Long> {
   @Lock(LockModeType.PESSIMISTIC_WRITE)
   @Query("select u from User u where u.id = :id")
   Optional<User> findByIdForUpdate(@Param("id") Long id);
+
+  /**
+   * 실명(Gbsw.name)에 검색어가 부분 일치하는 가입된 사용자를 조회합니다. 아직 가입하지 않은
+   * 명단(Gbsw) 레코드는 대응하는 {@link User}가 없어 결과에 포함되지 않습니다.
+   *
+   * <p>{@code query}는 호출하는 쪽({@code UserService})에서 LIKE 와일드카드(`%`/`_`)를 이스케이프
+   * 처리해서 넘겨야 한다 — 이 메서드는 그 값을 그대로 `%...%`로 감싸기만 한다.
+   *
+   * @param query LIKE 와일드카드가 이스케이프 처리된 검색어
+   * @return 조건에 맞는 사용자 목록
+   */
+  @Query("select u from User u join fetch u.gbsw g "
+      + "where g.name like concat('%', :query, '%') escape '\\'")
+  List<User> searchByRealNameContaining(@Param("query") String query);
 }
