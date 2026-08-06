@@ -58,6 +58,51 @@
   구현 중 "권한: STUDENT" 요구사항을 실제로 코드에 반영하면서 새로 추가했다 — 두 기획서
   모두에 즉시 반영해뒀다(위 "코드 리뷰" 참고).
 
+## PR #34 리뷰 후 2차 코드 리뷰 (커스텀 시간대 확정 커밋 이후)
+PR을 올린 뒤 diff 전체를 다시 훑어 3건을 발견, 전부 수정하고 테스트를 추가했다.
+
+**Medium**
+- `OutingService.toResponse()`가 `student.getGbsw()`의 `grade`/`classNo`를 null 체크 없이
+  그대로 응답에 담고 있었다. 같은 저장소의 `TimetableService.getMyTimetable()`은 정확히 같은
+  nullable 필드(`Gbsw.grade`/`classNo`)를 검사해 `GbswErrorCode.NO_CLASS_ASSIGNED`(400)로
+  거부하는데, 외출증 신청에는 이 방어가 없었다.
+  - **수정**: `OutingService`에 `validateClassAssigned(Gbsw)`를 추가해, 학생 락 획득 직후
+    `grade`/`classNo` 중 하나라도 `null`이면 `GbswErrorCode.NO_CLASS_ASSIGNED`(재사용, 신규
+    `OUTING_` 코드 아님)로 거부하도록 했다. 기획서(`29-outing-apply.md`,
+    `outing-domain.md`)에도 구현 로직 8번 단계와 에러 목록으로 반영.
+  - **재검토 메모**: 실제로는 `AuthService.generateStudentDefaultName`이 "STUDENT 타입
+    Gbsw 레코드는 항상 grade/classNo/number가 채워져 있어야 한다"는 불변조건을 가정하고
+    회원가입 시점에 이를 어기면 `IllegalStateException`으로 즉시 실패시킨다(엑셀 명단 입력
+    오류 등 데이터 이상 취급). 즉 "정상적으로 가입된 STUDENT 계정"이 이 상태에 놓일 가능성은
+    낮다. 다만 이 불변조건은 DB `NOT NULL` 제약이 아니라 애플리케이션 코드로만 보장되는
+    "무른" 보장이라, 향후 명단 재배정/수정 기능이 추가되면 가입 이후에 값이 `null`이 될
+    가능성을 배제할 수 없다. `TimetableService`가 이미 같은 필드에 방어적 체크를 두고 있는
+    것과 일관되게 맞춰, "이 필드는 항상 채워져 있다"고 서비스마다 다르게 가정하지 않도록
+    했다.
+
+**Low**
+- `OutingController.applyOuting`이 `LocalDate.now(KST)`와 `LocalTime.now(KST)`를 별도의 두
+  호출로 구했다 — 자정 경계에서 두 호출 사이에 날짜가 바뀌면 `today`/`now`가 서로 다른 날짜
+  기준으로 섞일 수 있었다.
+  - **수정**: `LocalDateTime.now(KST)` 한 번으로 스냅샷을 떠서 `toLocalDate()`/`toLocalTime()`
+    으로 나눠 쓰도록 변경.
+- `OutingService.saveWithGeneratedCode`가 `code` 유니크 충돌 재시도용으로 만든 로직인데,
+  `DataIntegrityViolationException`을 원인 구분 없이 전부 잡아서, 5회 재시도를 모두 소진하면
+  원본 예외를 버리고 `CustomException(INTERNAL_SERVER_ERROR)`(500, 원인 불명)로만 응답했다.
+  - **수정**: 재시도를 모두 소진하면 더 이상 감싸지 않고 원본 `DataIntegrityViolationException`
+    을 그대로 던지도록 변경(직전에 `log.warn`으로 재시도 소진 사실을 남김). 이 예외는 이미
+    프로젝트 전역의 `GlobalExceptionHandler#handleDataIntegrityViolation`이 `409 Conflict`로
+    변환하므로, 원인이 code 충돌이든 다른 제약 위반이든 프로젝트 공통 규약을 그대로 따르게
+    된다.
+
+**추가된 테스트**
+- `OutingServiceTest#rejectsWhenStudentHasNoClassAssigned` — 학급 미배정 학생 계정이면
+  `GbswErrorCode.NO_CLASS_ASSIGNED`로 거부되는지 검증.
+- `OutingServiceTest#throwsOriginalExceptionWhenCodeGenerationExhaustsRetries` — `save()`가
+  5회 모두 실패하면 원본 `DataIntegrityViolationException`을 그대로(`isSameAs`) 던지는지 검증.
+- `./gradlew build --rerun-tasks` 재실행 — checkstyle/전체 테스트(기존 23건 + 신규 2건) 통과.
+
 ## 완료 조건 확인
-- [x] 로컬 빌드/테스트 통과 (`./gradlew build`)
-- [ ] CI 통과 — PR 생성 후 확인 필요
+- [x] 로컬 빌드/테스트 통과 (`./gradlew build --rerun-tasks`, 2차 리뷰 수정사항 포함)
+- [ ] CI 통과 — 이전 커밋(`009da9d`)까지는 `checkstyle`/`build-and-test` 모두 SUCCESS 확인.
+      2차 리뷰 수정 커밋 푸시 후 재확인 필요

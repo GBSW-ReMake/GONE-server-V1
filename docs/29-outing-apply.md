@@ -75,12 +75,17 @@ API 하나만 구현한다. 승인/거절, 출발/도착, 위치 추적 등은 �
   7. `userRepository.findByIdForUpdate(studentUserId)`로 그 학생의 `User` 행에 배타적 락
      (`SELECT ... FOR UPDATE`) — 이 지점부터 저장까지 같은 학생의 동시 요청은 직렬화된다
      (아래 "동시성 처리" 참고)
-  8. 겹침 확인: 락을 잡은 채로 `(studentUserId, outingDate)`의 활성(`PENDING`/`APPROVED`/
+  8. 학급 배정 확인: `student.getGbsw()`의 `grade`/`classNo`가 하나라도 `null`이면 거부
+     (`GbswErrorCode.NO_CLASS_ASSIGNED` 재사용 — `TimetableService.getMyTimetable`과 동일한
+     방어. 외출증은 학년/반을 반드시 담는 공적 문서라, 학급 미배정 상태로 발급되는 걸 막는다)
+  9. 겹침 확인: 락을 잡은 채로 `(studentUserId, outingDate)`의 활성(`PENDING`/`APPROVED`/
      `DEPARTED`) 외출증을 조회해, 확정된 `[startTime, endTime)` 구간이 하나라도 겹치면 거부
      (`OutingTimeUtils.overlaps(...)` 순수 함수로 분리)
-  9. `OutingCodeGenerator`로 `code` 생성(영숫자 10자리, 예: `8A1zx9202`) 후 `Outing` 저장
-     (`PENDING`) — `code` 유니크 제약 위반 시(확률상 희박) 재생성 후 재시도(최대 5회)
-  10. 응답 DTO 변환 — **외출증은 공적 문서라 서비스 닉네임/사진과 별개로 실명/학년/반도
+  10. `OutingCodeGenerator`로 `code` 생성(영숫자 10자리, 예: `8A1zx9202`) 후 `Outing` 저장
+      (`PENDING`) — `code` 유니크 제약 위반 시(확률상 희박) 재생성 후 재시도(최대 5회). 5회를
+      모두 소진하면 원본 `DataIntegrityViolationException`을 그대로 던진다(원인 불문 삼키지
+      않음) — `GlobalExceptionHandler`의 공통 핸들러가 `409`로 변환한다.
+  11. 응답 DTO 변환 — **외출증은 공적 문서라 서비스 닉네임/사진과 별개로 실명/학년/반도
       같이 담는다**(마스터 기획서 "정책 가정" 참고):
       - `id = outing.getCode()`(내부 PK가 아니라 프론트에 표시할 코드를 응답 `id`로 사용 —
         마스터 기획서 "외부 식별자 정책" 참고)
@@ -98,6 +103,8 @@ API 하나만 구현한다. 승인/거절, 출발/도착, 위치 추적 등은 �
   - `CUSTOM`인데 `customStartTime`/`customEndTime`이 08:40~20:30 범위 밖이거나 `end <= start`
     → `400` `OUTING_011`
   - `teacherUserId`가 `TEACHER` 역할이 아님 → `400` `OUTING_002`
+  - 호출 학생 계정이 학급 미배정 상태(`Gbsw.grade`/`classNo`가 `null`) → `400` `GBSW_002`
+    (`GbswErrorCode` 재사용, 신규 `OUTING_` 코드 아님)
   - 그날 다른 활성 외출증과 시간이 겹침 → `409` `OUTING_003`
   - 호출자가 `STUDENT` 역할이 아님 → `403` `OUTING_012`
 
@@ -139,9 +146,19 @@ API 하나만 구현한다. 승인/거절, 출발/도착, 위치 추적 등은 �
   호출자의 `STUDENT` 역할 확인(둘 다 같은 패턴).
 - `R2FileService.generateDownloadUrl`(기존 메서드) 재사용해 학생 프로필 사진 URL 생성 —
   `OutingService`가 `R2FileService`에 의존하게 된다.
-- 신규 테스트: `OutingServiceTest`(정상 신청 — 프리셋/커스텀 각각, 에러 케이스 전부, `code`
-  중복 시 재생성 후 저장 성공, 겹침 판정 경계값), `OutingTimeUtilsTest`(구간 겹침 단위
-  테스트), `OutingControllerTest`(요청 검증)
+- `GbswErrorCode.NO_CLASS_ASSIGNED`(`gbsw` 도메인 기존 에러 코드) 재사용해 학급 미배정 학생
+  계정을 거부 — `TimetableService.getMyTimetable`이 이미 같은 필드(`Gbsw.grade`/`classNo`)에
+  쓰던 방어를 그대로 가져옴, 신규 `OUTING_` 코드 추가 아님.
+- `OutingController`가 `LocalDate.now(KST)`/`LocalTime.now(KST)`를 각각 따로 호출하던 걸
+  `LocalDateTime.now(KST)` 한 번으로 스냅샷 떠서 날짜/시각을 나누는 방식으로 바꿈 — 두 번
+  따로 호출하면 자정 경계에서 날짜와 시각이 서로 다른 순간 값으로 섞일 수 있어서다.
+- `OutingService.saveWithGeneratedCode`가 `code` 재시도를 모두 소진했을 때 더 이상
+  `CustomException(INTERNAL_SERVER_ERROR)`로 감싸지 않고, 원본 `DataIntegrityViolationException`
+  을 그대로 던진다 — `code` 충돌이 아닌 다른 제약 위반이어도 원인을 잃지 않고
+  `GlobalExceptionHandler`의 공통 핸들러가 `409`로 변환하도록 위임한다.
+- 신규 테스트: `OutingServiceTest`(정상 신청 — 프리셋/커스텀 각각, 에러 케이스 전부 — 학급
+  미배정 포함, `code` 중복 시 재생성 후 저장 성공, 재시도 소진 시 원본 예외 전파, 겹침 판정
+  경계값), `OutingTimeUtilsTest`(구간 겹침 단위 테스트), `OutingControllerTest`(요청 검증)
 
 ## 리스크 및 고려사항
 - 담당 선생님을 학생이 매번 직접 지정해야 하는 구조(담임 개념이 아직 없음) — 마스터

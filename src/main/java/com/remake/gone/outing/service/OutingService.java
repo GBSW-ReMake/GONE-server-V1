@@ -4,6 +4,7 @@ import com.remake.gone.common.exception.CommonErrorCode;
 import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.file.service.R2FileService;
 import com.remake.gone.gbsw.entity.Gbsw;
+import com.remake.gone.gbsw.exception.GbswErrorCode;
 import com.remake.gone.outing.dto.OutingApplyRequest;
 import com.remake.gone.outing.dto.OutingResponse;
 import com.remake.gone.outing.entity.Outing;
@@ -24,6 +25,7 @@ import java.time.format.DateTimeParseException;
 import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,6 +40,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class OutingService {
 
   private static final DateTimeFormatter YMD_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
@@ -77,6 +80,7 @@ public class OutingService {
     // (docs/outing-domain.md "동시성 처리" 참고).
     User student = userRepository.findByIdForUpdate(studentUserId)
         .orElseThrow(() -> new CustomException(CommonErrorCode.UNAUTHORIZED));
+    validateClassAssigned(student.getGbsw());
 
     validateNoOverlap(studentUserId, outingDate, timeRange);
 
@@ -142,6 +146,12 @@ public class OutingService {
     }
   }
 
+  private void validateClassAssigned(Gbsw studentGbsw) {
+    if (studentGbsw.getGrade() == null || studentGbsw.getClassNo() == null) {
+      throw new CustomException(GbswErrorCode.NO_CLASS_ASSIGNED);
+    }
+  }
+
   private User findValidTeacher(Long teacherUserId) {
     User teacher = userRepository.findById(teacherUserId)
         .orElseThrow(() -> new CustomException(OutingErrorCode.TEACHER_NOT_FOUND));
@@ -165,6 +175,7 @@ public class OutingService {
   private Outing saveWithGeneratedCode(
       User student, User teacher, String reason, LocalDate outingDate,
       OutingTimeSlot timeSlot, TimeRange timeRange) {
+    DataIntegrityViolationException lastFailure = null;
     for (int attempt = 1; attempt <= MAX_CODE_GENERATION_ATTEMPTS; attempt++) {
       Outing outing = Outing.builder()
           .code(OutingCodeGenerator.generate())
@@ -180,12 +191,14 @@ public class OutingService {
       try {
         return outingRepository.save(outing);
       } catch (DataIntegrityViolationException e) {
-        if (attempt == MAX_CODE_GENERATION_ATTEMPTS) {
-          throw new CustomException(CommonErrorCode.INTERNAL_SERVER_ERROR);
-        }
+        lastFailure = e;
       }
     }
-    throw new CustomException(CommonErrorCode.INTERNAL_SERVER_ERROR);
+    // code 유니크 제약 위반이 아닌 다른 원인일 수도 있으므로, 원본 예외를 삼키지 않고 그대로
+    // 던진다 — GlobalExceptionHandler의 DataIntegrityViolationException 핸들러가 409로 변환한다.
+    log.warn("외출증 code 생성 {}회 재시도 모두 실패(studentId={})",
+        MAX_CODE_GENERATION_ATTEMPTS, student.getId(), lastFailure);
+    throw lastFailure;
   }
 
   private OutingResponse toResponse(Outing outing, User student, User teacher) {

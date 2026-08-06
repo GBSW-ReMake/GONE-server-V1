@@ -11,6 +11,7 @@ import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.file.service.R2FileService;
 import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.enums.GbswType;
+import com.remake.gone.gbsw.exception.GbswErrorCode;
 import com.remake.gone.outing.dto.OutingApplyRequest;
 import com.remake.gone.outing.dto.OutingResponse;
 import com.remake.gone.outing.entity.Outing;
@@ -71,6 +72,22 @@ class OutingServiceTest {
         .grade(3)
         .classNo(4)
         .number(12)
+        .build();
+    return User.builder()
+        .id(STUDENT_ID)
+        .gbsw(gbsw)
+        .loginId("student1")
+        .passwordHash("hash")
+        .name("길동이")
+        .phoneNumber("01011112222")
+        .build();
+  }
+
+  private User studentWithoutClass() {
+    Gbsw gbsw = Gbsw.builder()
+        .type(GbswType.STUDENT)
+        .name("홍길동")
+        .phoneNumber("01011112222")
         .build();
     return User.builder()
         .id(STUDENT_ID)
@@ -274,6 +291,21 @@ class OutingServiceTest {
     }
 
     @Test
+    @DisplayName("학급 정보(학년/반)가 없는 학생 계정이면 거부한다")
+    void rejectsWhenStudentHasNoClassAssigned() {
+      givenStudentAndTeacherRolesOk();
+      given(userRepository.findById(TEACHER_ID)).willReturn(Optional.of(teacher()));
+      given(userRepository.findByIdForUpdate(STUDENT_ID))
+          .willReturn(Optional.of(studentWithoutClass()));
+
+      assertThatThrownBy(() -> outingService.applyOuting(
+          STUDENT_ID, request(OutingTimeSlot.LUNCH, null, null), TODAY, NOW))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(GbswErrorCode.NO_CLASS_ASSIGNED);
+    }
+
+    @Test
     @DisplayName("같은 날짜에 시간이 겹치는 활성 외출증이 있으면 거부한다")
     void rejectsWhenTimeOverlapsWithActiveOuting() {
       givenStudentAndTeacherRolesOk();
@@ -322,6 +354,25 @@ class OutingServiceTest {
 
       assertThat(response.status()).isEqualTo(OutingStatus.PENDING);
       verify(outingRepository, times(2)).save(any(Outing.class));
+    }
+
+    @Test
+    @DisplayName("code 생성 재시도를 모두 소진하면 원본 예외를 그대로 던진다")
+    void throwsOriginalExceptionWhenCodeGenerationExhaustsRetries() {
+      givenStudentAndTeacherRolesOk();
+      given(userRepository.findById(TEACHER_ID)).willReturn(Optional.of(teacher()));
+      given(userRepository.findByIdForUpdate(STUDENT_ID)).willReturn(Optional.of(student()));
+      given(outingRepository.findByStudentIdAndOutingDateAndStatusIn(
+          STUDENT_ID, LocalDate.parse("2026-08-14"), OutingStatus.ACTIVE_STATUSES))
+          .willReturn(List.of());
+      DataIntegrityViolationException persistentFailure =
+          new DataIntegrityViolationException("code 중복");
+      given(outingRepository.save(any(Outing.class))).willThrow(persistentFailure);
+
+      assertThatThrownBy(() -> outingService.applyOuting(
+          STUDENT_ID, request(OutingTimeSlot.LUNCH, null, null), TODAY, NOW))
+          .isSameAs(persistentFailure);
+      verify(outingRepository, times(5)).save(any(Outing.class));
     }
   }
 }

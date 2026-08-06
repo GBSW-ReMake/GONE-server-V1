@@ -274,13 +274,19 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
    (`SELECT ... FOR UPDATE`, `@Lock(LockModeType.PESSIMISTIC_WRITE)`) — 이 메서드를 감싼
    서비스 메서드는 `@Transactional`이어야 하며, 이 지점부터 저장까지 같은 학생의 동시 요청은
    직렬화된다(아래 "동시성 처리" 참고)
-8. 겹침 확인: 락을 잡은 채로 `(studentUserId, outingDate)`의 활성(`PENDING`/`APPROVED`/
+8. 학급 배정 확인: 락으로 가져온 `student.getGbsw()`의 `grade`/`classNo`가 하나라도 `null`이면
+   거부(`GbswErrorCode.NO_CLASS_ASSIGNED` 재사용) — `TimetableService.getMyTimetable`이 이미
+   같은 필드에 쓰던 방어와 동일. 외출증은 학년/반을 반드시 담는 공적 문서라, 학급 미배정
+   계정으로 발급되는 걸 막는다.
+9. 겹침 확인: 락을 잡은 채로 `(studentUserId, outingDate)`의 활성(`PENDING`/`APPROVED`/
    `DEPARTED`) 외출증을 조회해, 확정된 `[startTime, endTime)` 구간이 하나라도 겹치면 거부
    (프리셋끼리든 프리셋-커스텀이든 실제 시간 겹침 여부로 판단 — 순수 함수
    `OutingTimeUtils.overlaps(start1, end1, start2, end2)`로 분리)
-9. `OutingCodeGenerator`로 `code` 생성(영숫자 10자리) 후 `Outing` 저장(`PENDING`) — `code`
-   유니크 제약 위반 시(확률상 희박) 재생성 후 재시도(최대 5회)
-10. 응답 DTO 변환:
+10. `OutingCodeGenerator`로 `code` 생성(영숫자 10자리) 후 `Outing` 저장(`PENDING`) — `code`
+    유니크 제약 위반 시(확률상 희박) 재생성 후 재시도(최대 5회). 5회를 모두 소진하면
+    `CustomException`으로 감싸지 않고 원본 `DataIntegrityViolationException`을 그대로 던져
+    `GlobalExceptionHandler`의 공통 핸들러가 `409`로 변환하게 한다(원인 정보를 잃지 않기 위함).
+11. 응답 DTO 변환:
     - `id = outing.getCode()`(내부 PK가 아니라 위에서 생성한 코드를 응답의 `id`로 사용)
     - `studentNickname = student.getName()`, `studentProfileImageUrl =
       student.getProfileImageKey() != null ? r2FileService.generateDownloadUrl(key) : null`
@@ -296,6 +302,8 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 - `CUSTOM`인데 `customStartTime`/`customEndTime`이 08:40~20:30 범위 밖이거나 `end <= start`
   → `400` `OUTING_011`
 - `teacherUserId`가 `TEACHER` 역할이 아님 → `400` `OUTING_002`
+- 호출 학생 계정이 학급 미배정 상태(`Gbsw.grade`/`classNo`가 `null`) → `400` `GBSW_002`
+  (`GbswErrorCode` 재사용, 신규 `OUTING_` 코드 아님)
 - 그날 다른 활성 외출증과 시간이 겹침(프리셋끼리든 커스텀이 섞였든) → `409` `OUTING_003`
 - 호출자가 `STUDENT` 역할이 아님 → `403` `OUTING_012`
 
@@ -732,7 +740,10 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
   `GeoUtils.distanceMeters(lat1, lng1, lat2, lng2)`) — 4/5번 엔드포인트 양쪽에서 재사용하고,
   경계값(정확히 반경 위/아래) 단위 테스트를 붙이기도 쉬워진다.
 - **시간 관련 로직은 전부 KST 고정**(`ZoneId.of("Asia/Seoul")`) — 서버 배포 환경의 기본
-  타임존에 의존하지 않는다.
+  타임존에 의존하지 않는다. "오늘"/"지금"을 컨트롤러에서 구할 때는 `LocalDate.now(KST)`와
+  `LocalTime.now(KST)`를 따로 두 번 호출하지 않고 `LocalDateTime.now(KST)` 한 번으로 스냅샷을
+  떠서 날짜/시각을 나눠 쓴다 — 따로 호출하면 자정 경계에서 두 값이 서로 다른 순간 기준으로
+  섞일 수 있다.
 - **동시성**: 신청(1번)의 겹침 체크만 진짜 레이스 컨디션 위험이 있고, 나머지(승인/거절/출발/
   도착)는 상태 전이 조건 자체가 자연스러운 락 역할을 한다(같은 상태에서만 다음 단계로 갈 수
   있으므로 두 번째 시도는 자동으로 막힘). 신청의 레이스는 프론트 더블클릭 방지 + 서버

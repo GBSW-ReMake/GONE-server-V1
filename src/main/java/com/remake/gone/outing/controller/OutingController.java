@@ -6,8 +6,7 @@ import com.remake.gone.outing.dto.OutingApplyRequest;
 import com.remake.gone.outing.dto.OutingResponse;
 import com.remake.gone.outing.service.OutingService;
 import jakarta.validation.Valid;
-import java.time.LocalDate;
-import java.time.LocalTime;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -46,8 +45,9 @@ public class OutingController {
       @AuthenticationPrincipal UserPrincipal principal,
       @Valid @RequestBody OutingApplyRequest request
   ) {
+    LocalDateTime now = LocalDateTime.now(KST);
     OutingResponse response = outingService.applyOuting(
-        principal.userId(), request, LocalDate.now(KST), LocalTime.now(KST));
+        principal.userId(), request, now.toLocalDate(), now.toLocalTime());
     return ApiResponse.success(response, "외출증 신청이 접수되었습니다.");
   }
 }
