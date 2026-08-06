@@ -33,24 +33,45 @@
 
 ### 실제 서버 기동 검증
 로컬 MySQL(3306) + Redis(6379)가 떠 있어 `./gradlew bootRun --args='--spring.profiles.active=dev'`
-로 두 차례(초기 구현 시점, N+1/이스케이프 수정 이후) 실제 기동까지 확인했다.
-- 두 번 모두 정상 기동 — `@Query` JPQL(`join fetch ... escape '\'` 포함)이 리포지토리 빈 생성
-  시점에 파싱 오류 없이 통과됨을 확인
+로 세 차례(초기 구현 시점, N+1/이스케이프 수정 이후, 인증된 happy path 검증 시점) 실제 기동까지
+확인했다.
+- 매번 정상 기동 — `@Query` JPQL(`join fetch ... escape '\'` 포함)이 리포지토리 빈 생성 시점에
+  파싱 오류 없이 통과됨을 확인
 - 인증 없이 호출:
   - `GET /api/v1/users/me` → `401 COMMON_002` — 정상
   - `GET /api/v1/users/search?query=x` → `401 COMMON_002` — 정상
   - 유효하지 않은 토큰으로도 동일하게 `401` — 정상
-- 테스트 후 기동했던 프로세스는 모두 종료 처리함(계속 떠 있지 않음)
+
+### 인증된 실사용자 happy path 검증 (이 환경에 mysql CLI/Docker가 없어 raw JDBC로 우회)
+이 환경에 DB 클라이언트나 Docker가 없어 dev DB에 테스트 계정을 만들 수단이 없었는데,
+Gradle 캐시에 이미 있는 `mysql-connector-j` jar를 `jshell --class-path`로 물려 JDBC로 직접
+접속하는 방식으로 우회했다(코드/설정 변경 없음, 순수 DB 시드용 1회성 스크립트). 테스트
+데이터는 검증 직후 전부 삭제했다.
+1. `gbsw` 테이블에 학생 1명(`김철수`, 1학년 1반), 선생님 1명(`박영희`), **회원가입은 안 시킬**
+   미가입 학생 1명(`김철민`)을 직접 insert(한글 인코딩 문제를 피하려고 코드포인트로 문자열을
+   조립 후 UTF-8 hex로 저장값을 재확인함)
+2. `POST /auth/phone/send-code` → 콘솔 로그에서 인증번호 확인(`ConsoleSmsSender`, dev 프로필
+   전용) → `POST /auth/phone/verify-code` → `POST /auth/signup`으로 김철수/박영희 두 계정만
+   실제로 가입시킴(김철민은 의도적으로 미가입 상태로 남김)
+3. 발급받은 Access Token으로 실제 호출, 전부 기대한 그대로 응답:
+   - `GET /users/me`(김철수) → `{name: "1101김철수", hasProfileImage: false, profileImageUrl:
+     null, realName: "김철수", grade: 1, classNo: 1}`
+   - `GET /users/me`(박영희) → `{name: "T-756-박영희", ..., realName: "박영희", grade: null,
+     classNo: null}` — 선생님 학년/반 null 확인
+   - `GET /users/search?query=김철` → **가입된 `김철수`만** 반환, **미가입 `김철민`은 결과에서
+     제외** — `User` 기준 조회(가입자만 검색) 설계가 실제로 의도대로 동작함을 확인
+   - `GET /users/search?query=박영희` → 선생님 결과, `grade`/`classNo` 모두 `null`
+   - `GET /users/search?query=%`(URL 인코딩 없이 리터럴 `%`) → **빈 배열** 반환 — 코드 리뷰에서
+     고친 LIKE 와일드카드 이스케이프가 실제로 동작함을 확인(수정 전이었다면 전체 사용자가
+     매칭됐을 상황)
+   - `GET /users/search?query=없는이름` → 빈 배열
+4. 검증 후 테스트 계정(`user`/`user_role`/`gbsw` 각 2~3건)을 모두 삭제, 기동했던 프로세스도
+   종료 처리함
 
 ## 발견된 문제 (심각도별)
 
-**Medium**
-- 인증된 정상 흐름(실제 학생/선생님 계정으로 로그인 → 검색 → 응답 확인, 본인 프로필 확장
-  응답 확인)까지는 실 서버로 검증하지 못했다. 이 환경에 DB 클라이언트(mysql CLI)와 Docker
-  둘 다 접근 불가능해 dev DB에 테스트 계정이 있는지, 있다면 실제로 로그인해 토큰을 발급받는
-  전체 플로우를 확인할 수단이 없었다(#29 QA 때와 동일한 환경 제약). 비즈니스 로직 자체(검색
-  매칭, 학생/선생님 학년·반 분기, 프로필 확장 필드 매핑)는 Mockito 기반 단위 테스트로 촘촘히
-  커버했지만, "실제 DB에 저장된 실명으로 진짜 검색이 되는지"는 미검증 상태다.
+~~**Medium**: 인증된 실사용자 happy path 미검증~~ → 위 "인증된 실사용자 happy path 검증"
+절에서 raw JDBC로 테스트 계정을 만들어 실제로 검증 완료. 해소됨.
 
 **Low**
 - `User.deletedAt`(소프트 삭제) 사용자가 검색 결과에 그대로 노출된다 — 위 코드 리뷰 절에서
