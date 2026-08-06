@@ -38,7 +38,7 @@ API 하나만 구현한다. 승인/거절, 출발/도착, 위치 추적 등은 �
 {
   "success": true,
   "data": {
-    "id": "8A1zx9202",
+    "code": "8A1zx9202",
     "studentNickname": "길동이",
     "studentProfileImageUrl": "https://.../profile/1/abc.jpg?X-Amz-...",
     "studentRealName": "홍길동",
@@ -87,8 +87,8 @@ API 하나만 구현한다. 승인/거절, 출발/도착, 위치 추적 등은 �
       않음) — `GlobalExceptionHandler`의 공통 핸들러가 `409`로 변환한다.
   11. 응답 DTO 변환 — **외출증은 공적 문서라 서비스 닉네임/사진과 별개로 실명/학년/반도
       같이 담는다**(마스터 기획서 "정책 가정" 참고):
-      - `id = outing.getCode()`(내부 PK가 아니라 프론트에 표시할 코드를 응답 `id`로 사용 —
-        마스터 기획서 "외부 식별자 정책" 참고)
+      - `code = outing.getCode()`(내부 PK가 아니라 외부 식별자 코드를 그대로 응답 `code`로
+        사용 — 마스터 기획서 "외부 식별자 정책" 참고)
       - `studentNickname = student.getName()`,
         `studentProfileImageUrl = student.getProfileImageKey() != null ?
         r2FileService.generateDownloadUrl(key) : null` (`R2FileService.generateDownloadUrl`은
@@ -120,7 +120,7 @@ API 하나만 구현한다. 승인/거절, 출발/도착, 위치 추적 등은 �
 
 ## 데이터 모델 변경
 - 신규 마이그레이션 1개, `outing` 테이블 생성:
-  - `id`(내부 PK), `code`(외부 식별자, `VARCHAR(10)` UNIQUE, 응답의 `id`로 노출 — 마스터
+  - `id`(내부 PK), `code`(외부 식별자, `VARCHAR(10)` UNIQUE, 응답의 `code`로 노출 — 마스터
     기획서 "외부 식별자 정책" 참고), `student_user_id`(FK), `teacher_user_id`(FK), `reason`,
     `outing_date`, `time_slot`, `start_time`, `end_time`, `status`, `approved_at`,
     `rejected_reason`, `departed_at`, `returned_at`, `created_at`

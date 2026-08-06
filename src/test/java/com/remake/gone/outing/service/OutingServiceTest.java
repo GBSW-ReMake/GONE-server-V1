@@ -152,7 +152,7 @@ class OutingServiceTest {
       assertThat(response.studentGrade()).isEqualTo(3);
       assertThat(response.studentClassNo()).isEqualTo(4);
       assertThat(response.teacherName()).isEqualTo("김선생");
-      assertThat(response.id()).hasSize(10);
+      assertThat(response.code()).hasSize(10);
     }
 
     @Test

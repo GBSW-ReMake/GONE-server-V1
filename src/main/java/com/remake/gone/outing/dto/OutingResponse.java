@@ -6,7 +6,7 @@ import com.remake.gone.outing.enums.OutingTimeSlot;
 /**
  * 외출증 신청 응답 DTO.
  *
- * @param id                     외부 식별자 코드(내부 PK가 아니라 프론트에 표시할 코드)
+ * @param code                   외부 식별자 코드(내부 PK가 아니라 프론트에 표시할 코드)
  * @param studentNickname        학생 별명({@code User.name})
  * @param studentProfileImageUrl 학생 프로필 사진 presigned URL. 없으면 {@code null}
  * @param studentRealName        학생 실명({@code Gbsw.name})
@@ -21,7 +21,7 @@ import com.remake.gone.outing.enums.OutingTimeSlot;
  * @param status                 외출증 상태
  */
 public record OutingResponse(
-    String id,
+    String code,
     String studentNickname,
     String studentProfileImageUrl,
     String studentRealName,

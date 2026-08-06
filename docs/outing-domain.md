@@ -109,8 +109,8 @@
 ### 외부 식별자 정책 — `id`(내부) vs `code`(외부, 프론트 표시용)
 > 외출증마다 프론트엔드 화면에 표시할 고유 코드를 둔다. DB 내부 자동증가 `id`(BIGINT PK)는
 > FK 관계 등 내부용으로만 쓰고, **API가 주고받는 모든 `id` 필드와 경로 변수의 값은 실제로는
-> 이 코드 값이다** — 이후 모든 엔드포인트 설명에서 경로의 `{id}`/응답의 `id`라고 쓴 것은 이
-> 코드를 가리킨다(내부 PK를 그대로 노출하지 않는다).
+> 이 코드 값이다** — 응답 필드명 자체도 `id`가 아니라 `code`로 둔다(내부 PK를 그대로
+> 노출하지 않고, 필드 이름도 실제 값의 의미에 맞춘다).
 
 - **형식**: 영숫자(대소문자 + 숫자) 10자리, 예: `8A1zx9202`
 - **생성**: `SecureRandom` 기반 랜덤 문자열 생성 유틸(`OutingCodeGenerator`, 가칭) — 신청
@@ -234,7 +234,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 {
   "success": true,
   "data": {
-    "id": "8A1zx9202",
+    "code": "8A1zx9202",
     "studentNickname": "길동이",
     "studentProfileImageUrl": "https://.../profile/1/abc.jpg?X-Amz-...",
     "studentRealName": "홍길동",
@@ -287,7 +287,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
     `CustomException`으로 감싸지 않고 원본 `DataIntegrityViolationException`을 그대로 던져
     `GlobalExceptionHandler`의 공통 핸들러가 `409`로 변환하게 한다(원인 정보를 잃지 않기 위함).
 11. 응답 DTO 변환:
-    - `id = outing.getCode()`(내부 PK가 아니라 위에서 생성한 코드를 응답의 `id`로 사용)
+    - `code = outing.getCode()`(내부 PK가 아니라 위에서 생성한 코드를 응답의 `code`로 사용)
     - `studentNickname = student.getName()`, `studentProfileImageUrl =
       student.getProfileImageKey() != null ? r2FileService.generateDownloadUrl(key) : null`
     - `studentRealName = student.getGbsw().getName()`, `studentGrade =
@@ -398,7 +398,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 {
   "success": true,
   "data": {
-    "id": "8A1zx9202",
+    "code": "8A1zx9202",
     "status": "DEPARTED",
     "departedAt": "2026-08-14T12:31:05"
   },
@@ -506,7 +506,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
   "success": true,
   "data": [
     {
-      "id": "8A1zx9202",
+      "code": "8A1zx9202",
       "studentNickname": "길동이",
       "studentProfileImageUrl": "https://.../profile/1/abc.jpg?X-Amz-...",
       "studentRealName": "홍길동",
