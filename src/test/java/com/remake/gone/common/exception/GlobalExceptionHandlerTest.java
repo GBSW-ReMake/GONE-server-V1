@@ -20,6 +20,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 
 /**
@@ -97,6 +98,22 @@ class GlobalExceptionHandlerTest {
       assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
       assertThat(response.getBody().success()).isFalse();
       assertThat(response.getBody().code()).isEqualTo("COMMON_001");
+    }
+  }
+
+  @Nested
+  @DisplayName("handleAccessDenied")
+  class HandleAccessDenied {
+
+    @Test
+    @DisplayName("@PreAuthorize가 접근을 거부하면 500이 아니라 403 COMMON_003으로 응답한다")
+    void returns403InsteadOfInternalServerError() {
+      ResponseEntity<ApiResponse<Void>> response =
+          handler.handleAccessDenied(new AccessDeniedException("Access is denied"));
+
+      assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+      assertThat(response.getBody().success()).isFalse();
+      assertThat(response.getBody().code()).isEqualTo("COMMON_003");
     }
   }
 }

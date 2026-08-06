@@ -6,6 +6,7 @@ import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -175,6 +176,26 @@ public class GlobalExceptionHandler {
             null,
             CommonErrorCode.METHOD_NOT_ALLOWED.getDefaultMessage(),
             CommonErrorCode.METHOD_NOT_ALLOWED.getCode()));
+  }
+
+  /**
+   * {@link AccessDeniedException} 처리.
+   *
+   * <p>{@code @PreAuthorize} 등 메서드 보안 애노테이션이 접근을 거부했을 때 발생합니다.
+   * 이 프로젝트에서 {@code @EnableMethodSecurity}를 처음 쓰는 #30(외출증 승인)부터
+   * 발생할 수 있습니다.
+   *
+   * @param e 발생한 예외
+   * @return {@code 403 Forbidden} 응답
+   */
+  @ExceptionHandler(AccessDeniedException.class)
+  public ResponseEntity<ApiResponse<Void>> handleAccessDenied(AccessDeniedException e) {
+    return ResponseEntity
+        .status(CommonErrorCode.FORBIDDEN.getStatus())
+        .body(ApiResponse.fail(
+            null,
+            CommonErrorCode.FORBIDDEN.getDefaultMessage(),
+            CommonErrorCode.FORBIDDEN.getCode()));
   }
 
   /**
