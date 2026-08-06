@@ -30,8 +30,9 @@
 ```
 - **구현 로직**
   1. `query`가 비어있으면 `400`
-  2. `userRepository.findByGbsw_NameContaining(query)`로 **`User` 기준** 조회(위 경고 참고 —
-     `Gbsw`가 아니라 `User`에서 시작해 가입된 사람만 대상으로 함)
+  2. `userRepository.searchByRealNameContaining(query)`(`@Query` JPQL, `findByIdForUpdate`와
+     같은 커스텀 쿼리 패턴)로 **`User` 기준** 조회(위 경고 참고 — `Gbsw`가 아니라 `User`에서
+     시작해 가입된 사람만 대상으로 함)
   3. 각 결과의 `nickname = user.getName()`, `realName = user.getGbsw().getName()` 채움
   4. `Gbsw.type == STUDENT`면 `grade`/`classNo`를 값으로 채우고, `TEACHER`면 `null`로 응답
      (필드 자체는 항상 응답에 포함 — 이 프로젝트의 다른 DTO들과 동일하게 "필드는 항상 두고
@@ -83,9 +84,21 @@
   추가 — 기존 필드는 그대로 두는 하위 호환 확장이라 기존 `MyProfileResponse` 관련 테스트는
   응답 필드 추가분만 보강하면 됨.
 - `UserService`가 `R2FileService`에 새로 의존하게 됨.
-- 신규: `UserController`에 `GET /api/v1/users/search` 추가, `UserSearchResponse` DTO 신규.
+- `UserController`에 클래스 레벨 `@Validated` 추가(`AuthController`와 동일한 패턴) —
+  `@RequestParam @NotBlank String query`가 실제로 검증되려면 필요.
+- 신규: `UserController`에 `GET /api/v1/users/search` 추가, `UserSearchResponse` DTO 신규,
+  `UserRepository.searchByRealNameContaining`(`@Query` JPQL, `findByIdForUpdate`와 같은
+  커스텀 쿼리 패턴) 추가.
+- **구현 중 발견해 수정**: `query` 파라미터 자체가 요청에 없으면(값이 빈 문자열이 아니라
+  파라미터가 아예 없는 경우) `@NotBlank`가 아니라 Spring MVC의
+  `MissingServletRequestParameterException`이 먼저 발생하는데, `GlobalExceptionHandler`가
+  이를 별도로 처리하지 않아 `handleException` 폴백으로 떨어져 `500`이 되는 문제를 발견했다.
+  `common/exception/GlobalExceptionHandler`에 전용 핸들러를 추가해 `400`
+  `CommonErrorCode.INVALID_REQUEST`로 응답하도록 수정 — `user` 도메인 전용이 아니라 공통
+  인프라 수정이라, 필수 `@RequestParam`을 쓰는 다른 기존 엔드포인트(`AuthController`의
+  아이디/별명 중복 확인)에도 동일하게 적용된다.
 - 신규/기존 테스트: `UserServiceTest`(검색, 확장된 프로필 조회), `UserControllerTest`(요청
-  검증)
+  검증), `GlobalExceptionHandlerTest`(필수 파라미터 누락 시 400 응답 검증)
 
 ## 리스크 및 고려사항
 - 검색 대상은 반드시 **가입된 `User`** 기준이어야 한다(위 리스크 참고) — `Gbsw` 기준으로
