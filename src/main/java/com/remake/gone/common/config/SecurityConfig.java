@@ -13,6 +13,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -37,9 +38,13 @@ import tools.jackson.databind.ObjectMapper;
  * <p>{@link AuthenticationManager}/{@link UserDetailsServiceImpl}은 로그인 시점의 자격증명
  * 검증에만 쓰인다. 로그인 이후 매 요청의 인증은 여전히 {@link JwtAuthenticationFilter}가 JWT
  * 서명만으로 stateless하게 처리하며, 이 두 흐름은 서로 대체 관계가 아니다.
+ *
+ * <p>{@link EnableMethodSecurity}로 컨트롤러 메서드의 {@code @PreAuthorize} 등 선언적 인가를
+ * 활성화한다(#30에서 처음 사용 — 이게 없으면 {@code @PreAuthorize}를 붙여도 조용히 무시된다).
  */
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity
 public class SecurityConfig {
 
   /**

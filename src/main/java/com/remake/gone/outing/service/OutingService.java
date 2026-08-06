@@ -19,6 +19,7 @@ import com.remake.gone.user.entity.User;
 import com.remake.gone.user.repository.UserRepository;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
@@ -88,6 +89,33 @@ public class OutingService {
         student, teacher, request.reason(), outingDate, request.timeSlot(), timeRange);
 
     return toResponse(outing, student, teacher);
+  }
+
+  /**
+   * 담당 선생님이 학생의 외출증 신청을 승인합니다.
+   *
+   * @param teacherUserId 승인을 요청한 선생님 사용자 ID (Access Token에서 추출됨)
+   * @param code          승인할 외출증의 외부 식별자 코드
+   * @param now           "지금" 시각(KST) — {@code approvedAt} 기록에 사용
+   * @return 승인된 외출증 정보
+   */
+  @Transactional
+  public OutingResponse approveOuting(Long teacherUserId, String code, LocalDateTime now) {
+    Outing outing = outingRepository.findByCode(code)
+        .orElseThrow(() -> new CustomException(OutingErrorCode.OUTING_NOT_FOUND));
+
+    if (!outing.getTeacher().getId().equals(teacherUserId)) {
+      throw new CustomException(OutingErrorCode.TEACHER_MISMATCH);
+    }
+    if (outing.getStatus() != OutingStatus.PENDING) {
+      throw new CustomException(OutingErrorCode.ALREADY_PROCESSED);
+    }
+
+    outing.setStatus(OutingStatus.APPROVED);
+    outing.setApprovedAt(now);
+    outingRepository.save(outing);
+
+    return toResponse(outing, outing.getStudent(), outing.getTeacher());
   }
 
   private void validateStudentRole(Long studentUserId) {

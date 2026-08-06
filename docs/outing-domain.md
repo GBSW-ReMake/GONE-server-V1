@@ -109,8 +109,8 @@
 ### 외부 식별자 정책 — `id`(내부) vs `code`(외부, 프론트 표시용)
 > 외출증마다 프론트엔드 화면에 표시할 고유 코드를 둔다. DB 내부 자동증가 `id`(BIGINT PK)는
 > FK 관계 등 내부용으로만 쓰고, **API가 주고받는 모든 `id` 필드와 경로 변수의 값은 실제로는
-> 이 코드 값이다** — 이후 모든 엔드포인트 설명에서 경로의 `{id}`/응답의 `id`라고 쓴 것은 이
-> 코드를 가리킨다(내부 PK를 그대로 노출하지 않는다).
+> 이 코드 값이다** — 응답 필드명 자체도 `id`가 아니라 `code`로 둔다(내부 PK를 그대로
+> 노출하지 않고, 필드 이름도 실제 값의 의미에 맞춘다).
 
 - **형식**: 영숫자(대소문자 + 숫자) 10자리, 예: `8A1zx9202`
 - **생성**: `SecureRandom` 기반 랜덤 문자열 생성 유틸(`OutingCodeGenerator`, 가칭) — 신청
@@ -234,7 +234,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 {
   "success": true,
   "data": {
-    "id": "8A1zx9202",
+    "code": "8A1zx9202",
     "studentNickname": "길동이",
     "studentProfileImageUrl": "https://.../profile/1/abc.jpg?X-Amz-...",
     "studentRealName": "홍길동",
@@ -287,7 +287,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
     `CustomException`으로 감싸지 않고 원본 `DataIntegrityViolationException`을 그대로 던져
     `GlobalExceptionHandler`의 공통 핸들러가 `409`로 변환하게 한다(원인 정보를 잃지 않기 위함).
 11. 응답 DTO 변환:
-    - `id = outing.getCode()`(내부 PK가 아니라 위에서 생성한 코드를 응답의 `id`로 사용)
+    - `code = outing.getCode()`(내부 PK가 아니라 위에서 생성한 코드를 응답의 `code`로 사용)
     - `studentNickname = student.getName()`, `studentProfileImageUrl =
       student.getProfileImageKey() != null ? r2FileService.generateDownloadUrl(key) : null`
     - `studentRealName = student.getGbsw().getName()`, `studentGrade =
@@ -359,7 +359,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 **에러**
 - 본인이 지정된 선생님이 아님 → `403` `OUTING_004`
 - 이미 승인/거절 처리된 건(`PENDING`이 아님) → `409` `OUTING_005`
-- 존재하지 않는 `id` → `404` `OUTING_006`
+- 존재하지 않는 `code` → `404` `OUTING_006`
 
 > 💡 **멱등성 트레이드오프**: 이미 `APPROVED`인 걸 같은 선생님이 실수로 한 번 더 누르면
 > 지금 설계는 `409`를 반환한다(재승인 성공 취급 안 함). "이미 승인됨"을 알려주는 게 사용자
@@ -398,7 +398,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 {
   "success": true,
   "data": {
-    "id": "8A1zx9202",
+    "code": "8A1zx9202",
     "status": "DEPARTED",
     "departedAt": "2026-08-14T12:31:05"
   },
@@ -423,7 +423,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 - 본인 외출증이 아님 → `403` `OUTING_007`
 - `APPROVED` 상태가 아닌데 출발 보고 시도 → `409` `OUTING_005`
 - **학교 반경 밖에서 출발 보고 시도 → `400` `OUTING_010`**
-- 존재하지 않는 `id` → `404` `OUTING_006`
+- 존재하지 않는 `code` → `404` `OUTING_006`
 
 > ✅ **자기 신고 한계를 위치 검증으로 좁힘**: 애초에 "실시간으로 막을 방법이 없다"고 썼던
 > 부분을 다시 생각해보니, 위치를 사후 조회 용도로만 쓸 이유가 없었다 — **출발/도착 그 순간의
@@ -506,7 +506,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
   "success": true,
   "data": [
     {
-      "id": "8A1zx9202",
+      "code": "8A1zx9202",
       "studentNickname": "길동이",
       "studentProfileImageUrl": "https://.../profile/1/abc.jpg?X-Amz-...",
       "studentRealName": "홍길동",
@@ -744,10 +744,15 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
   `LocalTime.now(KST)`를 따로 두 번 호출하지 않고 `LocalDateTime.now(KST)` 한 번으로 스냅샷을
   떠서 날짜/시각을 나눠 쓴다 — 따로 호출하면 자정 경계에서 두 값이 서로 다른 순간 기준으로
   섞일 수 있다.
-- **동시성**: 신청(1번)의 겹침 체크만 진짜 레이스 컨디션 위험이 있고, 나머지(승인/거절/출발/
-  도착)는 상태 전이 조건 자체가 자연스러운 락 역할을 한다(같은 상태에서만 다음 단계로 갈 수
-  있으므로 두 번째 시도는 자동으로 막힘). 신청의 레이스는 프론트 더블클릭 방지 + 서버
-  `User` 행 비관적 락(위 1번 엔드포인트 "동시성 처리" 참고, 확정)으로 방어한다.
+- **동시성**: 신청(1번)의 겹침 체크는 진짜 레이스 컨디션 위험이 있어 프론트 더블클릭 방지 +
+  서버 `User` 행 비관적 락(위 1번 엔드포인트 "동시성 처리" 참고, 확정)으로 방어한다.
+  나머지(승인/거절/출발/도착)의 "상태 전이 조건 자체가 자연스러운 락 역할을 한다"는 설명은
+  **락 없이는 정확하지 않다**(#30 코드 리뷰에서 발견, [30-outing-approve-QA.md](./30-outing-approve-QA.md)
+  참고) — `status == PENDING` 같은 체크만으로는 같은 사람의 동시 이중 클릭이 둘 다 체크를
+  통과하는 check-then-act 레이스를 막지 못한다. #30(승인)은 소유권 체크가 이미 있어 실사용
+  영향이 낮다고 보고 락을 추가하지 않기로 했지만, **#31(거절) 등 후속 엔드포인트는 "#30과
+  동일 패턴"이라고 그냥 넘기지 말고 매번 다시 판단한다** — 특히 거절처럼 매 요청마다 다른
+  값(`rejected_reason`)을 쓰는 필드가 있으면 레이스의 영향이 승인보다 커질 수 있다.
 - **외부 식별자**: 모든 조회/경로는 내부 `id`가 아니라 `code`로 한다(위 "외부 식별자 정책"
   참고) — 컨트롤러 파라미터 타입은 `String code`, 서비스는 `findByCode` 사용.
 

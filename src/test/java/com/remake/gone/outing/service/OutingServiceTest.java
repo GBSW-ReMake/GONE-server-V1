@@ -23,6 +23,7 @@ import com.remake.gone.role.repository.UserRoleRepository;
 import com.remake.gone.user.entity.User;
 import com.remake.gone.user.repository.UserRepository;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
@@ -152,7 +153,7 @@ class OutingServiceTest {
       assertThat(response.studentGrade()).isEqualTo(3);
       assertThat(response.studentClassNo()).isEqualTo(4);
       assertThat(response.teacherName()).isEqualTo("김선생");
-      assertThat(response.id()).hasSize(10);
+      assertThat(response.code()).hasSize(10);
     }
 
     @Test
@@ -373,6 +374,83 @@ class OutingServiceTest {
           STUDENT_ID, request(OutingTimeSlot.LUNCH, null, null), TODAY, NOW))
           .isSameAs(persistentFailure);
       verify(outingRepository, times(5)).save(any(Outing.class));
+    }
+  }
+
+  @Nested
+  @DisplayName("approveOuting")
+  class ApproveOuting {
+
+    private static final String OUTING_CODE = "8A1zx9202n";
+    private static final LocalDateTime NOW_DATETIME = LocalDateTime.of(2026, 8, 10, 9, 0);
+
+    private Outing pendingOuting() {
+      return Outing.builder()
+          .id(500L)
+          .code(OUTING_CODE)
+          .student(student())
+          .teacher(teacher())
+          .reason("치과 진료")
+          .outingDate(LocalDate.parse("2026-08-14"))
+          .timeSlot(OutingTimeSlot.LUNCH)
+          .startTime(LocalTime.of(12, 30))
+          .endTime(LocalTime.of(13, 40))
+          .status(OutingStatus.PENDING)
+          .build();
+    }
+
+    @Test
+    @DisplayName("담당 선생님이 PENDING 외출증을 승인하면 APPROVED로 바뀐다")
+    void approvesSuccessfully() {
+      Outing outing = pendingOuting();
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(outingRepository.save(any(Outing.class)))
+          .willAnswer(invocation -> invocation.getArgument(0, Outing.class));
+
+      OutingResponse response =
+          outingService.approveOuting(TEACHER_ID, OUTING_CODE, NOW_DATETIME);
+
+      assertThat(response.status()).isEqualTo(OutingStatus.APPROVED);
+      assertThat(outing.getApprovedAt()).isEqualTo(NOW_DATETIME);
+      verify(outingRepository).save(outing);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 code면 거부한다")
+    void rejectsWhenOutingNotFound() {
+      given(outingRepository.findByCode("NOPE")).willReturn(Optional.empty());
+
+      assertThatThrownBy(() -> outingService.approveOuting(TEACHER_ID, "NOPE", NOW_DATETIME))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.OUTING_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("본인에게 지정된 담당 선생님이 아니면 거부한다")
+    void rejectsWhenTeacherMismatch() {
+      Outing outing = pendingOuting();
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      Long otherTeacherId = 99L;
+
+      assertThatThrownBy(() -> outingService.approveOuting(
+          otherTeacherId, OUTING_CODE, NOW_DATETIME))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.TEACHER_MISMATCH);
+    }
+
+    @Test
+    @DisplayName("이미 PENDING이 아닌 외출증이면 거부한다")
+    void rejectsWhenAlreadyProcessed() {
+      Outing outing = pendingOuting();
+      outing.setStatus(OutingStatus.APPROVED);
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+
+      assertThatThrownBy(() -> outingService.approveOuting(TEACHER_ID, OUTING_CODE, NOW_DATETIME))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.ALREADY_PROCESSED);
     }
   }
 }

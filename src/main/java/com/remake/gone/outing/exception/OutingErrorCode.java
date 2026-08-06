@@ -6,9 +6,10 @@ import org.springframework.http.HttpStatus;
 /**
  * 외출(Outing) 도메인 에러 코드.
  *
- * <p>코드 네이밍 규칙: {@code OUTING_NNN} (NNN은 3자리 순번). 이 이슈(#29)에서는
- * {@code 001}/{@code 002}/{@code 003}/{@code 011}/{@code 012}만 채우고, 승인/거절/출발/도착/
- * 위치 관련 코드({@code 004}~{@code 010})는 후속 이슈(#30/#31/...)에서 추가한다.
+ * <p>코드 네이밍 규칙: {@code OUTING_NNN} (NNN은 3자리 순번). #29에서
+ * {@code 001}/{@code 002}/{@code 003}/{@code 011}/{@code 012}를, #30(승인)에서
+ * {@code 004}~{@code 006}을 채웠다. 거절/출발/도착/위치 관련 코드는 후속 이슈(#31/...)에서
+ * 추가한다.
  *
  * @see ErrorCode
  */
@@ -22,6 +23,15 @@ public enum OutingErrorCode implements ErrorCode {
 
   /** 같은 날짜에 시간이 겹치는 활성(PENDING/APPROVED/DEPARTED) 외출증이 이미 있습니다. */
   TIME_OVERLAP(HttpStatus.CONFLICT, "OUTING_003", "같은 시간대에 이미 진행 중인 외출증이 있습니다."),
+
+  /** 호출한 선생님이 그 외출증에 지정된 담당 선생님이 아닙니다. */
+  TEACHER_MISMATCH(HttpStatus.FORBIDDEN, "OUTING_004", "본인에게 지정된 외출증만 처리할 수 있습니다."),
+
+  /** 이미 PENDING 상태가 아닌(승인/거절/출발/도착 처리된) 외출증입니다. */
+  ALREADY_PROCESSED(HttpStatus.CONFLICT, "OUTING_005", "지금 상태에서는 처리할 수 없는 요청입니다."),
+
+  /** 요청한 code에 해당하는 외출증을 찾을 수 없습니다. */
+  OUTING_NOT_FOUND(HttpStatus.NOT_FOUND, "OUTING_006", "외출증을 찾을 수 없습니다."),
 
   /** 커스텀 시간대가 허용 범위(08:40~20:30) 밖이거나, 종료 시각이 시작 시각보다 빠르거나 같습니다. */
   INVALID_CUSTOM_TIME_RANGE(

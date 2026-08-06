@@ -15,6 +15,7 @@ import com.remake.gone.outing.enums.OutingStatus;
 import com.remake.gone.outing.enums.OutingTimeSlot;
 import com.remake.gone.outing.service.OutingService;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -39,6 +40,7 @@ import org.springframework.test.web.servlet.MockMvc;
 class OutingControllerTest {
 
   private static final Long STUDENT_ID = 1L;
+  private static final Long TEACHER_ID = 42L;
 
   @Autowired
   private MockMvc mockMvc;
@@ -132,6 +134,28 @@ class OutingControllerTest {
               .contentType(MediaType.APPLICATION_JSON)
               .content(body))
           .andExpect(status().isBadRequest());
+    }
+  }
+
+  @Nested
+  @DisplayName("PATCH /api/v1/outings/{code}/approve")
+  class ApproveOuting {
+
+    @Test
+    @DisplayName("principal의 userId와 code를 그대로 서비스에 전달한다")
+    void passesPrincipalAndCodeToService() {
+      String code = "8A1zx9202n";
+      OutingResponse expected = new OutingResponse(
+          code, "길동이", null, "홍길동", 3, 4, "김선생",
+          "치과 진료", "20260814", OutingTimeSlot.LUNCH, "12:30", "13:40", OutingStatus.APPROVED);
+      given(outingService.approveOuting(eq(TEACHER_ID), eq(code), any(LocalDateTime.class)))
+          .willReturn(expected);
+
+      ApiResponse<OutingResponse> response =
+          controller().approveOuting(new UserPrincipal(TEACHER_ID), code);
+
+      assertThat(response.success()).isTrue();
+      assertThat(response.data()).isEqualTo(expected);
     }
   }
 }
