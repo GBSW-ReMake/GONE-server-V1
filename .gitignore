@@ -36,6 +36,9 @@ out/
 ### VS Code ###
 .vscode/
 
+### Claude Code ###
+.claude/
+
 ### secret files ###
 application-dev.yml
 .env
