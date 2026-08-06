@@ -136,13 +136,13 @@
 1. `LUNCH` — 12:30~13:40 (서버가 시작/종료 시각을 채움, 클라이언트 입력 불가)
 2. `DINNER` — 18:10~21:10 (위와 동일)
 3. `CUSTOM` — 학생이 `customStartTime`/`customEndTime`을 직접 입력. 아래 제약 적용:
-   - **허용 범위**: `08:30 ~ 21:10`(학교 있는 시간) 안에 있어야 함 — `customStartTime >=
-     08:30`, `customEndTime <= 21:10`, `customEndTime > customStartTime`
+   - **허용 범위**: `08:40 ~ 20:30`(외출 신청 가능 시간, 확정) 안에 있어야 함 —
+     `customStartTime >= 08:40`, `customEndTime <= 20:30`, `customEndTime > customStartTime`
    - **지속시간 제한 없음** — 위 범위 안이기만 하면 몇 시간짜리든 허용(예: 09:00~20:00도
      가능)
-   - 이 범위는 `OutingPolicy.CUSTOM_WINDOW_START`(`08:30`)/`CUSTOM_WINDOW_END`(`21:10`)
-     상수로 관리(가칭) — `DINNER` 종료 시각과 상한을 맞춰서 "저녁 자율학습 시간 이후 불가"
-     정책과 일관되게 유지
+   - 이 범위는 `OutingTimeSlot.CUSTOM_WINDOW_START`(`08:40`)/`CUSTOM_WINDOW_END`(`20:30`)
+     상수로 관리한다. `DINNER` 프리셋(18:10~21:10)은 이 범위와 별개로 고정값을 유지한다 —
+     프리셋은 서버가 채우는 신뢰 경계 안쪽 값이라 커스텀 신청 상한과 굳이 맞출 필요가 없다.
 
 > 💡 `LUNCH`/`DINNER`는 여전히 서버가 시간을 채우는 신뢰 경계 안쪽 값이고, `CUSTOM`만
 > 클라이언트가 직접 값을 주는 예외라는 게 핵심 차이다. 검증(Bean Validation + 서비스 로직)은
@@ -159,7 +159,7 @@
 - `time_slot` — `OutingTimeSlot`(`LUNCH`/`DINNER`/`CUSTOM`)
 - `start_time` / `end_time` — `LUNCH`/`DINNER`면 서버가 프리셋 값으로 채움(클라이언트 직접
   입력 불가), `CUSTOM`이면 클라이언트가 보낸 `customStartTime`/`customEndTime`을 검증
-  (08:30~21:10 범위, `end > start`) 후 그대로 저장
+  (08:40~20:30 범위, `end > start`) 후 그대로 저장
 - `status` — 아래 `OutingStatus` 참고
 - `approved_at` — 선생님이 승인/거절한 시각
 - `rejected_reason` — 거절 시에만
@@ -265,7 +265,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
    (`LocalDate.now(KST).with(DayOfWeek.FRIDAY)`로 이번 주 금요일 계산)
 4. 시작/종료 시각 확정:
    - `LUNCH`/`DINNER`: 서버가 프리셋 값으로 채움
-   - `CUSTOM`: `customStartTime >= 08:30`, `customEndTime <= 21:10`,
+   - `CUSTOM`: `customStartTime >= 08:40`, `customEndTime <= 20:30`,
      `customEndTime > customStartTime` 검증 → 벗어나면 거부
 5. 마감 시각 검증: `outingDate == 오늘`이면서 `현재시각 >= (확정된) startTime`이면 거부
 6. `UserRoleRepository.findRoleCodesByUserId(teacherUserId)`로 `TEACHER` 포함 여부 확인 →
@@ -293,7 +293,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 - `outingDate`가 과거이거나 이번 주 범위를 벗어남(다음 주 이후 등) → `400` `OUTING_001`
 - `outingDate`가 오늘인데 이미 확정된 `startTime`이 지남 → `400` `OUTING_001`(같은 코드,
   메시지로 구분)
-- `CUSTOM`인데 `customStartTime`/`customEndTime`이 08:30~21:10 범위 밖이거나 `end <= start`
+- `CUSTOM`인데 `customStartTime`/`customEndTime`이 08:40~20:30 범위 밖이거나 `end <= start`
   → `400` `OUTING_011`
 - `teacherUserId`가 `TEACHER` 역할이 아님 → `400` `OUTING_002`
 - 그날 다른 활성 외출증과 시간이 겹침(프리셋끼리든 커스텀이 섞였든) → `409` `OUTING_003`
@@ -715,7 +715,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 8. `OUTING_008` (403) — 위치 조회 권한이 없습니다(담당 선생님/선도부만 가능)
 9. `OUTING_009` (409) — 지금은 위치를 기록할 수 없는 상태입니다(외출 중이 아님)
 10. `OUTING_010` (400) — 학교 반경 밖에서는 출발/도착 처리를 할 수 없습니다
-11. `OUTING_011` (400) — 커스텀 시간대는 08:30~21:10 범위 안이어야 합니다
+11. `OUTING_011` (400) — 커스텀 시간대는 08:40~20:30 범위 안이어야 합니다
 12. `OUTING_012` (403) — 학생만 외출증을 신청할 수 있습니다
 
 ## 공통 구현 고려사항

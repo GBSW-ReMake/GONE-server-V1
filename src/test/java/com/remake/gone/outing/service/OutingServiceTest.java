@@ -211,7 +211,7 @@ class OutingServiceTest {
     }
 
     @Test
-    @DisplayName("커스텀 시작 시각이 08:30 이전이면 거부한다")
+    @DisplayName("커스텀 시작 시각이 08:40 이전이면 거부한다")
     void rejectsWhenCustomStartTimeBeforeWindow() {
       given(userRoleRepository.findRoleCodesByUserId(STUDENT_ID)).willReturn(List.of("STUDENT"));
 
@@ -223,12 +223,12 @@ class OutingServiceTest {
     }
 
     @Test
-    @DisplayName("커스텀 종료 시각이 21:10을 넘으면 거부한다")
+    @DisplayName("커스텀 종료 시각이 20:30을 넘으면 거부한다")
     void rejectsWhenCustomEndTimeAfterWindow() {
       given(userRoleRepository.findRoleCodesByUserId(STUDENT_ID)).willReturn(List.of("STUDENT"));
 
       assertThatThrownBy(() -> outingService.applyOuting(
-          STUDENT_ID, request(OutingTimeSlot.CUSTOM, "20:00", "21:30"), TODAY, NOW))
+          STUDENT_ID, request(OutingTimeSlot.CUSTOM, "19:00", "21:00"), TODAY, NOW))
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(OutingErrorCode.INVALID_CUSTOM_TIME_RANGE);

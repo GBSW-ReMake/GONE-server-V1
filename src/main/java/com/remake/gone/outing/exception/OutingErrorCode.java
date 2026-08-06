@@ -23,9 +23,9 @@ public enum OutingErrorCode implements ErrorCode {
   /** 같은 날짜에 시간이 겹치는 활성(PENDING/APPROVED/DEPARTED) 외출증이 이미 있습니다. */
   TIME_OVERLAP(HttpStatus.CONFLICT, "OUTING_003", "같은 시간대에 이미 진행 중인 외출증이 있습니다."),
 
-  /** 커스텀 시간대가 허용 범위(08:30~21:10) 밖이거나, 종료 시각이 시작 시각보다 빠르거나 같습니다. */
+  /** 커스텀 시간대가 허용 범위(08:40~20:30) 밖이거나, 종료 시각이 시작 시각보다 빠르거나 같습니다. */
   INVALID_CUSTOM_TIME_RANGE(
-      HttpStatus.BAD_REQUEST, "OUTING_011", "커스텀 시간대는 08:30~21:10 범위 안이어야 합니다."),
+      HttpStatus.BAD_REQUEST, "OUTING_011", "커스텀 시간대는 08:40~20:30 범위 안이어야 합니다."),
 
   /** 외출증 신청은 STUDENT 역할을 가진 계정만 할 수 있습니다. */
   STUDENT_ROLE_REQUIRED(HttpStatus.FORBIDDEN, "OUTING_012", "학생만 외출증을 신청할 수 있습니다.");

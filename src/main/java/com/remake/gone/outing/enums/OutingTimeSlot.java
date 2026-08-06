@@ -14,11 +14,11 @@ public enum OutingTimeSlot {
   DINNER(LocalTime.of(18, 10), LocalTime.of(21, 10)),
   CUSTOM(null, null);
 
-  /** 커스텀 시간대의 허용 시작 하한(08:30). */
-  public static final LocalTime CUSTOM_WINDOW_START = LocalTime.of(8, 30);
+  /** 커스텀 시간대의 허용 시작 하한(08:40). */
+  public static final LocalTime CUSTOM_WINDOW_START = LocalTime.of(8, 40);
 
-  /** 커스텀 시간대의 허용 종료 상한(21:10, {@code DINNER} 종료 시각과 동일). */
-  public static final LocalTime CUSTOM_WINDOW_END = LocalTime.of(21, 10);
+  /** 커스텀 시간대의 허용 종료 상한(20:30). */
+  public static final LocalTime CUSTOM_WINDOW_END = LocalTime.of(20, 30);
 
   private final LocalTime startTime;
   private final LocalTime endTime;

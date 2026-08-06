@@ -67,7 +67,7 @@ API 하나만 구현한다. 승인/거절, 출발/도착, 위치 추적 등은 �
      (`LocalDate.now(KST).with(DayOfWeek.FRIDAY)`)
   4. 시작/종료 시각 확정:
      - `LUNCH`/`DINNER`: 서버가 프리셋 값으로 채움
-     - `CUSTOM`: `customStartTime >= 08:30`, `customEndTime <= 21:10`,
+     - `CUSTOM`: `customStartTime >= 08:40`, `customEndTime <= 20:30`,
        `customEndTime > customStartTime` 검증 → 벗어나면 거부
   5. 마감 시각 검증: `outingDate == 오늘`이면서 `현재시각 >= (확정된) startTime`이면 거부
   6. `UserRoleRepository.findRoleCodesByUserId(teacherUserId)`로 `TEACHER` 포함 여부 확인 →
@@ -95,7 +95,7 @@ API 하나만 구현한다. 승인/거절, 출발/도착, 위치 추적 등은 �
 - **에러**
   - `outingDate`가 과거이거나 이번 주 범위를 벗어남 → `400` `OUTING_001`
   - `outingDate`가 오늘인데 이미 확정된 `startTime`이 지남 → `400` `OUTING_001`
-  - `CUSTOM`인데 `customStartTime`/`customEndTime`이 08:30~21:10 범위 밖이거나 `end <= start`
+  - `CUSTOM`인데 `customStartTime`/`customEndTime`이 08:40~20:30 범위 밖이거나 `end <= start`
     → `400` `OUTING_011`
   - `teacherUserId`가 `TEACHER` 역할이 아님 → `400` `OUTING_002`
   - 그날 다른 활성 외출증과 시간이 겹침 → `409` `OUTING_003`
