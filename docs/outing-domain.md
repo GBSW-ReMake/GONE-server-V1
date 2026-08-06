@@ -106,6 +106,23 @@
 
 ## 도메인 모델
 
+### 외부 식별자 정책 — `id`(내부) vs `code`(외부, 프론트 표시용)
+> 외출증마다 프론트엔드 화면에 표시할 고유 코드를 둔다. DB 내부 자동증가 `id`(BIGINT PK)는
+> FK 관계 등 내부용으로만 쓰고, **API가 주고받는 모든 `id` 필드와 경로 변수의 값은 실제로는
+> 이 코드 값이다** — 이후 모든 엔드포인트 설명에서 경로의 `{id}`/응답의 `id`라고 쓴 것은 이
+> 코드를 가리킨다(내부 PK를 그대로 노출하지 않는다).
+
+- **형식**: 영숫자(대소문자 + 숫자) 10자리, 예: `8A1zx9202`
+- **생성**: `SecureRandom` 기반 랜덤 문자열 생성 유틸(`OutingCodeGenerator`, 가칭) — 신청
+  저장 시 생성해 `code` 컬럼(`VARCHAR(10)`, UNIQUE)에 저장. 충돌 시(확률상 거의 없지만) DB
+  유니크 제약 위반을 잡아 재생성 후 재시도(최대 5회).
+- **조회**: 서비스는 항상 `outingRepository.findByCode(code)`로 조회한다. `findById`(내부
+  PK)는 리포지토리 내부/FK 조인 용도로만 남긴다.
+- **왜 분리하나**: 정수 PK를 그대로 노출하면(`id=502`) "오늘 전체 몇 건 신청됐는지" 같은
+  내부 규모 정보가 새어나가고 다음 값 추측도 쉬워진다. 이미 소유권 검증이 있어 보안상
+  필수는 아니지만, 굳이 흘릴 이유가 없다는 관점의 추가 방어 + 프론트에 보여줄 "외출증
+  번호"가 필요하다는 요구사항을 동시에 만족시킨다.
+
 ### `OutingProperties` (`@ConfigurationProperties(prefix = "outing")`, 신규)
 학교 반경 위치 검증에 필요한 설정값. `NeisProperties`(학교 코드)와 같은 패턴 — 이 서버가 결국
 한 학교 전용이라 값 하나로 고정, 로컬 `application-dev.yml`(git 미포함)에 실제 값을 둔다.
@@ -113,22 +130,36 @@
 - `schoolRadiusMeters` — 출발/도착이 유효하다고 인정할 반경(가정: `200`m, 실제 캠퍼스
   크기에 맞게 조정 필요)
 
-### `OutingTimeSlot` (enum, 프리셋)
-기존 `meal` 도메인의 `MealType`(조식/중식/석식 프리셋)과 같은 패턴이다 — 학생이 시각을 직접
-입력하지 않고 프리셋만 고르면, 서버가 실제 시작/종료 시각을 채운다. 나중에 시간대가
-늘어나면 이 enum에 값만 추가하면 된다.
-1. `LUNCH` — 12:30~13:40
-2. `DINNER` — 18:10~21:10
+### `OutingTimeSlot` (enum, 프리셋 + 커스텀)
+기존 `meal` 도메인의 `MealType`(조식/중식/석식 프리셋)과 같은 패턴이되, 프리셋 외에 학생이
+직접 시간을 정하는 경우도 지원한다.
+1. `LUNCH` — 12:30~13:40 (서버가 시작/종료 시각을 채움, 클라이언트 입력 불가)
+2. `DINNER` — 18:10~21:10 (위와 동일)
+3. `CUSTOM` — 학생이 `customStartTime`/`customEndTime`을 직접 입력. 아래 제약 적용:
+   - **허용 범위**: `08:40 ~ 20:30`(외출 신청 가능 시간, 확정) 안에 있어야 함 —
+     `customStartTime >= 08:40`, `customEndTime <= 20:30`, `customEndTime > customStartTime`
+   - **지속시간 제한 없음** — 위 범위 안이기만 하면 몇 시간짜리든 허용(예: 09:00~20:00도
+     가능)
+   - 이 범위는 `OutingTimeSlot.CUSTOM_WINDOW_START`(`08:40`)/`CUSTOM_WINDOW_END`(`20:30`)
+     상수로 관리한다. `DINNER` 프리셋(18:10~21:10)은 이 범위와 별개로 고정값을 유지한다 —
+     프리셋은 서버가 채우는 신뢰 경계 안쪽 값이라 커스텀 신청 상한과 굳이 맞출 필요가 없다.
+
+> 💡 `LUNCH`/`DINNER`는 여전히 서버가 시간을 채우는 신뢰 경계 안쪽 값이고, `CUSTOM`만
+> 클라이언트가 직접 값을 주는 예외라는 게 핵심 차이다. 검증(Bean Validation + 서비스 로직)은
+> `CUSTOM`일 때만 `customStartTime`/`customEndTime` 필수, 그 외엔 무시(또는 요청에 있어도
+> 서버가 프리셋 값으로 덮어씀).
 
 ### `Outing` 엔티티 (`outing` 테이블, 신규)
-- `id`
+- `id` — 내부 PK(BIGINT, 자동증가), 외부에 노출하지 않음
+- `code` — 외부 식별자(위 "외부 식별자 정책" 참고), `VARCHAR(10)` UNIQUE
 - `student_user_id` — 신청한 학생(`User` FK)
 - `teacher_user_id` — 신청 시 지정한 담당 선생님(`User` FK)
 - `reason` — 사유(텍스트)
 - `outing_date` — 외출 날짜(오늘~이번 주 금요일 중 하나)
-- `time_slot` — `OutingTimeSlot`(`LUNCH`/`DINNER`)
-- `start_time` / `end_time` — `time_slot`에 대응하는 값을 서버가 채움(클라이언트 직접 입력
-  불가, 신뢰 경계 안쪽 값)
+- `time_slot` — `OutingTimeSlot`(`LUNCH`/`DINNER`/`CUSTOM`)
+- `start_time` / `end_time` — `LUNCH`/`DINNER`면 서버가 프리셋 값으로 채움(클라이언트 직접
+  입력 불가), `CUSTOM`이면 클라이언트가 보낸 `customStartTime`/`customEndTime`을 검증
+  (08:40~20:30 범위, `end > start`) 후 그대로 저장
 - `status` — 아래 `OutingStatus` 참고
 - `approved_at` — 선생님이 승인/거절한 시각
 - `rejected_reason` — 거절 시에만
@@ -176,7 +207,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 ### 1. `POST /api/v1/outings` — 외출증 신청
 **권한**: `STUDENT`
 
-**요청**
+**요청** (프리셋)
 ```json
 {
   "reason": "치과 진료",
@@ -186,12 +217,24 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 }
 ```
 
+**요청** (커스텀 — `timeSlot: "CUSTOM"`일 때만 `customStartTime`/`customEndTime` 필요)
+```json
+{
+  "reason": "치과 진료",
+  "outingDate": "20260814",
+  "timeSlot": "CUSTOM",
+  "customStartTime": "14:00",
+  "customEndTime": "16:00",
+  "teacherUserId": 42
+}
+```
+
 **응답** (`201 Created`)
 ```json
 {
   "success": true,
   "data": {
-    "id": 501,
+    "id": "8A1zx9202",
     "studentNickname": "길동이",
     "studentProfileImageUrl": "https://.../profile/1/abc.jpg?X-Amz-...",
     "studentRealName": "홍길동",
@@ -211,40 +254,88 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 ```
 
 **구현 로직**
-1. `@AuthenticationPrincipal`에서 `studentUserId` 추출
-2. Bean Validation: `reason` not blank, `outingDate` 파싱 가능, `timeSlot` enum 값 유효
+1. `@AuthenticationPrincipal`에서 `studentUserId` 추출 후
+   `UserRoleRepository.findRoleCodesByUserId(studentUserId)`로 `STUDENT` 역할 보유 확인 →
+   없으면 거부(이 프로젝트에 아직 `@PreAuthorize`/`@EnableMethodSecurity` 인프라가 없어서,
+   교사 역할 확인(6번)과 같은 방식으로 서비스 코드에서 직접 검사한다)
+2. Bean Validation: `reason` not blank, `outingDate` 파싱 가능, `timeSlot` enum 값 유효.
+   `timeSlot == CUSTOM`이면 `customStartTime`/`customEndTime` 필수(그 외 값이면 두 필드는
+   무시)
 3. 날짜 범위 검증: `outingDate < 오늘(KST)` 이거나 `오늘이 속한 주의 금요일`을 넘으면 거부
    (`LocalDate.now(KST).with(DayOfWeek.FRIDAY)`로 이번 주 금요일 계산)
-4. 마감 시각 검증: `outingDate == 오늘`이면서 `현재시각 >= timeSlot.startTime`이면 거부
-5. `UserRoleRepository.findRoleCodesByUserId(teacherUserId)`로 `TEACHER` 포함 여부 확인 →
+4. 시작/종료 시각 확정:
+   - `LUNCH`/`DINNER`: 서버가 프리셋 값으로 채움
+   - `CUSTOM`: `customStartTime >= 08:40`, `customEndTime <= 20:30`,
+     `customEndTime > customStartTime` 검증 → 벗어나면 거부
+5. 마감 시각 검증: `outingDate == 오늘`이면서 `현재시각 >= (확정된) startTime`이면 거부
+6. `UserRoleRepository.findRoleCodesByUserId(teacherUserId)`로 `TEACHER` 포함 여부 확인 →
    없으면 거부
-6. 중복 확인: `(studentUserId, outingDate, timeSlot)`로 `PENDING`/`APPROVED`/`DEPARTED`
-   상태 레코드 존재 여부 조회 → 있으면 거부
-7. `Outing` 저장(`PENDING`, `start_time`/`end_time`은 `timeSlot`에서 채움)
-8. 응답 DTO 변환:
-   - `studentNickname = student.getName()`, `studentProfileImageUrl =
-     student.getProfileImageKey() != null ? r2FileService.generateDownloadUrl(key) : null`
-   - `studentRealName = student.getGbsw().getName()`, `studentGrade =
-     student.getGbsw().getGrade()`, `studentClassNo = student.getGbsw().getClassNo()`
-   - `teacherName = teacher.getGbsw().getName()`
-   (위 "정책 가정" 참고 — 닉네임/사진은 `User`, 실명/학년/반은 `Gbsw`에서 따로 가져온다)
+7. **`userRepository.findByIdForUpdate(studentUserId)`로 그 학생의 `User` 행에 배타적 락**
+   (`SELECT ... FOR UPDATE`, `@Lock(LockModeType.PESSIMISTIC_WRITE)`) — 이 메서드를 감싼
+   서비스 메서드는 `@Transactional`이어야 하며, 이 지점부터 저장까지 같은 학생의 동시 요청은
+   직렬화된다(아래 "동시성 처리" 참고)
+8. 학급 배정 확인: 락으로 가져온 `student.getGbsw()`의 `grade`/`classNo`가 하나라도 `null`이면
+   거부(`GbswErrorCode.NO_CLASS_ASSIGNED` 재사용) — `TimetableService.getMyTimetable`이 이미
+   같은 필드에 쓰던 방어와 동일. 외출증은 학년/반을 반드시 담는 공적 문서라, 학급 미배정
+   계정으로 발급되는 걸 막는다.
+9. 겹침 확인: 락을 잡은 채로 `(studentUserId, outingDate)`의 활성(`PENDING`/`APPROVED`/
+   `DEPARTED`) 외출증을 조회해, 확정된 `[startTime, endTime)` 구간이 하나라도 겹치면 거부
+   (프리셋끼리든 프리셋-커스텀이든 실제 시간 겹침 여부로 판단 — 순수 함수
+   `OutingTimeUtils.overlaps(start1, end1, start2, end2)`로 분리)
+10. `OutingCodeGenerator`로 `code` 생성(영숫자 10자리) 후 `Outing` 저장(`PENDING`) — `code`
+    유니크 제약 위반 시(확률상 희박) 재생성 후 재시도(최대 5회). 5회를 모두 소진하면
+    `CustomException`으로 감싸지 않고 원본 `DataIntegrityViolationException`을 그대로 던져
+    `GlobalExceptionHandler`의 공통 핸들러가 `409`로 변환하게 한다(원인 정보를 잃지 않기 위함).
+11. 응답 DTO 변환:
+    - `id = outing.getCode()`(내부 PK가 아니라 위에서 생성한 코드를 응답의 `id`로 사용)
+    - `studentNickname = student.getName()`, `studentProfileImageUrl =
+      student.getProfileImageKey() != null ? r2FileService.generateDownloadUrl(key) : null`
+    - `studentRealName = student.getGbsw().getName()`, `studentGrade =
+      student.getGbsw().getGrade()`, `studentClassNo = student.getGbsw().getClassNo()`
+    - `teacherName = teacher.getGbsw().getName()`
+    (위 "정책 가정" 참고 — 닉네임/사진은 `User`, 실명/학년/반은 `Gbsw`에서 따로 가져온다)
 
 **에러**
 - `outingDate`가 과거이거나 이번 주 범위를 벗어남(다음 주 이후 등) → `400` `OUTING_001`
-- `outingDate`가 오늘인데 이미 그 `timeSlot` 시작 시각이 지남 → `400` `OUTING_001`(같은
-  코드, 메시지로 구분)
+- `outingDate`가 오늘인데 이미 확정된 `startTime`이 지남 → `400` `OUTING_001`(같은 코드,
+  메시지로 구분)
+- `CUSTOM`인데 `customStartTime`/`customEndTime`이 08:40~20:30 범위 밖이거나 `end <= start`
+  → `400` `OUTING_011`
 - `teacherUserId`가 `TEACHER` 역할이 아님 → `400` `OUTING_002`
-- 같은 날짜+시간대로 이미 진행 중인 외출증이 있음 → `409` `OUTING_003`
+- 호출 학생 계정이 학급 미배정 상태(`Gbsw.grade`/`classNo`가 `null`) → `400` `GBSW_002`
+  (`GbswErrorCode` 재사용, 신규 `OUTING_` 코드 아님)
+- 그날 다른 활성 외출증과 시간이 겹침(프리셋끼리든 커스텀이 섞였든) → `409` `OUTING_003`
+- 호출자가 `STUDENT` 역할이 아님 → `403` `OUTING_012`
 
-> ⚠️ **동시성 주의**: 6번(중복 체크)과 7번(저장) 사이에는 시간차가 있다 — 같은 학생이 이중
-> 클릭 등으로 거의 동시에 두 번 요청을 보내면 둘 다 6번 체크를 통과하고 둘 다 저장될 수
-> 있다(전형적인 check-then-act 레이스). `(student_user_id, outing_date, time_slot)`에
-> **DB 유니크 제약**을 걸어 마지막 방어선으로 삼아야 한다. 다만 `REJECTED`로 끝난 뒤 같은
-> 날짜/시간대 재신청은 허용해야 하므로, 이 유니크 제약을 "그냥" 걸면 재신청 자체가 막혀버린다
-> — 재신청까지 지원하려면 MySQL의 생성 컬럼(generated column) + 부분 유니크 인덱스로
-> "진행 중인 상태에서만" 유니크하게 만들거나, 애초에 "완전 동시 이중 클릭"은 실사용에서
-> 드문 케이스로 보고 애플리케이션 레벨 체크만으로 충분하다고 볼 수도 있다 — 구현 단계에서
-> 결정 필요.
+> ⚠️ **동시성 처리 (확정)**: 겹침 확인(8번)과 저장(9번) 사이에는 시간차가 있어 같은 학생이
+> 이중 클릭이나 서로 다른 시간대(프리셋/커스텀)를 거의 동시에 신청하면 두 요청 모두 겹침
+> 확인을 통과해 중복 저장될 수 있다(check-then-act 레이스). 두 겹으로 막는다:
+> - **프론트엔드**: 신청 버튼 클릭 즉시 비활성화(debounce)로 같은 클라이언트에서의 실수성
+>   중복 요청 자체를 줄인다(서버 구현 범위는 아니지만 프론트 구현 전제로 명시).
+> - **서버(행 락, 최종 방어선)**: "겹침 여부"는 두 값이 정확히 같은지가 아니라 **구간이
+>   겹치는지**를 계산해야 하는 검사라, MySQL 유니크 인덱스로는 표현할 수 없다(PostgreSQL의
+>   EXCLUDE 제약 같은 게 MySQL엔 없음). 대신 **그 학생의 `User` 행에 `SELECT ... FOR
+>   UPDATE`로 배타적 락**을 걸어, 같은 학생의 신청 처리를 완전히 직렬화한다(다른 학생끼리는
+>   서로 다른 행을 잠그므로 전혀 안 기다림):
+>   ```java
+>   public interface UserRepository extends JpaRepository<User, Long> {
+>       @Lock(LockModeType.PESSIMISTIC_WRITE)
+>       @Query("select u from User u where u.id = :id")
+>       Optional<User> findByIdForUpdate(@Param("id") Long id);
+>   }
+>
+>   @Transactional
+>   public OutingResponse applyOuting(Long studentUserId, OutingApplyRequest request) {
+>       userRepository.findByIdForUpdate(studentUserId).orElseThrow(...);   // 락 획득
+>       // 이 시점부터 같은 학생의 동시 요청은 안전하게 직렬화됨 (7~9번)
+>       ...
+>   }   // 메서드 종료(커밋) 시 락 자동 해제
+>   ```
+>   먼저 락을 잡은 트랜잭션이 겹침 확인 + 저장 + 커밋을 마칠 때까지, 같은 학생의 다음
+>   요청은 락 획득 지점에서 대기한다 — 대기가 풀리는 시점엔 이미 앞 트랜잭션이 커밋되어
+>   있으므로, 겹침 확인이 항상 최신 상태 기준으로 정확하게 이뤄진다. 이 프로젝트에서
+>   비관적 락(`PESSIMISTIC_WRITE`)을 쓰는 첫 사례라 `@EnableMethodSecurity`처럼 도입 자체가
+>   선행 작업이다.
 >
 > 💡 **날짜 계산은 반드시 KST 기준**(`ZoneId.of("Asia/Seoul")`)으로 — 서버 기본 타임존에
 > 의존하면 배포 환경이 바뀔 때 조용히 틀어질 수 있다(기존 `meal`/`timetable` 컨트롤러의
@@ -252,7 +343,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 
 ---
 
-### 2. `PATCH /api/v1/outings/{id}/approve` — 선생님 승인
+### 2. `PATCH /api/v1/outings/{code}/approve` — 선생님 승인
 **권한**: `TEACHER` + 본인이 그 외출증의 `teacherUserId`와 일치
 
 **요청**: 바디 없음(사인 = 승인 행위 자체)
@@ -260,7 +351,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 **응답** (`200 OK`) — 1번의 응답과 같은 구조, `"status": "APPROVED"`
 
 **구현 로직**
-1. `id`로 `Outing` 조회, 없으면 `404`
+1. `code`로 `Outing` 조회(`findByCode`), 없으면 `404`
 2. `principal.userId() == outing.getTeacherUserId()` 확인, 아니면 `403`
 3. `outing.getStatus() == PENDING` 확인, 아니면 `409`
 4. `status = APPROVED`, `approved_at = now` 로 갱신 후 저장
@@ -277,7 +368,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 
 ---
 
-### 3. `PATCH /api/v1/outings/{id}/reject` — 선생님 거절
+### 3. `PATCH /api/v1/outings/{code}/reject` — 선생님 거절
 **권한**: 2번과 동일
 
 **요청**
@@ -293,7 +384,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 
 ---
 
-### 4. `POST /api/v1/outings/{id}/depart` — 출발 보고 (학생 본인)
+### 4. `POST /api/v1/outings/{code}/depart` — 출발 보고 (학생 본인)
 **권한**: 그 외출증의 신청 학생 본인 (**선도부 확인 없음** — 학생이 직접 누른다, 대신 아래처럼
 위치로 실시간 검증한다)
 
@@ -307,7 +398,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 {
   "success": true,
   "data": {
-    "id": 501,
+    "id": "8A1zx9202",
     "status": "DEPARTED",
     "departedAt": "2026-08-14T12:31:05"
   },
@@ -317,7 +408,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 ```
 
 **구현 로직**
-1. `id`로 `Outing` 조회, 없으면 `404`
+1. `code`로 `Outing` 조회(`findByCode`), 없으면 `404`
 2. `principal.userId() == outing.getStudentUserId()` 확인, 아니면 `403`
 3. `status == APPROVED` 확인, 아니면 `409`(메시지로 "아직 승인 안 됨"/"이미 출발 처리됨" 등
    구분)
@@ -347,7 +438,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 
 ---
 
-### 5. `POST /api/v1/outings/{id}/return` — 도착 보고 (학생 본인)
+### 5. `POST /api/v1/outings/{code}/return` — 도착 보고 (학생 본인)
 **권한**: 4번과 동일(본인 외출증)
 
 **요청/응답**: 4번과 동일 구조(좌표 필수), `"status": "RETURNED"` + `returnedAt`
@@ -381,11 +472,11 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 
 ---
 
-### 7. `GET /api/v1/outings/{id}` — 단건 상세 조회
+### 7. `GET /api/v1/outings/{code}` — 단건 상세 조회
 **권한**: 신청 학생 본인, 지정된 담당 선생님, `DISCIPLINE`/`ADMIN` 중 하나
 
 **구현 로직**
-1. `id`로 `Outing` 조회, 없으면 `404`
+1. `code`로 `Outing` 조회(`findByCode`), 없으면 `404`
 2. `principal.userId() == studentUserId`이거나 `== teacherUserId`이거나, 보유 역할에
    `DISCIPLINE`/`ADMIN`이 있으면 통과, 아니면 `403`
 3. 응답 DTO 변환
@@ -415,7 +506,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
   "success": true,
   "data": [
     {
-      "id": 501,
+      "id": "8A1zx9202",
       "studentNickname": "길동이",
       "studentProfileImageUrl": "https://.../profile/1/abc.jpg?X-Amz-...",
       "studentRealName": "홍길동",
@@ -448,7 +539,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 
 ---
 
-### 9. `GET /api/v1/outings/{id}/locations` — 위치/동선 조회
+### 9. `GET /api/v1/outings/{code}/locations` — 위치/동선 조회
 > **🔭 가시성 핵심 ②** — 담당 선생님/선도부가 실시간 위치와 종료 후 동선을 보는 엔드포인트.
 > 선도부의 물리적 확인이 없어진 만큼, 이 엔드포인트가 사실상 그 공백을 메우는 안전장치다.
 
@@ -472,7 +563,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 ```
 
 **구현 로직**
-1. `id`로 `Outing` 조회, 없으면 `404`
+1. `code`로 `Outing` 조회(`findByCode`), 없으면 `404`
 2. `principal.userId() == teacherUserId`이거나 보유 역할에 `DISCIPLINE`이 있으면 통과,
    아니면 `403`
 3. `outingLocationRepository.findByOutingIdOrderByRecordedAtAsc(id)` 조회
@@ -488,7 +579,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 
 ---
 
-### 10. `POST /api/v1/outings/{id}/locations` — 위치 핑 전송 (학생 앱)
+### 10. `POST /api/v1/outings/{code}/locations` — 위치 핑 전송 (학생 앱)
 **권한**: 그 외출증의 신청 학생 본인
 
 **요청**
@@ -502,7 +593,7 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 ```
 
 **구현 로직**
-1. `id`로 `Outing` 조회, 없으면 `404`
+1. `code`로 `Outing` 조회(`findByCode`), 없으면 `404`
 2. `principal.userId() == studentUserId` 확인, 아니면 `403`
 3. `status == DEPARTED` 확인, 아니면 `409`
 4. `latitude`/`longitude` 유효 범위 검증(`-90~90`, `-180~180`, Bean Validation)
@@ -632,6 +723,8 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 8. `OUTING_008` (403) — 위치 조회 권한이 없습니다(담당 선생님/선도부만 가능)
 9. `OUTING_009` (409) — 지금은 위치를 기록할 수 없는 상태입니다(외출 중이 아님)
 10. `OUTING_010` (400) — 학교 반경 밖에서는 출발/도착 처리를 할 수 없습니다
+11. `OUTING_011` (400) — 커스텀 시간대는 08:40~20:30 범위 안이어야 합니다
+12. `OUTING_012` (403) — 학생만 외출증을 신청할 수 있습니다
 
 ## 공통 구현 고려사항
 - **`@EnableMethodSecurity` 도입이 이 기획의 진짜 선행 작업**이다 — 이게 없으면 위 모든
@@ -647,10 +740,16 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
   `GeoUtils.distanceMeters(lat1, lng1, lat2, lng2)`) — 4/5번 엔드포인트 양쪽에서 재사용하고,
   경계값(정확히 반경 위/아래) 단위 테스트를 붙이기도 쉬워진다.
 - **시간 관련 로직은 전부 KST 고정**(`ZoneId.of("Asia/Seoul")`) — 서버 배포 환경의 기본
-  타임존에 의존하지 않는다.
-- **동시성**: 신청(1번)의 중복 체크만 진짜 레이스 컨디션 위험이 있고, 나머지(승인/거절/출발/
+  타임존에 의존하지 않는다. "오늘"/"지금"을 컨트롤러에서 구할 때는 `LocalDate.now(KST)`와
+  `LocalTime.now(KST)`를 따로 두 번 호출하지 않고 `LocalDateTime.now(KST)` 한 번으로 스냅샷을
+  떠서 날짜/시각을 나눠 쓴다 — 따로 호출하면 자정 경계에서 두 값이 서로 다른 순간 기준으로
+  섞일 수 있다.
+- **동시성**: 신청(1번)의 겹침 체크만 진짜 레이스 컨디션 위험이 있고, 나머지(승인/거절/출발/
   도착)는 상태 전이 조건 자체가 자연스러운 락 역할을 한다(같은 상태에서만 다음 단계로 갈 수
-  있으므로 두 번째 시도는 자동으로 막힘).
+  있으므로 두 번째 시도는 자동으로 막힘). 신청의 레이스는 프론트 더블클릭 방지 + 서버
+  `User` 행 비관적 락(위 1번 엔드포인트 "동시성 처리" 참고, 확정)으로 방어한다.
+- **외부 식별자**: 모든 조회/경로는 내부 `id`가 아니라 `code`로 한다(위 "외부 식별자 정책"
+  참고) — 컨트롤러 파라미터 타입은 `String code`, 서비스는 `findByCode` 사용.
 
 ## 아직 결정 안 된 것 (리뷰 필요)
 - **학교의 정확한 좌표(`schoolLatitude`/`schoolLongitude`)와 허용 반경(가정: 200m)** — 이
@@ -659,8 +758,6 @@ PENDING --(선생님 승인)--> APPROVED --(학생, 출발 버튼)--> DEPARTED -
 - GPS 신호가 약한 상황(실내, 건물 밀집 지역)에서 반경 판정이 오작동할 가능성 — 여유
   반경을 넉넉히 두거나, 위치 정확도(accuracy) 값도 같이 받아 너무 부정확하면 재시도를
   요청하는 방식을 고려할 수 있음(이번 범위에서는 다루지 않음)
-- 거절 후 같은 날짜/시간대 재신청 허용 여부(지금 가정: 허용, 새 레코드로 — DB 유니크 제약을
-  "진행 중인 것"에만 걸어야 해서 구현 방식(부분 인덱스 vs 애플리케이션 체크) 확정 필요)
 - 위치 데이터 보존 기간(무기한 저장할지, 일정 기간 후 삭제할지 — 개인정보 관점에서 정책 필요)
 - **푸시 알림 인프라(FCM 등) 도입을 별도 이슈/공통 모듈로 분리할지, 이 이슈 안에 포함할지** —
   범위가 꽤 커서 분리를 제안했지만 최종 판단 필요

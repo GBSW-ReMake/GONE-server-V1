@@ -2,8 +2,12 @@ package com.remake.gone.user.repository;
 
 import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.user.entity.User;
+import jakarta.persistence.LockModeType;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 /**
  * {@link User} 리포지토리.
@@ -51,4 +55,16 @@ public interface UserRepository extends JpaRepository<User, Long> {
    * @return 계정 정보, 없으면 {@link Optional#empty()}
    */
   Optional<User> findFirstByLoginIdOrPhoneNumber(String loginId, String phoneNumber);
+
+  /**
+   * 해당 사용자 행에 배타적 락({@code SELECT ... FOR UPDATE})을 걸어 조회합니다. 같은 사용자에
+   * 대한 동시 요청을 직렬화해야 하는 로직(예: 외출증 신청의 겹침 검사)에서 사용합니다. 호출하는
+   * 메서드는 반드시 {@code @Transactional}이어야 락이 의도한 범위 동안 유지됩니다.
+   *
+   * @param id 락을 걸고 조회할 사용자 ID
+   * @return 사용자 정보, 없으면 {@link Optional#empty()}
+   */
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @Query("select u from User u where u.id = :id")
+  Optional<User> findByIdForUpdate(@Param("id") Long id);
 }
