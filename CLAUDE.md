@@ -10,6 +10,8 @@
 - 커밋 메시지: [docs/rules/commit-convention.md](docs/rules/commit-convention.md)
 - 코드 스타일: [docs/rules/code-style.md](docs/rules/code-style.md)
 - 테스트 코드: [docs/rules/test-convention.md](docs/rules/test-convention.md)
+- API 디자인 원칙: [docs/rules/api-design.md](docs/rules/api-design.md) — 새 엔드포인트
+  기획서 작성 시(branch-workflow.md 2단계) 반드시 검토
 
 ## Skills (docs/skills)
 - 프로젝트 전용 작업 절차/스킬은 `docs/skills/`에 정리한다. (추가 예정)
