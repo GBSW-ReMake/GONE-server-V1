@@ -147,6 +147,16 @@ class UserServiceTest {
 
       assertThat(results).isEmpty();
     }
+
+    @Test
+    @DisplayName("검색어의 LIKE 와일드카드 문자를 이스케이프해서 리포지토리에 전달한다")
+    void escapesLikeWildcardsBeforeQuerying() {
+      given(userRepository.searchByRealNameContaining(any())).willReturn(List.of());
+
+      userService.search("100%_할인\\");
+
+      verify(userRepository).searchByRealNameContaining("100\\%\\_할인\\\\");
+    }
   }
 
   @Nested

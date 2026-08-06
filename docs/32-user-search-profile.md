@@ -30,9 +30,12 @@
 ```
 - **구현 로직**
   1. `query`가 비어있으면 `400`
-  2. `userRepository.searchByRealNameContaining(query)`(`@Query` JPQL, `findByIdForUpdate`와
-     같은 커스텀 쿼리 패턴)로 **`User` 기준** 조회(위 경고 참고 — `Gbsw`가 아니라 `User`에서
-     시작해 가입된 사람만 대상으로 함)
+  2. 검색어의 LIKE 와일드카드(`%`/`_`)와 이스케이프 문자(`\`)를 리터럴로 이스케이프한 뒤(그대로
+     넘기면 `%`만 입력해도 전체 사용자가 매칭됨),
+     `userRepository.searchByRealNameContaining(escaped)`(`@Query` JPQL `join fetch`,
+     `findByIdForUpdate`와 같은 커스텀 쿼리 패턴)로 **`User` 기준** 조회(위 경고 참고 — `Gbsw`가
+     아니라 `User`에서 시작해 가입된 사람만 대상으로 함). `join fetch`로 `Gbsw`를 함께 가져와
+     결과 개수만큼 추가 조회가 나가는 N+1을 막는다.
   3. 각 결과의 `nickname = user.getName()`, `realName = user.getGbsw().getName()` 채움
   4. `Gbsw.type == STUDENT`면 `grade`/`classNo`를 값으로 채우고, `TEACHER`면 `null`로 응답
      (필드 자체는 항상 응답에 포함 — 이 프로젝트의 다른 DTO들과 동일하게 "필드는 항상 두고
@@ -87,8 +90,17 @@
 - `UserController`에 클래스 레벨 `@Validated` 추가(`AuthController`와 동일한 패턴) —
   `@RequestParam @NotBlank String query`가 실제로 검증되려면 필요.
 - 신규: `UserController`에 `GET /api/v1/users/search` 추가, `UserSearchResponse` DTO 신규,
-  `UserRepository.searchByRealNameContaining`(`@Query` JPQL, `findByIdForUpdate`와 같은
-  커스텀 쿼리 패턴) 추가.
+  `UserRepository.searchByRealNameContaining`(`@Query` JPQL `join fetch`, `findByIdForUpdate`와
+  같은 커스텀 쿼리 패턴) 추가.
+- **자체 코드 리뷰(별도 에이전트, [branch-workflow.md](./rules/branch-workflow.md) 9단계)에서
+  발견해 수정**:
+  - `searchByRealNameContaining`이 처음엔 `join`(fetch 아님)이라 `Gbsw`가 지연 로딩된 채로
+    반환됐다 — 결과 목록을 순회하며 `user.getGbsw()`를 호출할 때마다 추가 쿼리가 나가는 N+1이
+    있었다. `join fetch`로 수정.
+  - 검색어(`query`)를 이스케이프 없이 그대로 `LIKE '%...%'`에 넣고 있어서, 검색어에 `%`나
+    `_`를 입력하면 SQL 인젝션은 아니지만(바인드 파라미터라 안전) LIKE 와일드카드로 해석돼
+    의도와 다르게 매칭됐다(`%`만 입력해도 전체 사용자 매칭). `UserService`에서 이스케이프 후
+    `@Query`에 `escape '\\'` 추가.
 - **구현 중 발견해 수정**: `query` 파라미터 자체가 요청에 없으면(값이 빈 문자열이 아니라
   파라미터가 아예 없는 경우) `@NotBlank`가 아니라 Spring MVC의
   `MissingServletRequestParameterException`이 먼저 발생하는데, `GlobalExceptionHandler`가

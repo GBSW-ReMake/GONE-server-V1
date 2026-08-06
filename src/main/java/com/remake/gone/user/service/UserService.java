@@ -54,9 +54,20 @@ public class UserService {
    */
   @Transactional(readOnly = true)
   public List<UserSearchResponse> search(String query) {
-    return userRepository.searchByRealNameContaining(query).stream()
+    return userRepository.searchByRealNameContaining(escapeLikeWildcards(query)).stream()
         .map(this::toSearchResponse)
         .toList();
+  }
+
+  /**
+   * 검색어에 포함된 LIKE 와일드카드({@code %}, {@code _})와 이스케이프 문자 자체를 리터럴로
+   * 취급하도록 이스케이프한다. 이게 없으면 검색어에 {@code %}만 입력해도 전체 사용자가 매칭된다.
+   */
+  private String escapeLikeWildcards(String query) {
+    return query
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_");
   }
 
   private UserSearchResponse toSearchResponse(User user) {
