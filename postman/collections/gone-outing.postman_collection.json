@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "GONE - Outing API",
-    "description": "외출증(Outing) 도메인 API 컬렉션. 최상위에는 실제 구현된 신청(#29)/승인(#30)/거절(#31) 3개 엔드포인트만 두고, 로그인/토큰 준비는 \"사전 준비\" 폴더로, 주요 에러 케이스는 \"에러 케이스\" 폴더로 분리했습니다.\n\n**실행 순서**: \"사전 준비\" 폴더 전체(학생/선생님 로그인 + 거절 테스트용 신청 1건) → 최상위 \"외출증 신청\" → \"외출증 승인\" → \"외출증 거절\" → \"에러 케이스\" 폴더(외출증 승인 실행 후 아무 때나 가능).\n\n**사전 조건**: `studentLoginId`(user1)/`teacherLoginId`(teacher1) 테스트 계정이 DB에 있어야 합니다. `outingDate`는 항상 \"오늘~이번 주 금요일\" 범위 안이어야 하므로, 주말에 실행하면 환경 변수 값을 조정하세요.",
+    "description": "외출증(Outing) 도메인 API 컬렉션. 최상위에는 실제 구현된 신청(#29)/승인(#30)/거절(#31) 3개 엔드포인트만 두고, 로그인/토큰 준비는 \"사전 준비\" 폴더로, 주요 에러 케이스는 \"에러 케이스\" 폴더로 분리했습니다.\n\n**실행 순서**: \"사전 준비\" 폴더 전체(학생/선생님 로그인 + 거절 테스트용 신청 1건) → 최상위 \"외출증 신청\" → \"외출증 승인\" → \"외출증 거절\" → \"에러 케이스\" 폴더(외출증 승인 실행 후 아무 때나 가능).\n\n**사전 조건**: `studentLoginId`(user1)/`teacherLoginId`(teacher1) 테스트 계정이 DB에 있어야 합니다. `outingDate`는 항상 \"오늘~이번 주 금요일\" 범위 안이어야 하므로, 주말에 실행하면 환경 변수 값을 조정하세요.\n\n**#41 조회 API 추가**: 최상위에 \"외출증 본인 신청 조회\"/\"외출증 배정 조회\"/\"외출증 단건 조회\" 3개가 추가됐습니다. 이 세 엔드포인트를 처음부터 끝까지 확인하려면 \"#41 외출증 조회 확인\" 폴더를 순서대로 실행하세요(사전 준비~에러 케이스 폴더와 독립적으로 완결적입니다).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -13,17 +13,31 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"identifier\": \"{{studentLoginId}}\",\n  \"password\": \"{{studentPassword}}\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/auth/login",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "auth", "login"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
             }
           },
           "event": [
@@ -55,17 +69,31 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"identifier\": \"{{teacherLoginId}}\",\n  \"password\": \"{{teacherPassword}}\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/auth/login",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "auth", "login"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
             },
             "description": "응답 JWT를 디코드해 `teacherUserId`를 자동으로 추출합니다(외출증 신청 요청 바디에 사용)."
           },
@@ -98,18 +126,34 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{studentAccessToken}}" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"reason\": \"병원 진료\",\n  \"outingDate\": \"{{outingDate}}\",\n  \"timeSlot\": \"DINNER\",\n  \"teacherUserId\": {{teacherUserId}}\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/outings",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "outings"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings"
+              ]
             },
             "description": "\"외출증 신청\" 엔드포인트 자체는 아래 최상위 항목에서 다룬다 — 이 요청은 순전히 \"외출증 거절\" 테스트에 쓸 PENDING 상태 외출증을 하나 더 만들어두기 위한 픽스처 호출이라 사전 준비 폴더에 둔다. 시간대(DINNER)를 최상위 신청 항목(LUNCH)과 다르게 해 같은 날짜에 겹치지 않게 한다. 응답의 `data.code`를 `outingCodeForReject`에 저장한다."
           },
@@ -142,18 +186,34 @@
       "request": {
         "method": "POST",
         "header": [
-          { "key": "Authorization", "value": "Bearer {{studentAccessToken}}" },
-          { "key": "Content-Type", "value": "application/json" }
+          {
+            "key": "Authorization",
+            "value": "Bearer {{studentAccessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
         ],
         "body": {
           "mode": "raw",
           "raw": "{\n  \"reason\": \"치과 진료\",\n  \"outingDate\": \"{{outingDate}}\",\n  \"timeSlot\": \"LUNCH\",\n  \"teacherUserId\": {{teacherUserId}}\n}",
-          "options": { "raw": { "language": "json" } }
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
         },
         "url": {
           "raw": "{{baseUrl}}/api/v1/outings",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "v1", "outings"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "outings"
+          ]
         },
         "description": "응답의 `data.code`를 환경 변수 `outingCode`에 저장합니다(이어지는 승인에 사용). `outingDate`는 오늘~이번 주 금요일(yyyyMMdd) 범위여야 합니다."
       },
@@ -184,12 +244,23 @@
       "request": {
         "method": "PATCH",
         "header": [
-          { "key": "Authorization", "value": "Bearer {{teacherAccessToken}}" }
+          {
+            "key": "Authorization",
+            "value": "Bearer {{teacherAccessToken}}"
+          }
         ],
         "url": {
           "raw": "{{baseUrl}}/api/v1/outings/{{outingCode}}/approve",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "v1", "outings", "{{outingCode}}", "approve"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "outings",
+            "{{outingCode}}",
+            "approve"
+          ]
         },
         "description": "\"외출증 신청\"에서 저장된 `outingCode`를 승인합니다. status가 APPROVED로 바뀝니다."
       },
@@ -218,18 +289,36 @@
       "request": {
         "method": "PATCH",
         "header": [
-          { "key": "Authorization", "value": "Bearer {{teacherAccessToken}}" },
-          { "key": "Content-Type", "value": "application/json" }
+          {
+            "key": "Authorization",
+            "value": "Bearer {{teacherAccessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
         ],
         "body": {
           "mode": "raw",
           "raw": "{\n  \"rejectedReason\": \"지금은 상담 시간이라 곤란해요\"\n}",
-          "options": { "raw": { "language": "json" } }
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
         },
         "url": {
           "raw": "{{baseUrl}}/api/v1/outings/{{outingCodeForReject}}/reject",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "v1", "outings", "{{outingCodeForReject}}", "reject"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "outings",
+            "{{outingCodeForReject}}",
+            "reject"
+          ]
         },
         "description": "#31 신규 엔드포인트. \"사전 준비\"에서 만들어둔 `outingCodeForReject`를 거절합니다. status가 REJECTED로 바뀌고, 응답에 rejectedReason이 그대로 포함되는지 확인합니다."
       },
@@ -255,6 +344,174 @@
       "response": []
     },
     {
+      "name": "외출증 본인 신청 조회",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{studentAccessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/outings/me/requests",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "outings",
+            "me",
+            "requests"
+          ],
+          "query": [
+            {
+              "key": "period",
+              "value": "THIS_WEEK",
+              "disabled": true
+            },
+            {
+              "key": "status",
+              "value": "PENDING",
+              "disabled": true
+            },
+            {
+              "key": "page",
+              "value": "0",
+              "disabled": true
+            },
+            {
+              "key": "size",
+              "value": "20",
+              "disabled": true
+            }
+          ]
+        },
+        "description": "학생 본인이 신청한 외출증 목록(페이지네이션)을 조회합니다. 파라미터는 전부 선택(비활성화된 채로 등록돼 있음 — 필요한 것만 체크해서 켜세요). 생략 시 이번 주 전체, page=0, size=20."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 응답 확인\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"PageResponse 형태(content/page/size/totalElements/totalPages/hasNext)\", function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(body.data).to.have.all.keys(\"content\", \"page\", \"size\", \"totalElements\", \"totalPages\", \"hasNext\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "외출증 배정 조회",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{teacherAccessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/outings/me/received",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "outings",
+            "me",
+            "received"
+          ],
+          "query": [
+            {
+              "key": "period",
+              "value": "THIS_WEEK",
+              "disabled": true
+            },
+            {
+              "key": "status",
+              "value": "PENDING",
+              "disabled": true
+            },
+            {
+              "key": "page",
+              "value": "0",
+              "disabled": true
+            },
+            {
+              "key": "size",
+              "value": "20",
+              "disabled": true
+            }
+          ]
+        },
+        "description": "선생님으로 지정된 외출증 목록(페이지네이션)을 조회합니다. 파라미터 규칙은 \"외출증 본인 신청 조회\"와 동일."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 응답 확인\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "외출증 단건 조회",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{studentAccessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/outings/{{outingCode}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "outings",
+            "{{outingCode}}"
+          ]
+        },
+        "description": "신청 학생 본인/담당 선생님/DISCIPLINE/ADMIN만 조회할 수 있습니다. 아래 예시는 학생 본인 토큰 기준이며, {{teacherAccessToken}}으로 바꿔 담당 선생님 기준도 확인할 수 있습니다."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 응답 확인\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "에러 케이스",
       "item": [
         {
@@ -262,12 +519,23 @@
           "request": {
             "method": "PATCH",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{studentAccessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/v1/outings/{{outingCode}}/approve",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "outings", "{{outingCode}}", "approve"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCode}}",
+                "approve"
+              ]
             },
             "description": "STUDENT 역할로는 @PreAuthorize(\"hasRole('TEACHER')\")를 통과하지 못해야 합니다."
           },
@@ -291,12 +559,23 @@
           "request": {
             "method": "PATCH",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{teacherAccessToken}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/v1/outings/{{outingCode}}/approve",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "outings", "{{outingCode}}", "approve"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCode}}",
+                "approve"
+              ]
             },
             "description": "최상위 \"외출증 승인\"에서 이미 APPROVED로 처리된 code를 재사용합니다. 그 요청 실행 이후에만 의미가 있습니다."
           },
@@ -322,18 +601,36 @@
           "request": {
             "method": "PATCH",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{teacherAccessToken}}" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"rejectedReason\": \"사유\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/outings/NOTEXISTCODE/reject",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "outings", "NOTEXISTCODE", "reject"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "NOTEXISTCODE",
+                "reject"
+              ]
             }
           },
           "event": [
@@ -358,18 +655,36 @@
           "request": {
             "method": "PATCH",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{teacherAccessToken}}" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"rejectedReason\": \"\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/outings/{{outingCode}}/reject",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "outings", "{{outingCode}}", "reject"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCode}}",
+                "reject"
+              ]
             },
             "description": "Bean Validation(@NotBlank)에서 걸러져야 합니다."
           },
@@ -395,8 +710,16 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/outings/{{outingCode}}/approve",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "outings", "{{outingCode}}", "approve"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCode}}",
+                "approve"
+              ]
             }
           },
           "event": [
@@ -413,6 +736,825 @@
             }
           ],
           "response": []
+        },
+        {
+          "name": "무관한 사용자로 단건 조회 → 403",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCode}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCode}}"
+              ]
+            },
+            "description": "역할이 없는 무관한 계정({{loginId}})으로 조회하면 소유권 검사(OutingService)에서 막힙니다. 먼저 Auth 컬렉션의 \"로그인\" 요청으로 {{accessToken}}을 채워두세요."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403 응답 확인\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "",
+                  "pm.test(\"OUTING_007\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"OUTING_007\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "존재하지 않는 code로 단건 조회 → 404",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/NOTEXISTCODE",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "NOTEXISTCODE"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"404 응답 확인\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test(\"OUTING_006\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"OUTING_006\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "인증 없이 단건 조회 → 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCode}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCode}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401 응답 확인\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "TEACHER로 본인 신청 조회 시도 → 403",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/me/requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "me",
+                "requests"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403 응답 확인\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "STUDENT로 배정 조회 시도 → 403",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/me/received",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "me",
+                "received"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403 응답 확인\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "period=THIS_WEEK인데 dateFrom 동봉 → 400",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/me/requests?period=THIS_WEEK&dateFrom=20260801",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "me",
+                "requests"
+              ],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "THIS_WEEK",
+                  "disabled": false
+                },
+                {
+                  "key": "dateFrom",
+                  "value": "20260801",
+                  "disabled": false
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 응답 확인\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test(\"OUTING_014\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"OUTING_014\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "page=-1 → 400",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/me/requests?page=-1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "me",
+                "requests"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "-1",
+                  "disabled": false
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 응답 확인\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test(\"OUTING_015\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"OUTING_015\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "size=101 → 400",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/me/requests?size=101",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "me",
+                "requests"
+              ],
+              "query": [
+                {
+                  "key": "size",
+                  "value": "101",
+                  "disabled": false
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 응답 확인\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test(\"OUTING_015\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"OUTING_015\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "#41 외출증 조회 확인",
+      "item": [
+        {
+          "name": "1. 학생 로그인",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{studentLoginId}}\",\n  \"password\": \"{{studentPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"studentAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));",
+                  "        pm.environment.set(\"studentUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "2. 선생님 로그인",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{teacherLoginId}}\",\n  \"password\": \"{{teacherPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "응답 JWT를 디코드해 `teacherUserId`를 자동으로 추출합니다(외출증 신청 요청 바디에 사용)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"teacherAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));",
+                  "        pm.environment.set(\"teacherUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "3. 외출증 신청 (조회 대상 생성)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"치과 진료\",\n  \"outingDate\": \"{{outingDate}}\",\n  \"timeSlot\": \"LUNCH\",\n  \"teacherUserId\": {{teacherUserId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings"
+              ]
+            },
+            "description": "응답의 `data.code`를 환경 변수 `outingCode`에 저장합니다(이어지는 승인에 사용). `outingDate`는 오늘~이번 주 금요일(yyyyMMdd) 범위여야 합니다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data && body.data.code) {",
+                  "        pm.environment.set(\"outingCode\", body.data.code);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "4. 본인 신청 조회 (학생, 기본값)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/me/requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "me",
+                "requests"
+              ]
+            },
+            "description": "방금 신청한 건이 THIS_WEEK 기본 범위에 PENDING 상태로 보이는지 확인합니다."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 응답 확인\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"방금 신청한 outingCode가 목록에 있다\", function () {",
+                  "    const body = pm.response.json();",
+                  "    const codes = body.data.content.map(o => o.code);",
+                  "    pm.expect(codes).to.include(pm.environment.get(\"outingCode\"));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. 배정 조회 (선생님, status=PENDING)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/me/received?status=PENDING",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "me",
+                "received"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "PENDING",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "같은 건이 선생님 쪽에서도 PENDING으로 보이는지 확인합니다."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 응답 확인\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"방금 신청한 outingCode가 목록에 있다\", function () {",
+                  "    const body = pm.response.json();",
+                  "    const codes = body.data.content.map(o => o.code);",
+                  "    pm.expect(codes).to.include(pm.environment.get(\"outingCode\"));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6. 외출증 승인 (상태 변화 확인용)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCode}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCode}}",
+                "approve"
+              ]
+            },
+            "description": "\"외출증 신청\"에서 저장된 `outingCode`를 승인합니다. status가 APPROVED로 바뀝니다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"status는 APPROVED\", function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.data.status).to.eql(\"APPROVED\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "7. 배정 조회 재확인 (APPROVED로 반영됐는지)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/me/received?status=APPROVED",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "me",
+                "received"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "APPROVED",
+                  "disabled": false
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 응답 확인\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"승인한 outingCode가 APPROVED로 보인다\", function () {",
+                  "    const body = pm.response.json();",
+                  "    const found = body.data.content.find(o => o.code === pm.environment.get(\"outingCode\"));",
+                  "    pm.expect(found).to.not.be.undefined;",
+                  "    pm.expect(found.status).to.eql(\"APPROVED\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "8. 단건 상세 조회",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCode}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCode}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 응답 확인\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"code가 일치한다\", function () {",
+                  "    pm.expect(pm.response.json().data.code).to.eql(pm.environment.get(\"outingCode\"));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9. 페이지네이션 확인 (size=1)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/me/requests?size=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "me",
+                "requests"
+              ],
+              "query": [
+                {
+                  "key": "size",
+                  "value": "1",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "content가 최대 1개만 오는지, page/size가 요청값과 일치하는지 확인합니다."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 응답 확인\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"content 길이가 1 이하\", function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.data.content.length).to.be.at.most(1);",
+                  "    pm.expect(body.data.size).to.eql(1);",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     }
