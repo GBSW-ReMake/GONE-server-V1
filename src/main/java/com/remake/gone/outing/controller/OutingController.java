@@ -3,6 +3,7 @@ package com.remake.gone.outing.controller;
 import com.remake.gone.common.response.ApiResponse;
 import com.remake.gone.common.security.UserPrincipal;
 import com.remake.gone.outing.dto.OutingApplyRequest;
+import com.remake.gone.outing.dto.OutingRejectRequest;
 import com.remake.gone.outing.dto.OutingResponse;
 import com.remake.gone.outing.service.OutingService;
 import jakarta.validation.Valid;
@@ -23,8 +24,8 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 외출(Outing) 도메인 API 컨트롤러.
  *
- * <p>#29에서 신청, #30에서 승인 엔드포인트를 구현했다. 거절/출발/도착 등은 후속 이슈
- * (#31/...)에서 추가된다.
+ * <p>#29에서 신청, #30에서 승인, #31에서 거절 엔드포인트를 구현했다. 출발/도착 등은 후속
+ * 이슈에서 추가된다.
  */
 @RestController
 @RequestMapping("/api/v1/outings")
@@ -71,5 +72,26 @@ public class OutingController {
     OutingResponse response =
         outingService.approveOuting(principal.userId(), code, LocalDateTime.now(KST));
     return ApiResponse.success(response, "외출증을 승인했습니다.");
+  }
+
+  /**
+   * 담당 선생님이 학생의 외출증 신청을 거절합니다. TEACHER 역할이 필요하며, 본인이 지정된
+   * 담당 선생님인지는 서비스에서 소유권을 확인합니다.
+   *
+   * @param principal 인증 필터가 Access Token에서 추출한 현재 사용자
+   * @param code      거절할 외출증의 외부 식별자 코드
+   * @param request   거절 사유를 담은 요청
+   * @return 거절된 외출증 정보
+   */
+  @PatchMapping("/{code}/reject")
+  @PreAuthorize("hasRole('TEACHER')")
+  public ApiResponse<OutingResponse> rejectOuting(
+      @AuthenticationPrincipal UserPrincipal principal,
+      @PathVariable String code,
+      @Valid @RequestBody OutingRejectRequest request
+  ) {
+    OutingResponse response =
+        outingService.rejectOuting(principal.userId(), code, request.rejectedReason());
+    return ApiResponse.success(response, "외출증을 거절했습니다.");
   }
 }
