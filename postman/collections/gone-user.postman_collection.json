@@ -1,0 +1,147 @@
+{
+  "info": {
+    "name": "GONE - User API",
+    "description": "회원 정보 조회/검색(User) 도메인 API 컬렉션. 현재 구현된 3개 엔드포인트를 포함합니다.\n\n**사전 조건**: `GONE - Local Dev` 환경을 선택하고, `studentLoginId`/`studentPassword` 계정이 DB에 있어야 합니다(없으면 리포지토리 루트 안내에 따라 테스트 계정을 먼저 생성하세요).\n\n**실행 순서**: 1번(로그인)을 먼저 실행해 환경 변수 `accessToken`을 채운 뒤, 나머지 요청을 실행하세요.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. 로그인 (테스트 학생 계정)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"identifier\": \"{{studentLoginId}}\",\n  \"password\": \"{{studentPassword}}\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/login",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "auth", "login"]
+        },
+        "description": "이 컬렉션의 나머지 요청은 이 단계에서 저장되는 환경 변수 `accessToken`을 사용합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "if (pm.response.code === 200) {",
+              "    const body = pm.response.json();",
+              "    if (body.success && body.data) {",
+              "        pm.environment.set(\"accessToken\", body.data.accessToken);",
+              "    }",
+              "}"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "2. 내 프로필 조회",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/users/me",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "users", "me"]
+        },
+        "description": "현재 닉네임(`name`)과 프로필 사진 설정 여부(`hasProfileImage`)를 반환합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "3. 별명 변경",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"새별명{{$randomInt}}\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/users/me/name",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "users", "me", "name"]
+        },
+        "description": "별명은 20자 이하, 다른 계정과 중복 불가(409 USER_xxx)입니다. `{{$randomInt}}`로 매 실행마다 다른 값을 보내 중복을 피합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "4. 사용자 검색 (실명 부분 일치)",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/users/search?query={{searchQuery}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "users", "search"],
+          "query": [
+            { "key": "query", "value": "{{searchQuery}}" }
+          ]
+        },
+        "description": "`query`는 실명(Gbsw.name) 부분 일치 검색입니다. 학생이면 학년/반이 같이, 선생님이면 빠진 채로 반환됩니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "response": []
+    }
+  ],
+  "variable": []
+}

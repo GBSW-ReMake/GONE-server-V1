@@ -1,0 +1,127 @@
+{
+  "info": {
+    "name": "GONE - File API",
+    "description": "프로필 이미지 업로드(File) 도메인 API 컬렉션. 현재 구현된 2개 엔드포인트를 포함합니다.\n\n**주의**: `2. 업로드 URL 발급`이 반환하는 presigned URL로 실제 파일을 PUT 업로드해야 `3. 업로드 확정`이 성공합니다(R2 버킷에 그 key로 객체가 실제로 존재해야 `checkObjectExists`를 통과함). 이 컬렉션은 업로드 자체는 자동화하지 않으므로, 3번을 그대로 실행하면 `UPLOAD_CONFIRM_FAILED`가 정상입니다 — 실제 파일 업로드까지 확인하려면 2번 응답의 `uploadUrl`로 별도 PUT 요청(바디: 이미지 바이너리)을 수동으로 보낸 뒤 3번을 실행하세요.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. 로그인 (테스트 학생 계정)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"identifier\": \"{{studentLoginId}}\",\n  \"password\": \"{{studentPassword}}\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/login",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "auth", "login"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "if (pm.response.code === 200) {",
+              "    const body = pm.response.json();",
+              "    if (body.success && body.data) {",
+              "        pm.environment.set(\"accessToken\", body.data.accessToken);",
+              "    }",
+              "}"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "2. 프로필 이미지 업로드 URL 발급",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"fileName\": \"profile.jpg\",\n  \"contentType\": \"image/jpeg\",\n  \"fileSize\": 102400\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/files/profile-image/upload-url",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "files", "profile-image", "upload-url"]
+        },
+        "description": "응답의 `data.key`를 `uploadKey` 환경 변수에 자동 저장합니다. `data.uploadUrl`은 presigned PUT URL입니다(직접 파일을 업로드하고 싶으면 이 URL로 별도 요청)."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "if (pm.response.code === 200) {",
+              "    const body = pm.response.json();",
+              "    if (body.success && body.data && body.data.key) {",
+              "        pm.environment.set(\"uploadKey\", body.data.key);",
+              "    }",
+              "}"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "3. 프로필 이미지 업로드 확정",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"key\": \"{{uploadKey}}\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/files/profile-image/confirm",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "files", "profile-image", "confirm"]
+        },
+        "description": "2번에서 발급받은 `uploadKey`가 실제로 R2에 업로드돼 있어야 성공합니다. 업로드 없이 그대로 실행하면 `UPLOAD_CONFIRM_FAILED`가 정상 동작입니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 또는 업로드 안 된 경우 400\", function () {",
+              "    pm.expect([200, 400]).to.include(pm.response.code);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "response": []
+    }
+  ],
+  "variable": []
+}

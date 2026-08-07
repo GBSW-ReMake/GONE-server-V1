@@ -1,0 +1,84 @@
+{
+  "info": {
+    "name": "GONE - Timetable API",
+    "description": "NEIS 시간표 조회(Timetable) 도메인 API 컬렉션. 현재 구현된 1개 엔드포인트를 포함합니다.\n\n로그인한 본인 학급을 자동으로 조회하므로 Access Token 인증이 필요합니다.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. 로그인 (테스트 학생 계정)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"identifier\": \"{{studentLoginId}}\",\n  \"password\": \"{{studentPassword}}\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/login",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "auth", "login"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "if (pm.response.code === 200) {",
+              "    const body = pm.response.json();",
+              "    if (body.success && body.data) {",
+              "        pm.environment.set(\"accessToken\", body.data.accessToken);",
+              "    }",
+              "}"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "2. 내 학급 시간표 조회",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/timetables?date={{timetableDate}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "timetables"],
+          "query": [
+            { "key": "date", "value": "{{timetableDate}}" }
+          ]
+        },
+        "description": "`date`를 생략하면 서버가 오늘(KST) 날짜로 조회합니다. 호출자의 `Gbsw.grade`/`classNo`가 없으면 400을 반환합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "response": []
+    }
+  ],
+  "variable": [
+    { "key": "timetableDate", "value": "20260814", "type": "string" }
+  ]
+}

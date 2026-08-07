@@ -1,0 +1,70 @@
+{
+  "info": {
+    "name": "GONE - Meal API",
+    "description": "NEIS 급식 정보 조회(Meal) 도메인 API 컬렉션. 현재 구현된 1개 엔드포인트(파라미터 조합 2가지)를 포함합니다. 학교 전체 공통 정보라 인증이 필요 없습니다.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. 오늘 급식 조회 (날짜 생략)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/meals",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "meals"]
+        },
+        "description": "`date`를 생략하면 서버가 오늘(KST) 날짜로 조회합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "2. 특정 날짜 + mealType 필터 조회",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/meals?date={{mealDate}}&mealType=LUNCH",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "meals"],
+          "query": [
+            { "key": "date", "value": "{{mealDate}}" },
+            { "key": "mealType", "value": "LUNCH" }
+          ]
+        },
+        "description": "`mealType`은 `BREAKFAST`/`LUNCH`/`DINNER` 중 하나로 필터링합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "response": []
+    }
+  ],
+  "variable": [
+    { "key": "mealDate", "value": "20260814", "type": "string" }
+  ]
+}
