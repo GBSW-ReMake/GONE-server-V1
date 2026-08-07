@@ -6,7 +6,7 @@ import com.remake.gone.outing.dto.OutingApplyRequest;
 import com.remake.gone.outing.dto.OutingRejectRequest;
 import com.remake.gone.outing.dto.OutingResponse;
 import com.remake.gone.outing.enums.OutingQueryPeriod;
-import com.remake.gone.outing.enums.OutingStatus;
+import com.remake.gone.outing.enums.OutingQueryStatus;
 import com.remake.gone.outing.service.OutingService;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
@@ -119,7 +119,7 @@ public class OutingController {
       @RequestParam(defaultValue = "THIS_WEEK") OutingQueryPeriod period,
       @RequestParam(required = false) @DateTimeFormat(pattern = "yyyyMMdd") LocalDate dateFrom,
       @RequestParam(required = false) @DateTimeFormat(pattern = "yyyyMMdd") LocalDate dateTo,
-      @RequestParam(required = false) OutingStatus status
+      @RequestParam(required = false) OutingQueryStatus status
   ) {
     LocalDateTime now = LocalDateTime.now(KST);
     List<OutingResponse> response = outingService.getMyRequests(
@@ -145,7 +145,7 @@ public class OutingController {
       @RequestParam(defaultValue = "THIS_WEEK") OutingQueryPeriod period,
       @RequestParam(required = false) @DateTimeFormat(pattern = "yyyyMMdd") LocalDate dateFrom,
       @RequestParam(required = false) @DateTimeFormat(pattern = "yyyyMMdd") LocalDate dateTo,
-      @RequestParam(required = false) OutingStatus status
+      @RequestParam(required = false) OutingQueryStatus status
   ) {
     LocalDateTime now = LocalDateTime.now(KST);
     List<OutingResponse> response = outingService.getReceivedOutings(

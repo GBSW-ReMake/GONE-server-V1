@@ -9,6 +9,7 @@ import com.remake.gone.outing.dto.OutingApplyRequest;
 import com.remake.gone.outing.dto.OutingResponse;
 import com.remake.gone.outing.entity.Outing;
 import com.remake.gone.outing.enums.OutingQueryPeriod;
+import com.remake.gone.outing.enums.OutingQueryStatus;
 import com.remake.gone.outing.enums.OutingStatus;
 import com.remake.gone.outing.enums.OutingTimeSlot;
 import com.remake.gone.outing.exception.OutingErrorCode;
@@ -169,7 +170,7 @@ public class OutingService {
   @Transactional(readOnly = true)
   public List<OutingResponse> getMyRequests(
       Long studentUserId, OutingQueryPeriod period, LocalDate dateFrom, LocalDate dateTo,
-      OutingStatus statusFilter, LocalDate today, LocalTime now) {
+      OutingQueryStatus statusFilter, LocalDate today, LocalTime now) {
     OutingDateRange range = resolveQueryRange(period, dateFrom, dateTo, today);
     List<Outing> outings = outingRepository
         .findByStudentIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
@@ -192,7 +193,7 @@ public class OutingService {
   @Transactional(readOnly = true)
   public List<OutingResponse> getReceivedOutings(
       Long teacherUserId, OutingQueryPeriod period, LocalDate dateFrom, LocalDate dateTo,
-      OutingStatus statusFilter, LocalDate today, LocalTime now) {
+      OutingQueryStatus statusFilter, LocalDate today, LocalTime now) {
     OutingDateRange range = resolveQueryRange(period, dateFrom, dateTo, today);
     List<Outing> outings = outingRepository
         .findByTeacherIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
@@ -404,10 +405,11 @@ public class OutingService {
   }
 
   private List<OutingResponse> toFilteredResponses(
-      List<Outing> outings, OutingStatus statusFilter, LocalDate today, LocalTime now) {
+      List<Outing> outings, OutingQueryStatus statusFilter, LocalDate today, LocalTime now) {
+    OutingStatus effectiveFilter = statusFilter == null ? null : statusFilter.toOutingStatus();
     return outings.stream()
         .map(outing -> toResponse(outing, outing.getStudent(), outing.getTeacher(), today, now))
-        .filter(response -> statusFilter == null || response.status() == statusFilter)
+        .filter(response -> effectiveFilter == null || response.status() == effectiveFilter)
         .toList();
   }
 

@@ -16,6 +16,7 @@ import com.remake.gone.outing.dto.OutingApplyRequest;
 import com.remake.gone.outing.dto.OutingResponse;
 import com.remake.gone.outing.entity.Outing;
 import com.remake.gone.outing.enums.OutingQueryPeriod;
+import com.remake.gone.outing.enums.OutingQueryStatus;
 import com.remake.gone.outing.enums.OutingStatus;
 import com.remake.gone.outing.enums.OutingTimeSlot;
 import com.remake.gone.outing.exception.OutingErrorCode;
@@ -611,7 +612,7 @@ class OutingServiceTest {
 
       List<OutingResponse> response = outingService.getMyRequests(
           STUDENT_ID, OutingQueryPeriod.TODAY,
-          null, null, OutingStatus.PENDING, TODAY, NOW);
+          null, null, OutingQueryStatus.PENDING, TODAY, NOW);
 
       assertThat(response).hasSize(1);
       assertThat(response.get(0).status()).isEqualTo(OutingStatus.PENDING);
@@ -628,7 +629,7 @@ class OutingServiceTest {
 
       List<OutingResponse> response = outingService.getMyRequests(
           STUDENT_ID, OutingQueryPeriod.TODAY,
-          null, null, OutingStatus.MISSED, TODAY, NOW);
+          null, null, OutingQueryStatus.MISSED, TODAY, NOW);
 
       assertThat(response).hasSize(1);
       assertThat(response.get(0).status()).isEqualTo(OutingStatus.MISSED);

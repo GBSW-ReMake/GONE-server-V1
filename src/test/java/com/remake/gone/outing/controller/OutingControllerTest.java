@@ -256,6 +256,13 @@ class OutingControllerTest {
       mockMvc.perform(get("/api/v1/outings/me/requests").param("period", "NOT_A_PERIOD"))
           .andExpect(status().isBadRequest());
     }
+
+    @Test
+    @DisplayName("status=DEPARTED처럼 아직 도달 불가능한 상태로 필터링하면 400을 반환한다")
+    void returns400WhenStatusIsUnreachableValue() throws Exception {
+      mockMvc.perform(get("/api/v1/outings/me/requests").param("status", "DEPARTED"))
+          .andExpect(status().isBadRequest());
+    }
   }
 
   @Nested
