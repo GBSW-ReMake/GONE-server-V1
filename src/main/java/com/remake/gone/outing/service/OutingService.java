@@ -8,11 +8,14 @@ import com.remake.gone.gbsw.exception.GbswErrorCode;
 import com.remake.gone.outing.dto.OutingApplyRequest;
 import com.remake.gone.outing.dto.OutingResponse;
 import com.remake.gone.outing.entity.Outing;
+import com.remake.gone.outing.enums.OutingQueryPeriod;
 import com.remake.gone.outing.enums.OutingStatus;
 import com.remake.gone.outing.enums.OutingTimeSlot;
 import com.remake.gone.outing.exception.OutingErrorCode;
 import com.remake.gone.outing.repository.OutingRepository;
 import com.remake.gone.outing.utils.OutingCodeGenerator;
+import com.remake.gone.outing.utils.OutingDateRange;
+import com.remake.gone.outing.utils.OutingQueryPeriodResolver;
 import com.remake.gone.outing.utils.OutingTimeUtils;
 import com.remake.gone.role.repository.UserRoleRepository;
 import com.remake.gone.user.entity.User;
@@ -48,6 +51,8 @@ public class OutingService {
   private static final DateTimeFormatter HM_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
   private static final String STUDENT_ROLE_CODE = "STUDENT";
   private static final String TEACHER_ROLE_CODE = "TEACHER";
+  private static final String DISCIPLINE_ROLE_CODE = "DISCIPLINE";
+  private static final String ADMIN_ROLE_CODE = "ADMIN";
   private static final int MAX_CODE_GENERATION_ATTEMPTS = 5;
 
   private final OutingRepository outingRepository;
@@ -88,7 +93,7 @@ public class OutingService {
     Outing outing = saveWithGeneratedCode(
         student, teacher, request.reason(), outingDate, request.timeSlot(), timeRange);
 
-    return toResponse(outing, student, teacher);
+    return toResponse(outing, student, teacher, today, now);
   }
 
   /**
@@ -115,7 +120,8 @@ public class OutingService {
     outing.setApprovedAt(now);
     outingRepository.save(outing);
 
-    return toResponse(outing, outing.getStudent(), outing.getTeacher());
+    return toResponse(
+        outing, outing.getStudent(), outing.getTeacher(), now.toLocalDate(), now.toLocalTime());
   }
 
   /**
@@ -124,10 +130,12 @@ public class OutingService {
    * @param teacherUserId  거절을 요청한 선생님 사용자 ID (Access Token에서 추출됨)
    * @param code           거절할 외출증의 외부 식별자 코드
    * @param rejectedReason 거절 사유
+   * @param now            "지금" 시각(KST) — 응답 변환 시 유효 상태 계산에 사용
    * @return 거절된 외출증 정보
    */
   @Transactional
-  public OutingResponse rejectOuting(Long teacherUserId, String code, String rejectedReason) {
+  public OutingResponse rejectOuting(
+      Long teacherUserId, String code, String rejectedReason, LocalDateTime now) {
     Outing outing = outingRepository.findByCode(code)
         .orElseThrow(() -> new CustomException(OutingErrorCode.OUTING_NOT_FOUND));
 
@@ -142,7 +150,73 @@ public class OutingService {
     outing.setRejectedReason(rejectedReason);
     outingRepository.save(outing);
 
-    return toResponse(outing, outing.getStudent(), outing.getTeacher());
+    return toResponse(
+        outing, outing.getStudent(), outing.getTeacher(), now.toLocalDate(), now.toLocalTime());
+  }
+
+  /**
+   * 학생 본인이 신청한 외출증을 조회합니다(#41).
+   *
+   * @param studentUserId 조회하는 학생 사용자 ID (Access Token에서 추출됨)
+   * @param period        조회 기간 프리셋
+   * @param dateFrom      {@code period == CUSTOM}일 때의 시작일
+   * @param dateTo        {@code period == CUSTOM}일 때의 종료일
+   * @param statusFilter  걸러볼 상태(유효 상태 기준). {@code null}이면 전부 반환
+   * @param today         "오늘" 날짜(KST) — 기간 기본값/유효 상태 계산에 사용
+   * @param now           "지금" 시각(KST) — 유효 상태 계산에 사용
+   * @return 조건에 맞는 외출증 목록(날짜/시작 시각 오름차순)
+   */
+  @Transactional(readOnly = true)
+  public List<OutingResponse> getMyRequests(
+      Long studentUserId, OutingQueryPeriod period, LocalDate dateFrom, LocalDate dateTo,
+      OutingStatus statusFilter, LocalDate today, LocalTime now) {
+    OutingDateRange range = resolveQueryRange(period, dateFrom, dateTo, today);
+    List<Outing> outings = outingRepository
+        .findByStudentIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
+            studentUserId, range.from(), range.to());
+    return toFilteredResponses(outings, statusFilter, today, now);
+  }
+
+  /**
+   * 담당 선생님으로 지정된 외출증을 조회합니다(#41).
+   *
+   * @param teacherUserId 조회하는 선생님 사용자 ID (Access Token에서 추출됨)
+   * @param period        조회 기간 프리셋
+   * @param dateFrom      {@code period == CUSTOM}일 때의 시작일
+   * @param dateTo        {@code period == CUSTOM}일 때의 종료일
+   * @param statusFilter  걸러볼 상태(유효 상태 기준). {@code null}이면 전부 반환
+   * @param today         "오늘" 날짜(KST) — 기간 기본값/유효 상태 계산에 사용
+   * @param now           "지금" 시각(KST) — 유효 상태 계산에 사용
+   * @return 조건에 맞는 외출증 목록(날짜/시작 시각 오름차순)
+   */
+  @Transactional(readOnly = true)
+  public List<OutingResponse> getReceivedOutings(
+      Long teacherUserId, OutingQueryPeriod period, LocalDate dateFrom, LocalDate dateTo,
+      OutingStatus statusFilter, LocalDate today, LocalTime now) {
+    OutingDateRange range = resolveQueryRange(period, dateFrom, dateTo, today);
+    List<Outing> outings = outingRepository
+        .findByTeacherIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
+            teacherUserId, range.from(), range.to());
+    return toFilteredResponses(outings, statusFilter, today, now);
+  }
+
+  /**
+   * 외출증 단건을 상세 조회합니다(#41). 신청 학생 본인, 지정된 담당 선생님, 또는
+   * {@code DISCIPLINE}/{@code ADMIN} 역할 보유자만 조회할 수 있습니다.
+   *
+   * @param callerUserId 조회를 요청한 사용자 ID (Access Token에서 추출됨)
+   * @param code         조회할 외출증의 외부 식별자 코드
+   * @param today        "오늘" 날짜(KST) — 유효 상태 계산에 사용
+   * @param now          "지금" 시각(KST) — 유효 상태 계산에 사용
+   * @return 외출증 상세 정보
+   */
+  @Transactional(readOnly = true)
+  public OutingResponse getOutingDetail(
+      Long callerUserId, String code, LocalDate today, LocalTime now) {
+    Outing outing = outingRepository.findByCode(code)
+        .orElseThrow(() -> new CustomException(OutingErrorCode.OUTING_NOT_FOUND));
+    validateDetailAccess(callerUserId, outing);
+    return toResponse(outing, outing.getStudent(), outing.getTeacher(), today, now);
   }
 
   private void validateStudentRole(Long studentUserId) {
@@ -261,7 +335,13 @@ public class OutingService {
   // 도메인(UserService/MealService/TimetableService 등)이 "Response는 순수 데이터, 매핑은
   // Service 책임"을 따르고, r2FileService.generateDownloadUrl(...) 호출(Spring 빈 의존)까지
   // 포함돼 있어 record로 옮기면 DTO가 프레임워크에 의존하게 된다.
-  private OutingResponse toResponse(Outing outing, User student, User teacher) {
+  //
+  // today/now는 유효 상태(#41 MISSED 판정) 계산에만 쓰인다. applyOuting/approveOuting/
+  // rejectOuting 호출부는 방금 생성/승인/거절된 건을 넘기므로 status가 PENDING일 수 없어
+  // 실질적으로 값이 바뀌지 않는다 — 그래도 매 호출부가 "지금 이 순간"을 파라미터로 직접
+  // 넘기는 이 클래스의 기존 규칙(클래스 상단 Javadoc 참고)을 그대로 따른다.
+  private OutingResponse toResponse(
+      Outing outing, User student, User teacher, LocalDate today, LocalTime now) {
     String studentProfileImageUrl = student.getProfileImageKey() != null
         ? r2FileService.generateDownloadUrl(student.getProfileImageKey())
         : null;
@@ -279,8 +359,69 @@ public class OutingService {
         outing.getTimeSlot(),
         outing.getStartTime().format(HM_FORMATTER),
         outing.getEndTime().format(HM_FORMATTER),
-        outing.getStatus(),
+        resolveEffectiveStatus(outing, today, now),
         outing.getRejectedReason());
+  }
+
+  /**
+   * 저장된 상태가 {@code PENDING}이고 마감(시작 시각)이 지났으면 {@code MISSED}로, 아니면
+   * 저장된 값 그대로 반환한다(#41). DB는 바꾸지 않는다 — 응답 변환 시점의 실시간 계산이다.
+   */
+  private OutingStatus resolveEffectiveStatus(Outing outing, LocalDate today, LocalTime now) {
+    if (outing.getStatus() == OutingStatus.PENDING
+        && OutingTimeUtils.isPastDeadline(
+            outing.getOutingDate(), outing.getStartTime(), today, now)) {
+      return OutingStatus.MISSED;
+    }
+    return outing.getStatus();
+  }
+
+  /**
+   * {@code period}/{@code dateFrom}/{@code dateTo} 조합을 검증하고 실제 조회 범위를 계산한다
+   * (#41). 검증 자체는 이 서비스가 하고, 계산은 순수 함수인
+   * {@link OutingQueryPeriodResolver}에 위임한다.
+   */
+  private OutingDateRange resolveQueryRange(
+      OutingQueryPeriod period, LocalDate dateFrom, LocalDate dateTo, LocalDate today) {
+    validatePeriodParams(period, dateFrom, dateTo);
+    OutingDateRange range = OutingQueryPeriodResolver.resolve(period, today, dateFrom, dateTo);
+    if (range.from().isAfter(range.to())) {
+      throw new CustomException(OutingErrorCode.INVALID_DATE_RANGE);
+    }
+    return range;
+  }
+
+  private void validatePeriodParams(
+      OutingQueryPeriod period, LocalDate dateFrom, LocalDate dateTo) {
+    boolean hasCustomDates = dateFrom != null || dateTo != null;
+    if (period == OutingQueryPeriod.CUSTOM) {
+      if (dateFrom == null || dateTo == null) {
+        throw new CustomException(OutingErrorCode.INVALID_PERIOD_PARAMS);
+      }
+    } else if (hasCustomDates) {
+      throw new CustomException(OutingErrorCode.INVALID_PERIOD_PARAMS);
+    }
+  }
+
+  private List<OutingResponse> toFilteredResponses(
+      List<Outing> outings, OutingStatus statusFilter, LocalDate today, LocalTime now) {
+    return outings.stream()
+        .map(outing -> toResponse(outing, outing.getStudent(), outing.getTeacher(), today, now))
+        .filter(response -> statusFilter == null || response.status() == statusFilter)
+        .toList();
+  }
+
+  private void validateDetailAccess(Long callerUserId, Outing outing) {
+    boolean isRelated = outing.getStudent().getId().equals(callerUserId)
+        || outing.getTeacher().getId().equals(callerUserId);
+    if (isRelated) {
+      return;
+    }
+    List<String> roles = userRoleRepository.findRoleCodesByUserId(callerUserId);
+    if (roles.contains(DISCIPLINE_ROLE_CODE) || roles.contains(ADMIN_ROLE_CODE)) {
+      return;
+    }
+    throw new CustomException(OutingErrorCode.ACCESS_DENIED);
   }
 
   // applyOuting() 한 메서드 내부(시간 확정 → 겹침 체크) 계산에서만 쓰이고 API/도메인 경계를
