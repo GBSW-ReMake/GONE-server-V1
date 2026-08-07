@@ -6,3 +6,9 @@ reviews:
     # dev도 명시적으로 추가해야 한다.
     base_branches:
       - "dev"
+    # free 플랜은 계정별 시간당 리뷰 요청 4회 제한. auto_incremental_review(default true)면
+    # PR open + push할 때마다(checkstyle/오타 수정 커밋 포함) 매번 쿼터를 소모해서, 정작
+    # 구현이 끝난 뒤 받아야 할 최종 리뷰 전에 쿼터가 바닥나는 문제가 있었다. PR open 시
+    # 1회만 자동 리뷰하고, 이후로는 branch-workflow.md 10단계(QA 직전) 시점에
+    # `@coderabbitai review`를 수동으로 한 번 달아 전체 diff를 리뷰받는다.
+    auto_incremental_review: false
