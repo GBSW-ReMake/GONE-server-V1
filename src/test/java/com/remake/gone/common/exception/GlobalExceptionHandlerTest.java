@@ -18,10 +18,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
  * {@link GlobalExceptionHandler}에 대한 단위 테스트.
@@ -115,5 +117,30 @@ class GlobalExceptionHandlerTest {
       assertThat(response.getBody().success()).isFalse();
       assertThat(response.getBody().code()).isEqualTo("COMMON_003");
     }
+  }
+
+  @Nested
+  @DisplayName("handleMethodArgumentTypeMismatch")
+  class HandleMethodArgumentTypeMismatch {
+
+    @Test
+    @DisplayName("@RequestParam 타입 변환에 실패하면 500이 아니라 400 COMMON_001로 응답한다")
+    void returns400InsteadOfInternalServerError() throws NoSuchMethodException {
+      MethodParameter param = new MethodParameter(
+          GlobalExceptionHandlerTest.class.getDeclaredMethod("dummy", String.class), 0);
+      MethodArgumentTypeMismatchException exception = new MethodArgumentTypeMismatchException(
+          "not-a-date", java.time.LocalDate.class, "date", param, new IllegalArgumentException());
+
+      ResponseEntity<ApiResponse<Void>> response =
+          handler.handleMethodArgumentTypeMismatch(exception);
+
+      assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+      assertThat(response.getBody().success()).isFalse();
+      assertThat(response.getBody().code()).isEqualTo("COMMON_001");
+    }
+  }
+
+  @SuppressWarnings("unused")
+  private static void dummy(String value) {
   }
 }
