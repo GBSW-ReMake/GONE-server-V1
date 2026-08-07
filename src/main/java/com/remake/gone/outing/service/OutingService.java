@@ -230,6 +230,7 @@ public class OutingService {
   private Outing saveWithGeneratedCode(
       User student, User teacher, String reason, LocalDate outingDate,
       OutingTimeSlot timeSlot, TimeRange timeRange) {
+
     DataIntegrityViolationException lastFailure = null;
     for (int attempt = 1; attempt <= MAX_CODE_GENERATION_ATTEMPTS; attempt++) {
       Outing outing = Outing.builder()
