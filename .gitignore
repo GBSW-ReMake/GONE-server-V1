@@ -39,6 +39,9 @@ out/
 ### Claude Code ###
 .claude/
 
+### oh-my-claudecode ###
+.omc/
+
 ### secret files ###
 application-dev.yml
 .env
