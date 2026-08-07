@@ -83,6 +83,59 @@
 5. **확장성/성능**: 단건 처리라 페이지네이션 등 해당 없음.
 6. **하위 호환성**: `OutingResponse`에 필드 추가만 함 — 기존 신청/승인 응답 구조에 영향 없음.
 
+## 테스트 방법
+로컬 서버(`baseUrl=http://localhost:9091`) 기동 후 아래 두 가지 방법으로 검증한다.
+
+### 1. Postman 컬렉션 (권장)
+워크스페이스에 동기화된 `GONE - Outing API` 컬렉션 + `GONE - Local Dev` 환경을 사용한다(환경
+선택기에서 `GONE - Local Dev`를 먼저 선택). 사전 조건: DB에 테스트 계정
+`user1`(STUDENT)/`teacher1`(TEACHER), 비밀번호 둘 다 `1234`가 있어야 한다(없으면 아래 SQL로
+생성).
+
+실행 순서(컬렉션에 번호로 정리돼 있음):
+1. 학생 로그인 → `studentAccessToken` 자동 저장
+2. 선생님 로그인 → `teacherAccessToken` + JWT에서 디코드한 `teacherUserId` 자동 저장
+3. 외출증 신청(승인용) → `outingCode` 자동 저장
+4. 외출증 승인 → `status: APPROVED` 확인
+5. 외출증 신청(거절용, 3번과 다른 시간대) → `outingCodeForReject` 자동 저장
+6. **외출증 거절** → `status: REJECTED`, 응답에 `rejectedReason`이 요청한 값 그대로 들어있는지
+   확인(이 기획서의 핵심 검증 포인트)
+7. "에러 케이스" 폴더(4번 실행 후 아무 때나 실행 가능):
+   - 학생 토큰으로 승인 시도 → `403`
+   - 이미 처리된 code 재승인 시도 → `409` `OUTING_005`
+   - 존재하지 않는 code로 거절 시도 → `404` `OUTING_006`
+   - `rejectedReason` 빈 값 → `400`
+   - Authorization 헤더 없이 승인 시도 → `401`
+
+각 요청에 Postman test 스크립트로 상태코드/응답 필드 assertion이 붙어있어, Run 시 자동으로
+초록/빨강 표시된다.
+
+### 2. 테스트 계정 생성 (DB에 없을 경우)
+`mysql` CLI로 아래 SQL 실행(비밀번호 `1234`의 BCrypt 해시는 이 프로젝트가 쓰는
+`BCryptPasswordEncoder`로 직접 생성/검증됨):
+```sql
+INSERT INTO gbsw (type, name, phone_number, grade, class_no, number)
+VALUES ('STUDENT', '테스트학생', '01011119999', 3, 1, 1);
+INSERT INTO user (gbsw_id, login_id, password_hash, name, phone_number)
+VALUES ((SELECT id FROM gbsw WHERE phone_number = '01011119999'), 'user1',
+  '$2a$10$8wkrdTE7xQLxEHtvJcxUFe/PmW1gIxzC1AvvSFuu8FG7eU99uwp7G', '테스트학생닉네임', '01011119999');
+INSERT INTO user_role (user_id, role_id)
+VALUES ((SELECT id FROM user WHERE login_id = 'user1'), (SELECT id FROM role WHERE code = 'STUDENT'));
+
+INSERT INTO gbsw (type, name, phone_number, grade, class_no, number)
+VALUES ('TEACHER', '테스트선생님', '01022229999', NULL, NULL, NULL);
+INSERT INTO user (gbsw_id, login_id, password_hash, name, phone_number)
+VALUES ((SELECT id FROM gbsw WHERE phone_number = '01022229999'), 'teacher1',
+  '$2a$10$8wkrdTE7xQLxEHtvJcxUFe/PmW1gIxzC1AvvSFuu8FG7eU99uwp7G', '테스트선생님닉네임', '01022229999');
+INSERT INTO user_role (user_id, role_id)
+VALUES ((SELECT id FROM user WHERE login_id = 'teacher1'), (SELECT id FROM role WHERE code = 'TEACHER'));
+```
+
+### 3. 자동화 테스트 (참고용, 이미 통과 확인됨)
+`./gradlew build` — `OutingServiceTest.RejectOuting`(성공/404/403/409 4케이스),
+`OutingControllerTest.RejectOuting`(위임 확인 + Bean Validation 400 2케이스),
+`OutingRejectAuthorizationTest`(401/403, `@EnableMethodSecurity` 실제 동작 확인) 전부 포함.
+
 ## 리스크 및 고려사항
 - **동시성 (마스터 기획서 "공통 구현 고려사항"에서 재판단 요구한 부분)**: 승인과 마찬가지로
   `status == PENDING` 체크 후 저장까지 락이 없어 이론상 같은 선생님의 이중 클릭이 둘 다 체크를
