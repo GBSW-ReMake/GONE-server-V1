@@ -41,10 +41,13 @@ public record PageResponse<T>(
   public static <T> PageResponse<T> of(List<T> allContent, int page, int size) {
     int totalElements = allContent.size();
     int totalPages = (int) Math.ceil((double) totalElements / size);
-    int fromIndex = Math.min(page * size, totalElements);
+    // page/size는 long으로 곱해 int 오버플로를 피한다 — page가 매우 큰 값으로 와도
+    // (예: Integer.MAX_VALUE 근처) fromIndex는 항상 [0, totalElements] 안으로 clamp된다.
+    long fromIndexLong = (long) page * size;
+    int fromIndex = (int) Math.min(fromIndexLong, totalElements);
     int toIndex = Math.min(fromIndex + size, totalElements);
     List<T> content = allContent.subList(fromIndex, toIndex);
-    boolean hasNext = (page + 1) < totalPages;
+    boolean hasNext = (page + 1L) < totalPages;
     return new PageResponse<>(content, page, size, totalElements, totalPages, hasNext);
   }
 }

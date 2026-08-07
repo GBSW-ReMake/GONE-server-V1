@@ -6,9 +6,10 @@
 컨텍스트 격리를 위해 구현 대화 기록 없이 별도 에이전트를 띄워, `merge-base`(84d74f7) ~
 `feat/#41-outing-query` 전체 diff와 기획서만 전달해 `code-review` 스킬로 리뷰했다.
 
-**요약**: Critical/High 없음. Medium 1건, Low 4건 발견. Medium 1건은 QA(10단계)에서
-실서버로 재현해 해소, Low 1건(2번)은 리뷰 직후 바로 수정, 나머지 Low 3건은 보류(사유
-각 항목에 명시).
+**요약**: 기본 구현 리뷰(1~5번) — Critical/High 없음. Medium 1건, Low 4건 발견. Medium
+1건은 QA(10단계)에서 실서버로 재현해 해소, Low 1건(2번)은 리뷰 직후 바로 수정, 나머지 Low
+3건은 보류(사유 각 항목에 명시). 페이지네이션 추가분 재리뷰(6~7번) — High 1건(오버플로
+버그, 즉시 수정), Low 1건(테스트 커버리지, 즉시 수정) — 상세는 아래 해당 절 참고.
 
 ---
 
@@ -167,3 +168,65 @@ Hibernate 1차 캐시가 같은 영속성 컨텍스트 안에서 중복 조회�
 
 **적용**: 보류(방안 2). 두 메서드가 정말로 로직을 공유하는 한 위험은 낮다고 보고, 로직이
 갈라지는 변경이 생기는 시점에 방안 1을 적용하기로 한다.
+
+---
+
+## 페이지네이션 추가분 재리뷰 (구현 중 추가, 별도 라운드)
+
+위 1~5번 리뷰 이후, 목록 조회 두 엔드포인트에 `page`/`size` 페이지네이션을 추가했다(기획서
+"페이지네이션" 절 참고). 이 추가 코드만 별도로 독립 에이전트(컨텍스트 격리, diff +
+`PageResponse`/`OutingController`/`OutingService`/`OutingErrorCode`/테스트 파일 현재 상태 +
+기획서 "페이지네이션" 절만 전달)에게 다시 리뷰를 맡겼다.
+
+## 6. 🟠 High — `page`가 매우 크면 `page*size`가 `int` 오버플로되어 500이 남 (수정 완료)
+
+**문제**: `PageResponse.of(...)`(`src/main/java/com/remake/gone/common/response/PageResponse.java`)가
+`fromIndex`를 `page * size`로 `int` 산술로 계산했다. `OutingService.validatePageParams`는
+`page < 0`만 거부하고 `page`의 상한은 검증하지 않는다(상한을 미리 알 방법이 없다 — 결과
+건수는 DB 조회 이후에야 정해짐). 그래서 `?page=999999999&size=100`처럼 `page`가 아주 크게
+오면 `page * size`가 `int` 범위를 넘어 **음수로 오버플로**되고, 그 값이 그대로
+`allContent.subList(fromIndex, toIndex)`의 `fromIndex`로 들어가 `IndexOutOfBoundsException`이
+발생한다. `GlobalExceptionHandler`에 이 예외 전용 핸들러가 없어 일반 폴백(500, 스택
+트레이스 로깅)으로 떨어진다 — 기획서가 명시한 "마지막 페이지 다음 페이지 요청은 흔한
+상황이라 에러가 아니라 빈 배열"이라는 계약을 오버플로 구간에서는 지키지 못하는 셈이다.
+`hasNext` 계산(`(page + 1) < totalPages`)도 같은 이유로 `page`가 `Integer.MAX_VALUE` 근처면
+`page + 1`이 음수로 오버플로돼 `hasNext`가 잘못 `true`로 나올 수 있었다.
+
+**해결 방안**:
+1. **`PageResponse.of` 내부에서 `long` 산술로 계산 후 `totalElements`로 clamp** —
+   `fromIndex`/`hasNext` 계산 모두 `long`으로 올려 오버플로 자체가 발생하지 않게 하고,
+   최종적으로 `int`로 좁힐 때는 항상 `[0, totalElements]` 범위 안으로 잘라낸다. `page`의
+   상한을 미리 검증할 필요 없이(애초에 상한을 알 수 없으므로) 어떤 `page` 값이 와도 항상
+   안전하게 빈 페이지로 수렴한다 — 기획서의 "마지막 페이지 다음은 에러 아님" 계약과
+   자연스럽게 일치.
+2. **`OutingErrorCode`에 오버플로 전용 코드를 추가해 400으로 거부** — `page`가 특정 상한
+   (예: `Integer.MAX_VALUE / size`)을 넘으면 `OUTING_015`(기존 페이지 파라미터 에러)로
+   거부한다. 다만 이 상한은 `size`에 따라 달라지고, "존재하지 않는 먼 페이지"와 "오버플로를
+   일으키는 페이지"를 구분해 각각 다르게 응답하는 게 클라이언트 입장에서 더 혼란스러울 수
+   있다(둘 다 "그 페이지엔 아무것도 없다"는 같은 의미인데 하나는 200/빈 배열, 하나는 400).
+
+**적용**: 방안 1 채택. `PageResponse.of`가 `long fromIndexLong = (long) page * size`로
+계산한 뒤 `Math.min(fromIndexLong, totalElements)`로 clamp하도록 수정했고, `hasNext`도
+`(page + 1L) < totalPages`로 바꿔 같은 오버플로를 막았다. 오버플로를 일으키는 `page`도
+"존재하지 않는 먼 페이지"와 본질적으로 같은 상황이라 별도 에러 코드로 구분하지 않고 항상
+빈 `content`로 응답하는 쪽이 기획서 계약과도, 클라이언트 입장에서도 더 일관적이라고
+판단했다. 회귀 방지용으로 `PageResponseTest`(신규,
+`src/test/java/com/remake/gone/common/response/PageResponseTest.java`)에
+`veryLargePageDoesNotOverflow` 케이스를 추가했다.
+
+## 7. 🟢 Low — "마지막 페이지 다음 페이지" 시나리오가 자동화 테스트에 없었음 (수정 완료)
+
+**문제**: pagination 추가 시점의 유일한 자동 테스트(`OutingServiceTest.paginatesAndReportsHasNext`)는
+데이터가 있는 페이지만 검증했고, 기획서가 명시적으로 "에러 아님"이라 강조한 "마지막 페이지
+다음 페이지" 케이스는 자동화 테스트로 보장되지 않았다(QA 문서 23번 항목으로 실서버 수동
+검증만 돼 있었음).
+
+**해결 방안**:
+1. `PageResponseTest`에 마지막 페이지 다음 페이지 케이스를 전용 단위 테스트로 추가한다 —
+   `PageResponse.of`가 이 로직의 실제 소재지라 여기서 검증하는 게 가장 직접적이다.
+2. `OutingServiceTest`에서 서비스 레벨로 같은 시나리오를 추가한다 — `PageResponse.of` 자체는
+   이미 커버되지만, 서비스가 그 결과를 그대로 전달하는지까지 한 번 더 확인할 수 있다.
+
+**적용**: 방안 1 채택(`PageResponseTest.pageBeyondLastPageReturnsEmptyContent`). 이 로직은
+`PageResponse.of` 안에 전부 있고 서비스는 그 결과를 그대로 통과시키기만 하므로, 서비스
+레벨에서 같은 케이스를 중복 검증할 필요는 낮다고 판단했다.
