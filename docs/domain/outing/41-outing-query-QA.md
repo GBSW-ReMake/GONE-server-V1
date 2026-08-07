@@ -46,6 +46,7 @@
 | 27 | `page`/`size` 생략 | 기본값 `page:0`, `size:20` 적용 | ✅ |
 | 28 | 위 21~27번을 `GET /me/received`(선생님)에서도 동일 재현 | 동일 동작 | ✅ |
 | 29 | `page=999999999&size=100`, `page=2147483647&size=100`(코드 리뷰 6번, `int` 오버플로 재현) | 200, `content: []`, `hasNext: false`(수정 전엔 500) | ✅ |
+| 30 | `GET /outings/`(빈 `code`, 코드 리뷰 8번, Postman 컬렉션 작성 중 발견) | 404 `COMMON_004`(수정 전엔 500 `COMMON_007`) | ✅ |
 
 **코드 리뷰 2번(`status=DEPARTED`/`RETURNED` 거부) 재확인**: 코드 리뷰 직후 바로 수정했고
 (`OutingQueryStatus` 도입), 실서버 수동 재현 대신 자동화 테스트(`OutingQueryStatusTest`,
@@ -63,11 +64,19 @@
 `page*size`가 `int` 오버플로되어 500이 나는 High 버그(6번)를 발견해 즉시 수정했다 —
 29번이 그 재현/수정 확인.
 
+**15단계(Postman) 작업 중 추가 발견**: 새 에러 케이스 요청을 Newman으로 실행하다가 빈
+`{code}`로 호출하면 404가 아니라 500이 나는 것을 발견했다(코드 리뷰 8번,
+`NoResourceFoundException` 미처리) — outing 도메인 한정 문제가 아니라 앱 전체 라우팅의
+일반적인 gap이지만, 고치는 비용이 낮고 이미 같은 파일에 같은 패턴의 선례가 있어 같이
+수정했다. 30번이 그 재현/수정 확인.
+
 ## 2. 결론
 
 Critical 없음. High 1건(페이지네이션 재리뷰 6번, `int` 오버플로 → 500)은 즉시 수정하고
 실서버 재현으로 확인 완료(29번). Medium 2건(코드 리뷰 1번은 실서버 재현으로 해소,
-`DISCIPLINE`/`ADMIN` 계정 제약 1건은 기존 관례대로 단위 테스트 대체), 코드 리뷰 Low 5건 중
-2건(2번 상태 필터, 7번 페이지 초과 테스트 커버리지)은 수정 완료, 나머지 3건(3~5번)은
-보류(상세 사유는 [41-outing-query-code-review.md](./41-outing-query-code-review.md) 참고).
-페이지네이션 추가분(21~29번)도 전부 통과 — 추가 조치 없이 PR 진행 가능하다고 판단.
+`DISCIPLINE`/`ADMIN` 계정 제약 1건은 기존 관례대로 단위 테스트 대체), 코드 리뷰 Low 6건 중
+3건(2번 상태 필터, 7번 페이지 초과 테스트 커버리지, 8번 NoResourceFoundException)은 수정
+완료, 나머지 3건(3~5번)은 보류(상세 사유는
+[41-outing-query-code-review.md](./41-outing-query-code-review.md) 참고). 페이지네이션
+추가분(21~29번)과 Postman 검증 중 발견(30번)도 전부 통과 — 추가 조치 없이 PR 진행
+가능하다고 판단.

@@ -9,7 +9,8 @@
 **요약**: 기본 구현 리뷰(1~5번) — Critical/High 없음. Medium 1건, Low 4건 발견. Medium
 1건은 QA(10단계)에서 실서버로 재현해 해소, Low 1건(2번)은 리뷰 직후 바로 수정, 나머지 Low
 3건은 보류(사유 각 항목에 명시). 페이지네이션 추가분 재리뷰(6~7번) — High 1건(오버플로
-버그, 즉시 수정), Low 1건(테스트 커버리지, 즉시 수정) — 상세는 아래 해당 절 참고.
+버그, 즉시 수정), Low 1건(테스트 커버리지, 즉시 수정). Postman 검증 중 추가 발견(8번) —
+Low 1건(NoResourceFoundException → 500, 즉시 수정) — 상세는 아래 해당 절 참고.
 
 ---
 
@@ -230,3 +231,37 @@ Hibernate 1차 캐시가 같은 영속성 컨텍스트 안에서 중복 조회�
 **적용**: 방안 1 채택(`PageResponseTest.pageBeyondLastPageReturnsEmptyContent`). 이 로직은
 `PageResponse.of` 안에 전부 있고 서비스는 그 결과를 그대로 통과시키기만 하므로, 서비스
 레벨에서 같은 케이스를 중복 검증할 필요는 낮다고 판단했다.
+
+---
+
+## Postman 검증(15단계) 중 추가 발견 (별도 라운드)
+
+15단계(Postman 컬렉션 정리) 작업 중 새로 추가한 에러 케이스 요청을 Newman으로 실행하다가
+독립 리뷰 대상은 아니었지만 실제로 500이 발생하는 경로를 하나 더 발견했다.
+
+## 8. 🟢 Low — 매핑되지 않는 요청(빈 `{code}` 등)이 404가 아니라 500으로 응답됨 (수정 완료)
+
+**문제**: `GET /api/v1/outings/`(끝에 슬래시만 있고 `{code}` 경로 변수가 비어 있음)를 호출하면
+Spring MVC가 이 요청을 `@GetMapping("/{code}")`에 매핑하지 못하고 정적 리소스 서빙을
+시도하다 실패해 `NoResourceFoundException`을 던진다. `GlobalExceptionHandler`에 이 예외
+전용 처리가 없어 일반 폴백(`handleException`, 500 `COMMON_007`)으로 떨어졌다.
+
+이건 outing 도메인이나 #41의 조회 로직 자체와는 무관한 **앱 전체 라우팅/예외처리의
+일반적인 gap**이다(어떤 `@PathVariable` 엔드포인트든 빈 값으로 호출하면 동일하게
+재현된다) — #41이 `{code}` 경로 변수를 쓰는 첫 GET 엔드포인트라 이번에 처음 드러났을
+뿐이다. 실제 클라이언트가 `code` 없이 이 경로를 호출할 일은 거의 없어 심각도는 낮지만,
+`MethodArgumentTypeMismatchException`(이전 라운드에서 이미 발견/수정)과 같은 성격의
+"의도치 않은 500" 문제라 같이 짚었다.
+
+**해결 방안**:
+1. **`GlobalExceptionHandler`에 `NoResourceFoundException` 전용 핸들러 추가, 404로 응답** —
+   이미 있는 `CommonErrorCode.NOT_FOUND`(`COMMON_004`)를 재사용하면 새 에러 코드도
+   필요 없다. `MethodArgumentTypeMismatchException` 핸들러를 추가했던 것과 동일한 패턴.
+2. **지금은 두고 백로그 이슈로만 남긴다** — #41 기획서 범위 밖(도메인 전역이 아니라 앱
+   전체 라우팅 이슈)이라고 보고 별도 이슈로 분리할 수도 있었다. 다만 고치는 비용이
+   매우 낮고(핸들러 10줄 내외) 이미 같은 파일에 같은 패턴의 선례가 있어, 별도 이슈로
+   미루는 것 자체의 오버헤드(이슈 생성/추적)가 고치는 비용보다 크다고 판단했다.
+
+**적용**: 방안 1 채택(사장님 확인 후 결정). `GlobalExceptionHandler.handleNoResourceFound`
+추가, `GlobalExceptionHandlerTest`에 회귀 방지 테스트 추가. 실서버로
+`GET /outings/`(빈 code) 재현 후 수정 전 500 → 수정 후 404(`COMMON_004`)로 확인.

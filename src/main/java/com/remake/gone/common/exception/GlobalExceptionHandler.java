@@ -13,6 +13,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * 전역 예외 처리기.
@@ -220,6 +221,28 @@ public class GlobalExceptionHandler {
             null,
             CommonErrorCode.INVALID_REQUEST.getDefaultMessage(),
             CommonErrorCode.INVALID_REQUEST.getCode()));
+  }
+
+  /**
+   * {@link NoResourceFoundException} 처리.
+   *
+   * <p>어떤 핸들러 매핑에도 걸리지 않는 요청(예: {@code @PathVariable}이 빈 문자열이라
+   * {@code GET /outings/}처럼 끝에 슬래시만 남는 경우)에 Spring MVC가 정적 리소스 서빙을
+   * 시도하다 실패하면 던진다. 이 핸들러가 없으면 {@link #handleException} 폴백으로 떨어져
+   * {@code 500}이 되는데(#41 QA 중 Postman 컬렉션으로 발견), 실제로는 존재하지 않는 리소스를
+   * 요청한 것이므로 {@code 404}가 맞다.
+   *
+   * @param e 발생한 예외
+   * @return {@code 404 Not Found} 응답
+   */
+  @ExceptionHandler(NoResourceFoundException.class)
+  public ResponseEntity<ApiResponse<Void>> handleNoResourceFound(NoResourceFoundException e) {
+    return ResponseEntity
+        .status(CommonErrorCode.NOT_FOUND.getStatus())
+        .body(ApiResponse.fail(
+            null,
+            CommonErrorCode.NOT_FOUND.getDefaultMessage(),
+            CommonErrorCode.NOT_FOUND.getCode()));
   }
 
   /**
