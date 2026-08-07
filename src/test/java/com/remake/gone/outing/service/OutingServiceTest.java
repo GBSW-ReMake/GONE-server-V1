@@ -453,4 +453,83 @@ class OutingServiceTest {
           .isEqualTo(OutingErrorCode.ALREADY_PROCESSED);
     }
   }
+
+  @Nested
+  @DisplayName("rejectOuting")
+  class RejectOuting {
+
+    private static final String OUTING_CODE = "8A1zx9202n";
+    private static final String REJECTED_REASON = "지금은 상담 시간이라 곤란해요";
+
+    private Outing pendingOuting() {
+      return Outing.builder()
+          .id(500L)
+          .code(OUTING_CODE)
+          .student(student())
+          .teacher(teacher())
+          .reason("치과 진료")
+          .outingDate(LocalDate.parse("2026-08-14"))
+          .timeSlot(OutingTimeSlot.LUNCH)
+          .startTime(LocalTime.of(12, 30))
+          .endTime(LocalTime.of(13, 40))
+          .status(OutingStatus.PENDING)
+          .build();
+    }
+
+    @Test
+    @DisplayName("담당 선생님이 PENDING 외출증을 거절하면 REJECTED로 바뀌고 사유가 저장된다")
+    void rejectsSuccessfully() {
+      Outing outing = pendingOuting();
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(outingRepository.save(any(Outing.class)))
+          .willAnswer(invocation -> invocation.getArgument(0, Outing.class));
+
+      OutingResponse response =
+          outingService.rejectOuting(TEACHER_ID, OUTING_CODE, REJECTED_REASON);
+
+      assertThat(response.status()).isEqualTo(OutingStatus.REJECTED);
+      assertThat(response.rejectedReason()).isEqualTo(REJECTED_REASON);
+      assertThat(outing.getRejectedReason()).isEqualTo(REJECTED_REASON);
+      verify(outingRepository).save(outing);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 code면 거부한다")
+    void rejectsWhenOutingNotFound() {
+      given(outingRepository.findByCode("NOPE")).willReturn(Optional.empty());
+
+      assertThatThrownBy(() -> outingService.rejectOuting(TEACHER_ID, "NOPE", REJECTED_REASON))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.OUTING_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("본인에게 지정된 담당 선생님이 아니면 거부한다")
+    void rejectsWhenTeacherMismatch() {
+      Outing outing = pendingOuting();
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      Long otherTeacherId = 99L;
+
+      assertThatThrownBy(() -> outingService.rejectOuting(
+          otherTeacherId, OUTING_CODE, REJECTED_REASON))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.TEACHER_MISMATCH);
+    }
+
+    @Test
+    @DisplayName("이미 PENDING이 아닌 외출증이면 거부한다")
+    void rejectsWhenAlreadyProcessed() {
+      Outing outing = pendingOuting();
+      outing.setStatus(OutingStatus.APPROVED);
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+
+      assertThatThrownBy(() -> outingService.rejectOuting(
+          TEACHER_ID, OUTING_CODE, REJECTED_REASON))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.ALREADY_PROCESSED);
+    }
+  }
 }
