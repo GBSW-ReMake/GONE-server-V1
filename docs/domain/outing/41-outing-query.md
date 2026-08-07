@@ -278,15 +278,27 @@ enum이라 Flyway 마이그레이션은 불필요하다 — 다만 **이 이슈�
   - `findByTeacherIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(Long, LocalDate, LocalDate)`
   - (반환 타입 둘 다 `List<Outing>`, DB 레벨 `status` 필터 없음 — 위 엔드포인트 3번 구현
     로직의 "중요" 설명 참고)
-- `OutingService`: `getMyRequests(Long studentUserId, LocalDate dateFrom, LocalDate dateTo,
-  OutingStatus statusFilter)`, `getReceivedOutings(Long teacherUserId, LocalDate dateFrom,
-  LocalDate dateTo, OutingStatus statusFilter)`, `getOutingDetail(Long callerUserId, String
-  code)` 추가. 기존 `private toResponse(Outing, User, User)`는 유효 상태 계산을 위해
-  `LocalDate today`/`LocalTime now`를 추가로 받도록 **시그니처만** 바뀐다 — 기존 호출부
-  (`applyOuting`/`approveOuting`/`rejectOuting`)는 이미 그 시점의 `today`/`now`를 갖고 있어
-  그대로 전달하면 되고, 그 세 메서드가 반환하는 `status` 값은 실제로 절대 안 바뀐다(방금
-  생성/승인/거절된 건이 그 즉시 마감을 지나있을 수는 없으므로) — **기존 API 응답의 관찰
-  가능한 동작은 변하지 않는, 내부 리팩터링**이다.
+- `OutingService`: `getMyRequests(Long studentUserId, OutingQueryPeriod period, LocalDate
+  dateFrom, LocalDate dateTo, OutingStatus statusFilter, LocalDate today, LocalTime now)`,
+  `getReceivedOutings(...)`(동일 파라미터 구성), `getOutingDetail(Long callerUserId, String
+  code, LocalDate today, LocalTime now)` 추가. 기존 `private toResponse(Outing, User, User)`는
+  유효 상태 계산을 위해 `LocalDate today`/`LocalTime now`를 추가로 받도록 **시그니처만**
+  바뀐다 — 그 세 메서드가 반환하는 `status` 값은 실제로 절대 안 바뀐다(방금 생성/승인/거절된
+  건이 그 즉시 마감을 지나있을 수는 없으므로) — **기존 API 응답의 관찰 가능한 동작은 변하지
+  않는, 내부 리팩터링**이다.
+  - **구현 중 정정**: `applyOuting`/`approveOuting`은 이미 그 시점의 `today`/`now`를 갖고
+    있어 그대로 전달했지만, `rejectOuting`은 원래 시각 파라미터가 전혀 없었다(승인과 달리
+    `rejectedAt` 같은 타임스탬프를 안 씀) — 그래서 `rejectOuting`의 **공개 시그니처에도**
+    `LocalDateTime now`를 추가했고, `OutingController.rejectOuting`이 `LocalDateTime.now(KST)`를
+    구해 넘기도록 같이 바꿨다. `PATCH /outings/{code}/reject`의 요청/응답 계약(HTTP
+    엔드포인트 자체)은 그대로라 하위 호환에는 영향 없다.
+- **범위 밖 발견 후 같이 수정**: `GlobalExceptionHandler`에 `@RequestParam` 타입 변환 실패
+  (`MethodArgumentTypeMismatchException`) 핸들러가 없어 `period`/`status`/`dateFrom`/
+  `dateTo` 형식 오류가 `400`이 아니라 `500`으로 떨어지는 기존 결함을 발견했다(#26
+  `MealControllerTest`에 "이슈 범위 밖"으로 이미 알려진 채 남아있던 문제). #41 자체의
+  에러 처리 계약을 성립시키는 데 필요해 `common/exception`에 핸들러를 추가해 같이
+  고쳤다(`Meal`/`Timetable`의 같은 패턴도 함께 정확해짐). `MealControllerTest`의 관련
+  테스트도 기대값을 `5xx`→`400`으로 갱신했다.
 - `OutingController`: `GET` 매핑 3개 추가. 3번(`GET /{code}`)에는 `@PreAuthorize("isAuthenticated()")`를
   붙여 같은 컨트롤러의 다른 메서드(`approveOuting`/`rejectOuting`)와 인가 애노테이션 사용
   패턴을 통일한다(위 3번 엔드포인트 설명 참고)
