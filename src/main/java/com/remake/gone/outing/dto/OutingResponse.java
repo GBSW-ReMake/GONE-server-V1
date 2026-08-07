@@ -19,6 +19,7 @@ import com.remake.gone.outing.enums.OutingTimeSlot;
  * @param startTime              시작 시각({@code HH:mm})
  * @param endTime                종료 시각({@code HH:mm})
  * @param status                 외출증 상태
+ * @param rejectedReason         거절 사유. {@code REJECTED} 상태가 아니면 {@code null}
  */
 public record OutingResponse(
     String code,
@@ -33,5 +34,6 @@ public record OutingResponse(
     OutingTimeSlot timeSlot,
     String startTime,
     String endTime,
-    OutingStatus status
+    OutingStatus status,
+    String rejectedReason
 ) {}

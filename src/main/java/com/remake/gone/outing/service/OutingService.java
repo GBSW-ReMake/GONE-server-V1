@@ -118,6 +118,33 @@ public class OutingService {
     return toResponse(outing, outing.getStudent(), outing.getTeacher());
   }
 
+  /**
+   * 담당 선생님이 학생의 외출증 신청을 거절합니다.
+   *
+   * @param teacherUserId  거절을 요청한 선생님 사용자 ID (Access Token에서 추출됨)
+   * @param code           거절할 외출증의 외부 식별자 코드
+   * @param rejectedReason 거절 사유
+   * @return 거절된 외출증 정보
+   */
+  @Transactional
+  public OutingResponse rejectOuting(Long teacherUserId, String code, String rejectedReason) {
+    Outing outing = outingRepository.findByCode(code)
+        .orElseThrow(() -> new CustomException(OutingErrorCode.OUTING_NOT_FOUND));
+
+    if (!outing.getTeacher().getId().equals(teacherUserId)) {
+      throw new CustomException(OutingErrorCode.TEACHER_MISMATCH);
+    }
+    if (outing.getStatus() != OutingStatus.PENDING) {
+      throw new CustomException(OutingErrorCode.ALREADY_PROCESSED);
+    }
+
+    outing.setStatus(OutingStatus.REJECTED);
+    outing.setRejectedReason(rejectedReason);
+    outingRepository.save(outing);
+
+    return toResponse(outing, outing.getStudent(), outing.getTeacher());
+  }
+
   private void validateStudentRole(Long studentUserId) {
     List<String> roles = userRoleRepository.findRoleCodesByUserId(studentUserId);
     if (!roles.contains(STUDENT_ROLE_CODE)) {
@@ -203,6 +230,7 @@ public class OutingService {
   private Outing saveWithGeneratedCode(
       User student, User teacher, String reason, LocalDate outingDate,
       OutingTimeSlot timeSlot, TimeRange timeRange) {
+
     DataIntegrityViolationException lastFailure = null;
     for (int attempt = 1; attempt <= MAX_CODE_GENERATION_ATTEMPTS; attempt++) {
       Outing outing = Outing.builder()
@@ -229,6 +257,10 @@ public class OutingService {
     throw lastFailure;
   }
 
+  // OutingResponse(record)에 정적 팩토리로 옮기지 않고 Service에 둔다: 이 프로젝트의 모든
+  // 도메인(UserService/MealService/TimetableService 등)이 "Response는 순수 데이터, 매핑은
+  // Service 책임"을 따르고, r2FileService.generateDownloadUrl(...) 호출(Spring 빈 의존)까지
+  // 포함돼 있어 record로 옮기면 DTO가 프레임워크에 의존하게 된다.
   private OutingResponse toResponse(Outing outing, User student, User teacher) {
     String studentProfileImageUrl = student.getProfileImageKey() != null
         ? r2FileService.generateDownloadUrl(student.getProfileImageKey())
@@ -247,8 +279,12 @@ public class OutingService {
         outing.getTimeSlot(),
         outing.getStartTime().format(HM_FORMATTER),
         outing.getEndTime().format(HM_FORMATTER),
-        outing.getStatus());
+        outing.getStatus(),
+        outing.getRejectedReason());
   }
 
+  // applyOuting() 한 메서드 내부(시간 확정 → 겹침 체크) 계산에서만 쓰이고 API/도메인 경계를
+  // 넘지 않아 private record로 남긴다 — 다른 곳에서도 필요해지면(예: 출발/도착) 그때 공용
+  // 타입으로 승격한다.
   private record TimeRange(LocalTime start, LocalTime end) {}
 }
