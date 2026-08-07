@@ -1,12 +1,12 @@
 {
   "info": {
     "name": "GONE - Meal API",
-    "description": "NEIS 급식 정보 조회(Meal) 도메인 API 컬렉션. 현재 구현된 1개 엔드포인트(파라미터 조합 2가지)를 포함합니다. 학교 전체 공통 정보라 인증이 필요 없습니다.",
+    "description": "NEIS 급식 정보 조회(Meal) 도메인 API 컬렉션. 실제 구현된 1개 엔드포인트(파라미터 조합 2가지)를 최상위에 둡니다. 학교 전체 공통 정보라 인증이 필요 없어 \"사전 준비\" 폴더가 없습니다.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
     {
-      "name": "1. 오늘 급식 조회 (날짜 생략)",
+      "name": "오늘 급식 조회 (날짜 생략)",
       "request": {
         "method": "GET",
         "header": [],
@@ -33,7 +33,7 @@
       "response": []
     },
     {
-      "name": "2. 특정 날짜 + mealType 필터 조회",
+      "name": "특정 날짜 + mealType 필터 조회",
       "request": {
         "method": "GET",
         "header": [],
@@ -64,7 +64,5 @@
       "response": []
     }
   ],
-  "variable": [
-    { "key": "mealDate", "value": "20260814", "type": "string" }
-  ]
+  "variable": []
 }

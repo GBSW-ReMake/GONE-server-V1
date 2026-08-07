@@ -1,53 +1,58 @@
 {
   "info": {
     "name": "GONE - User API",
-    "description": "회원 정보 조회/검색(User) 도메인 API 컬렉션. 현재 구현된 3개 엔드포인트를 포함합니다.\n\n**사전 조건**: `GONE - Local Dev` 환경을 선택하고, `studentLoginId`/`studentPassword` 계정이 DB에 있어야 합니다(없으면 리포지토리 루트 안내에 따라 테스트 계정을 먼저 생성하세요).\n\n**실행 순서**: 1번(로그인)을 먼저 실행해 환경 변수 `accessToken`을 채운 뒤, 나머지 요청을 실행하세요.",
+    "description": "회원 정보 조회/검색(User) 도메인 API 컬렉션. 최상위에는 이 도메인에 실제 구현된 3개 엔드포인트만 두고, 테스트를 위한 로그인(다른 도메인 엔드포인트)은 \"사전 준비\" 폴더로 분리했습니다.\n\n**환경**: `GONE - Local Dev`를 선택하세요. \"사전 준비 > 로그인\"을 먼저 실행해 `accessToken`을 채운 뒤 나머지 요청을 실행합니다.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
     {
-      "name": "1. 로그인 (테스트 학생 계정)",
-      "request": {
-        "method": "POST",
-        "header": [
-          { "key": "Content-Type", "value": "application/json" }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"identifier\": \"{{studentLoginId}}\",\n  \"password\": \"{{studentPassword}}\"\n}",
-          "options": { "raw": { "language": "json" } }
-        },
-        "url": {
-          "raw": "{{baseUrl}}/api/v1/auth/login",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "v1", "auth", "login"]
-        },
-        "description": "이 컬렉션의 나머지 요청은 이 단계에서 저장되는 환경 변수 `accessToken`을 사용합니다."
-      },
-      "event": [
+      "name": "사전 준비",
+      "item": [
         {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test(\"200 OK\", function () {",
-              "    pm.response.to.have.status(200);",
-              "});",
-              "",
-              "if (pm.response.code === 200) {",
-              "    const body = pm.response.json();",
-              "    if (body.success && body.data) {",
-              "        pm.environment.set(\"accessToken\", body.data.accessToken);",
-              "    }",
-              "}"
-            ]
-          }
+          "name": "로그인 (테스트 학생 계정)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{studentLoginId}}\",\n  \"password\": \"{{studentPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "login"]
+            },
+            "description": "이 컬렉션의 나머지 요청이 쓰는 `accessToken`을 채웁니다(Auth 도메인의 엔드포인트를 빌려 쓰는 것 — User 도메인 자체 엔드포인트가 아니라서 최상위가 아닌 이 폴더에 둡니다)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"accessToken\", body.data.accessToken);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
         }
-      ],
-      "response": []
+      ]
     },
     {
-      "name": "2. 내 프로필 조회",
+      "name": "내 프로필 조회",
       "request": {
         "method": "GET",
         "header": [
@@ -58,7 +63,7 @@
           "host": ["{{baseUrl}}"],
           "path": ["api", "v1", "users", "me"]
         },
-        "description": "현재 닉네임(`name`)과 프로필 사진 설정 여부(`hasProfileImage`)를 반환합니다."
+        "description": "현재 닉네임/실명/학년/반/프로필 사진 URL을 반환합니다."
       },
       "event": [
         {
@@ -76,7 +81,7 @@
       "response": []
     },
     {
-      "name": "3. 별명 변경",
+      "name": "별명 변경",
       "request": {
         "method": "PATCH",
         "header": [
@@ -93,7 +98,7 @@
           "host": ["{{baseUrl}}"],
           "path": ["api", "v1", "users", "me", "name"]
         },
-        "description": "별명은 20자 이하, 다른 계정과 중복 불가(409 USER_xxx)입니다. `{{$randomInt}}`로 매 실행마다 다른 값을 보내 중복을 피합니다."
+        "description": "별명은 20자 이하, 다른 계정과 중복 불가입니다. `{{$randomInt}}`로 매 실행마다 다른 값을 보내 중복을 피합니다."
       },
       "event": [
         {
@@ -111,7 +116,7 @@
       "response": []
     },
     {
-      "name": "4. 사용자 검색 (실명 부분 일치)",
+      "name": "사용자 검색 (실명 부분 일치)",
       "request": {
         "method": "GET",
         "header": [

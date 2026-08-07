@@ -1,6 +1,6 @@
 # Notion API 명세서 작성 규칙
 
-대상: Notion "💣 API 명세서" 데이터베이스([branch-workflow.md](./branch-workflow.md) 16단계 —
+대상: Notion "💣 API 명세서" 데이터베이스([branch-workflow.md](./branch-workflow.md) 17단계 —
 PR이 `dev`에 머지된 게 확인되면 이번에 추가/변경된 엔드포인트를 여기에 반영한다).
 
 ## 필드 작성 규칙

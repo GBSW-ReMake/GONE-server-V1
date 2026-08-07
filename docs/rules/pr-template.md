@@ -14,4 +14,5 @@
   - CI(checkstyle, build-and-test) 통과
   - (해당 시) Notion 기능정의서/기획 문서 반영
   - (해당 시) 관련 도메인 라벨 지정
-- PR은 [branch-workflow.md](./branch-workflow.md) 14~15단계(작업 완료 보고 후 주인의 확인)를 거친 뒤에만 생성한다.
+- PR은 [branch-workflow.md](./branch-workflow.md) 14~16단계(작업 완료 보고 → Postman 컬렉션
+  정리 → 주인의 확인)를 거친 뒤에만 생성한다.
