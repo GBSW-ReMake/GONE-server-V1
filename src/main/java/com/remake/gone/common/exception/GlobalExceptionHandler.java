@@ -12,6 +12,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
  * 전역 예외 처리기.
@@ -196,6 +197,29 @@ public class GlobalExceptionHandler {
             null,
             CommonErrorCode.FORBIDDEN.getDefaultMessage(),
             CommonErrorCode.FORBIDDEN.getCode()));
+  }
+
+  /**
+   * {@link MethodArgumentTypeMismatchException} 처리.
+   *
+   * <p>{@code @RequestParam} 값을 목표 타입으로 변환하지 못했을 때 발생합니다(예:
+   * {@code @DateTimeFormat(pattern = "yyyyMMdd")} 날짜 파싱 실패, enum 파라미터에 정의되지
+   * 않은 문자열). 이 핸들러가 없으면 {@link #handleException} 폴백으로 떨어져 {@code 500}이
+   * 되는데(#26 `MealControllerTest`에 이미 알려진 채로 남아있던 기존 결함, #41에서 발견해
+   * 같이 수정), 실제로는 클라이언트가 잘못된 값을 보낸 것이므로 {@code 400}이 맞다.
+   *
+   * @param e 발생한 예외
+   * @return {@code 400 Bad Request} 응답
+   */
+  @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+  public ResponseEntity<ApiResponse<Void>> handleMethodArgumentTypeMismatch(
+      MethodArgumentTypeMismatchException e) {
+    return ResponseEntity
+        .status(CommonErrorCode.INVALID_REQUEST.getStatus())
+        .body(ApiResponse.fail(
+            null,
+            CommonErrorCode.INVALID_REQUEST.getDefaultMessage(),
+            CommonErrorCode.INVALID_REQUEST.getCode()));
   }
 
   /**
