@@ -8,6 +8,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.remake.gone.common.exception.CustomException;
+import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.file.service.R2FileService;
 import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.enums.GbswType;
@@ -15,6 +16,8 @@ import com.remake.gone.gbsw.exception.GbswErrorCode;
 import com.remake.gone.outing.dto.OutingApplyRequest;
 import com.remake.gone.outing.dto.OutingResponse;
 import com.remake.gone.outing.entity.Outing;
+import com.remake.gone.outing.enums.OutingQueryPeriod;
+import com.remake.gone.outing.enums.OutingQueryStatus;
 import com.remake.gone.outing.enums.OutingStatus;
 import com.remake.gone.outing.enums.OutingTimeSlot;
 import com.remake.gone.outing.exception.OutingErrorCode;
@@ -460,6 +463,7 @@ class OutingServiceTest {
 
     private static final String OUTING_CODE = "8A1zx9202n";
     private static final String REJECTED_REASON = "지금은 상담 시간이라 곤란해요";
+    private static final LocalDateTime NOW_DATETIME = LocalDateTime.of(2026, 8, 10, 9, 0);
 
     private Outing pendingOuting() {
       return Outing.builder()
@@ -485,7 +489,7 @@ class OutingServiceTest {
           .willAnswer(invocation -> invocation.getArgument(0, Outing.class));
 
       OutingResponse response =
-          outingService.rejectOuting(TEACHER_ID, OUTING_CODE, REJECTED_REASON);
+          outingService.rejectOuting(TEACHER_ID, OUTING_CODE, REJECTED_REASON, NOW_DATETIME);
 
       assertThat(response.status()).isEqualTo(OutingStatus.REJECTED);
       assertThat(response.rejectedReason()).isEqualTo(REJECTED_REASON);
@@ -498,7 +502,8 @@ class OutingServiceTest {
     void rejectsWhenOutingNotFound() {
       given(outingRepository.findByCode("NOPE")).willReturn(Optional.empty());
 
-      assertThatThrownBy(() -> outingService.rejectOuting(TEACHER_ID, "NOPE", REJECTED_REASON))
+      assertThatThrownBy(() -> outingService.rejectOuting(
+          TEACHER_ID, "NOPE", REJECTED_REASON, NOW_DATETIME))
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(OutingErrorCode.OUTING_NOT_FOUND);
@@ -512,7 +517,7 @@ class OutingServiceTest {
       Long otherTeacherId = 99L;
 
       assertThatThrownBy(() -> outingService.rejectOuting(
-          otherTeacherId, OUTING_CODE, REJECTED_REASON))
+          otherTeacherId, OUTING_CODE, REJECTED_REASON, NOW_DATETIME))
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(OutingErrorCode.TEACHER_MISMATCH);
@@ -526,10 +531,337 @@ class OutingServiceTest {
       given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
 
       assertThatThrownBy(() -> outingService.rejectOuting(
-          TEACHER_ID, OUTING_CODE, REJECTED_REASON))
+          TEACHER_ID, OUTING_CODE, REJECTED_REASON, NOW_DATETIME))
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(OutingErrorCode.ALREADY_PROCESSED);
+    }
+  }
+
+  @Nested
+  @DisplayName("getMyRequests")
+  class GetMyRequests {
+
+    private Outing outingWithStatus(OutingStatus status, LocalDate outingDate, LocalTime start) {
+      return Outing.builder()
+          .id(600L)
+          .code("REQCODE001")
+          .student(student())
+          .teacher(teacher())
+          .reason("치과 진료")
+          .outingDate(outingDate)
+          .timeSlot(OutingTimeSlot.LUNCH)
+          .startTime(start)
+          .endTime(start.plusHours(1))
+          .status(status)
+          .build();
+    }
+
+    @Test
+    @DisplayName("period=THIS_WEEK면 TODAY가 속한 주(월~일)로 조회한다")
+    void resolvesThisWeekRangeFromToday() {
+      // TODAY = 2026-08-10(월) → 이번 주는 2026-08-10(월)~2026-08-16(일)
+      given(outingRepository.findByStudentIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
+          STUDENT_ID, LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 16)))
+          .willReturn(List.of());
+
+      PageResponse<OutingResponse> response = outingService.getMyRequests(
+          STUDENT_ID, OutingQueryPeriod.THIS_WEEK, null, null, null, 0, 20, TODAY, NOW);
+
+      assertThat(response.content()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("범위 안에 신청한 게 없으면 빈 배열을 반환한다(null 아님)")
+    void returnsEmptyListNotNullWhenNoResults() {
+      given(outingRepository.findByStudentIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
+          STUDENT_ID, TODAY, TODAY))
+          .willReturn(List.of());
+
+      PageResponse<OutingResponse> response = outingService.getMyRequests(
+          STUDENT_ID, OutingQueryPeriod.TODAY,
+          null, null, null, 0, 20, TODAY, NOW);
+
+      assertThat(response.content()).isNotNull().isEmpty();
+    }
+
+    @Test
+    @DisplayName("PENDING이고 마감이 지난 건은 MISSED로 표시한다(DB 값은 그대로 PENDING)")
+    void showsMissedForExpiredPending() {
+      Outing pastDeadline = outingWithStatus(OutingStatus.PENDING, TODAY, LocalTime.of(8, 0));
+      given(outingRepository.findByStudentIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
+          STUDENT_ID, TODAY, TODAY))
+          .willReturn(List.of(pastDeadline));
+
+      PageResponse<OutingResponse> response = outingService.getMyRequests(
+          STUDENT_ID, OutingQueryPeriod.TODAY,
+          null, null, null, 0, 20, TODAY, NOW);
+
+      assertThat(response.content()).hasSize(1);
+      assertThat(response.content().get(0).status()).isEqualTo(OutingStatus.MISSED);
+      assertThat(pastDeadline.getStatus()).isEqualTo(OutingStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("status=PENDING으로 필터링하면 마감 지난 건(MISSED)은 빠진다")
+    void statusFilterExcludesMissedWhenFilteringPending() {
+      Outing pastDeadline = outingWithStatus(OutingStatus.PENDING, TODAY, LocalTime.of(8, 0));
+      Outing stillPending = outingWithStatus(OutingStatus.PENDING, TODAY, LocalTime.of(18, 0));
+      given(outingRepository.findByStudentIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
+          STUDENT_ID, TODAY, TODAY))
+          .willReturn(List.of(pastDeadline, stillPending));
+
+      PageResponse<OutingResponse> response = outingService.getMyRequests(
+          STUDENT_ID, OutingQueryPeriod.TODAY,
+          null, null, OutingQueryStatus.PENDING, 0, 20, TODAY, NOW);
+
+      assertThat(response.content()).hasSize(1);
+      assertThat(response.content().get(0).status()).isEqualTo(OutingStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("status=MISSED로 필터링하면 마감 지난 건만 나온다")
+    void statusFilterReturnsOnlyMissed() {
+      Outing pastDeadline = outingWithStatus(OutingStatus.PENDING, TODAY, LocalTime.of(8, 0));
+      Outing stillPending = outingWithStatus(OutingStatus.PENDING, TODAY, LocalTime.of(18, 0));
+      given(outingRepository.findByStudentIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
+          STUDENT_ID, TODAY, TODAY))
+          .willReturn(List.of(pastDeadline, stillPending));
+
+      PageResponse<OutingResponse> response = outingService.getMyRequests(
+          STUDENT_ID, OutingQueryPeriod.TODAY,
+          null, null, OutingQueryStatus.MISSED, 0, 20, TODAY, NOW);
+
+      assertThat(response.content()).hasSize(1);
+      assertThat(response.content().get(0).status()).isEqualTo(OutingStatus.MISSED);
+    }
+
+    @Test
+    @DisplayName("period=CUSTOM인데 dateFrom/dateTo가 없으면 거부한다")
+    void rejectsWhenCustomMissingDates() {
+      assertThatThrownBy(() -> outingService.getMyRequests(
+          STUDENT_ID, OutingQueryPeriod.CUSTOM,
+          null, null, null, 0, 20, TODAY, NOW))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.INVALID_PERIOD_PARAMS);
+    }
+
+    @Test
+    @DisplayName("period=THIS_WEEK인데 dateFrom이 같이 오면 거부한다")
+    void rejectsWhenNonCustomHasDateParams() {
+      assertThatThrownBy(() -> outingService.getMyRequests(
+          STUDENT_ID, OutingQueryPeriod.THIS_WEEK,
+          TODAY, null, null, 0, 20, TODAY, NOW))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.INVALID_PERIOD_PARAMS);
+    }
+
+    @Test
+    @DisplayName("period=CUSTOM에서 dateFrom이 dateTo보다 늦으면 거부한다")
+    void rejectsWhenDateFromAfterDateTo() {
+      assertThatThrownBy(() -> outingService.getMyRequests(
+          STUDENT_ID, OutingQueryPeriod.CUSTOM,
+          LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 10), null, 0, 20, TODAY, NOW))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.INVALID_DATE_RANGE);
+    }
+
+    @Test
+    @DisplayName("page가 음수면 거부한다")
+    void rejectsWhenPageNegative() {
+      assertThatThrownBy(() -> outingService.getMyRequests(
+          STUDENT_ID, OutingQueryPeriod.TODAY,
+          null, null, null, -1, 20, TODAY, NOW))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.INVALID_PAGE_PARAMS);
+    }
+
+    @Test
+    @DisplayName("size가 100을 초과하면 거부한다")
+    void rejectsWhenSizeTooLarge() {
+      assertThatThrownBy(() -> outingService.getMyRequests(
+          STUDENT_ID, OutingQueryPeriod.TODAY,
+          null, null, null, 0, 101, TODAY, NOW))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.INVALID_PAGE_PARAMS);
+    }
+
+    @Test
+    @DisplayName("size가 0이면 거부한다")
+    void rejectsWhenSizeZero() {
+      assertThatThrownBy(() -> outingService.getMyRequests(
+          STUDENT_ID, OutingQueryPeriod.TODAY,
+          null, null, null, 0, 0, TODAY, NOW))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.INVALID_PAGE_PARAMS);
+    }
+  }
+
+  @Nested
+  @DisplayName("getReceivedOutings")
+  class GetReceivedOutings {
+
+    @Test
+    @DisplayName("담당 선생님으로 지정된 외출증을 조회한다")
+    void returnsOutingsAssignedToTeacher() {
+      Outing pending = Outing.builder()
+          .id(700L)
+          .code("RECVCODE01")
+          .student(student())
+          .teacher(teacher())
+          .reason("치과 진료")
+          .outingDate(TODAY)
+          .timeSlot(OutingTimeSlot.LUNCH)
+          .startTime(LocalTime.of(12, 30))
+          .endTime(LocalTime.of(13, 40))
+          .status(OutingStatus.PENDING)
+          .build();
+      given(outingRepository.findByTeacherIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
+          TEACHER_ID, TODAY, TODAY))
+          .willReturn(List.of(pending));
+
+      PageResponse<OutingResponse> response = outingService.getReceivedOutings(
+          TEACHER_ID, OutingQueryPeriod.TODAY,
+          null, null, null, 0, 20, TODAY, NOW);
+
+      assertThat(response.content()).hasSize(1);
+      assertThat(response.content().get(0).status()).isEqualTo(OutingStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("size보다 결과가 많으면 요청한 size만큼만 반환하고 hasNext는 true다")
+    void paginatesAndReportsHasNext() {
+      List<Outing> outings = new java.util.ArrayList<>();
+      for (int i = 0; i < 3; i++) {
+        outings.add(Outing.builder()
+            .id(800L + i)
+            .code("PAGECODE" + i)
+            .student(student())
+            .teacher(teacher())
+            .reason("치과 진료")
+            .outingDate(TODAY)
+            .timeSlot(OutingTimeSlot.LUNCH)
+            .startTime(LocalTime.of(12, 30))
+            .endTime(LocalTime.of(13, 40))
+            .status(OutingStatus.PENDING)
+            .build());
+      }
+      given(outingRepository.findByTeacherIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
+          TEACHER_ID, TODAY, TODAY))
+          .willReturn(outings);
+
+      PageResponse<OutingResponse> response = outingService.getReceivedOutings(
+          TEACHER_ID, OutingQueryPeriod.TODAY,
+          null, null, null, 0, 2, TODAY, NOW);
+
+      assertThat(response.content()).hasSize(2);
+      assertThat(response.totalElements()).isEqualTo(3);
+      assertThat(response.totalPages()).isEqualTo(2);
+      assertThat(response.hasNext()).isTrue();
+    }
+  }
+
+  @Nested
+  @DisplayName("getOutingDetail")
+  class GetOutingDetail {
+
+    private static final String OUTING_CODE = "8A1zx9202n";
+
+    private Outing outing() {
+      return Outing.builder()
+          .id(500L)
+          .code(OUTING_CODE)
+          .student(student())
+          .teacher(teacher())
+          .reason("치과 진료")
+          .outingDate(TODAY)
+          .timeSlot(OutingTimeSlot.LUNCH)
+          .startTime(LocalTime.of(12, 30))
+          .endTime(LocalTime.of(13, 40))
+          .status(OutingStatus.PENDING)
+          .build();
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 code면 거부한다")
+    void rejectsWhenOutingNotFound() {
+      given(outingRepository.findByCode("NOPE")).willReturn(Optional.empty());
+
+      assertThatThrownBy(() ->
+          outingService.getOutingDetail(STUDENT_ID, "NOPE", TODAY, NOW))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.OUTING_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("신청 학생 본인이면 조회할 수 있다")
+    void allowsStudentOwner() {
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing()));
+
+      OutingResponse response =
+          outingService.getOutingDetail(STUDENT_ID, OUTING_CODE, TODAY, NOW);
+
+      assertThat(response.code()).isEqualTo(OUTING_CODE);
+    }
+
+    @Test
+    @DisplayName("담당 선생님 본인이면 조회할 수 있다")
+    void allowsAssignedTeacher() {
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing()));
+
+      OutingResponse response =
+          outingService.getOutingDetail(TEACHER_ID, OUTING_CODE, TODAY, NOW);
+
+      assertThat(response.code()).isEqualTo(OUTING_CODE);
+    }
+
+    @Test
+    @DisplayName("DISCIPLINE 역할이면 무관한 사람이어도 조회할 수 있다")
+    void allowsDisciplineRole() {
+      Long disciplineUserId = 77L;
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing()));
+      given(userRoleRepository.findRoleCodesByUserId(disciplineUserId))
+          .willReturn(List.of("DISCIPLINE"));
+
+      OutingResponse response =
+          outingService.getOutingDetail(disciplineUserId, OUTING_CODE, TODAY, NOW);
+
+      assertThat(response.code()).isEqualTo(OUTING_CODE);
+    }
+
+    @Test
+    @DisplayName("ADMIN 역할이면 무관한 사람이어도 조회할 수 있다")
+    void allowsAdminRole() {
+      Long adminUserId = 88L;
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing()));
+      given(userRoleRepository.findRoleCodesByUserId(adminUserId))
+          .willReturn(List.of("ADMIN"));
+
+      OutingResponse response =
+          outingService.getOutingDetail(adminUserId, OUTING_CODE, TODAY, NOW);
+
+      assertThat(response.code()).isEqualTo(OUTING_CODE);
+    }
+
+    @Test
+    @DisplayName("관계 없는 사용자면 거부한다")
+    void rejectsUnrelatedUser() {
+      Long unrelatedUserId = 99L;
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing()));
+      given(userRoleRepository.findRoleCodesByUserId(unrelatedUserId)).willReturn(List.of());
+
+      assertThatThrownBy(() ->
+          outingService.getOutingDetail(unrelatedUserId, OUTING_CODE, TODAY, NOW))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.ACCESS_DENIED);
     }
   }
 }

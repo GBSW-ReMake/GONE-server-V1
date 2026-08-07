@@ -63,13 +63,12 @@ class MealControllerTest {
     }
 
     @Test
-    @DisplayName("date가 날짜로 파싱될 수 없는 값이면 요청이 실패한다")
+    @DisplayName("date가 날짜로 파싱될 수 없는 값이면 400을 반환한다")
     void failsWhenDateFormatInvalid() throws Exception {
-      // MethodArgumentTypeMismatchException을 GlobalExceptionHandler의 Exception 폴백이
-      // 500으로 처리한다(기존 전역 동작, 이 이슈 범위 밖). 400이 아니라는 점은 별도 이슈로
-      // 다룰 문제라 여기서는 "요청이 실패한다"까지만 확인한다.
+      // GlobalExceptionHandler에 MethodArgumentTypeMismatchException 핸들러가 추가되면서
+      // (#41) 이제 500이 아니라 400으로 정확히 처리된다.
       mockMvc.perform(get("/api/v1/meals").param("date", "not-a-date"))
-          .andExpect(status().is5xxServerError());
+          .andExpect(status().isBadRequest());
     }
   }
 }

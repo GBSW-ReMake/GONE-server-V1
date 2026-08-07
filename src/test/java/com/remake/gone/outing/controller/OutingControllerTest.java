@@ -3,22 +3,27 @@ package com.remake.gone.outing.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.remake.gone.common.response.ApiResponse;
+import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.common.security.UserPrincipal;
 import com.remake.gone.outing.dto.OutingApplyRequest;
 import com.remake.gone.outing.dto.OutingRejectRequest;
 import com.remake.gone.outing.dto.OutingResponse;
+import com.remake.gone.outing.enums.OutingQueryPeriod;
 import com.remake.gone.outing.enums.OutingStatus;
 import com.remake.gone.outing.enums.OutingTimeSlot;
 import com.remake.gone.outing.service.OutingService;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -176,7 +181,9 @@ class OutingControllerTest {
           code, "길동이", null, "홍길동", 3, 4, "김선생",
           "치과 진료", "20260814", OutingTimeSlot.LUNCH, "12:30", "13:40", OutingStatus.REJECTED,
           reason);
-      given(outingService.rejectOuting(TEACHER_ID, code, reason)).willReturn(expected);
+      given(outingService.rejectOuting(
+          eq(TEACHER_ID), eq(code), eq(reason), any(LocalDateTime.class)))
+          .willReturn(expected);
 
       ApiResponse<OutingResponse> response = controller()
           .rejectOuting(new UserPrincipal(TEACHER_ID), code, new OutingRejectRequest(reason));
@@ -203,6 +210,103 @@ class OutingControllerTest {
               .contentType(MediaType.APPLICATION_JSON)
               .content("{\"rejectedReason\": \"" + tooLong + "\"}"))
           .andExpect(status().isBadRequest());
+    }
+  }
+
+  @Nested
+  @DisplayName("GET /api/v1/outings/me/requests")
+  class GetMyRequests {
+
+    @Test
+    @DisplayName("principal의 userId와 쿼리 파라미터를 그대로 서비스에 전달한다")
+    void passesPrincipalAndParamsToService() {
+      given(outingService.getMyRequests(
+          eq(STUDENT_ID), eq(OutingQueryPeriod.THIS_WEEK), isNull(), isNull(), isNull(),
+          eq(0), eq(20), any(LocalDate.class), any(LocalTime.class)))
+          .willReturn(PageResponse.of(List.of(), 0, 20));
+
+      ApiResponse<PageResponse<OutingResponse>> response = controller().getMyRequests(
+          new UserPrincipal(STUDENT_ID), OutingQueryPeriod.THIS_WEEK, null, null, null, 0, 20);
+
+      assertThat(response.success()).isTrue();
+      assertThat(response.data().content()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("period를 생략하면 THIS_WEEK가 기본값으로 적용된다")
+    void defaultsPeriodToThisWeek() throws Exception {
+      given(outingService.getMyRequests(
+          eq(STUDENT_ID), eq(OutingQueryPeriod.THIS_WEEK), isNull(), isNull(), isNull(),
+          eq(0), eq(20), any(LocalDate.class), any(LocalTime.class)))
+          .willReturn(PageResponse.of(List.of(), 0, 20));
+
+      mockMvc.perform(get("/api/v1/outings/me/requests"))
+          .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("dateFrom 형식이 yyyyMMdd가 아니면 400을 반환한다")
+    void returns400WhenDateFromFormatInvalid() throws Exception {
+      mockMvc.perform(get("/api/v1/outings/me/requests").param("dateFrom", "not-a-date"))
+          .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("period 값이 정의되지 않은 값이면 400을 반환한다")
+    void returns400WhenPeriodInvalid() throws Exception {
+      mockMvc.perform(get("/api/v1/outings/me/requests").param("period", "NOT_A_PERIOD"))
+          .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("status=DEPARTED처럼 아직 도달 불가능한 상태로 필터링하면 400을 반환한다")
+    void returns400WhenStatusIsUnreachableValue() throws Exception {
+      mockMvc.perform(get("/api/v1/outings/me/requests").param("status", "DEPARTED"))
+          .andExpect(status().isBadRequest());
+    }
+  }
+
+  @Nested
+  @DisplayName("GET /api/v1/outings/me/received")
+  class GetReceivedOutings {
+
+    @Test
+    @DisplayName("principal의 userId와 쿼리 파라미터를 그대로 서비스에 전달한다")
+    void passesPrincipalAndParamsToService() {
+      given(outingService.getReceivedOutings(
+          eq(TEACHER_ID), eq(OutingQueryPeriod.THIS_WEEK), isNull(), isNull(), isNull(),
+          eq(0), eq(20), any(LocalDate.class), any(LocalTime.class)))
+          .willReturn(PageResponse.of(List.of(), 0, 20));
+
+      ApiResponse<PageResponse<OutingResponse>> response = controller().getReceivedOutings(
+          new UserPrincipal(TEACHER_ID), OutingQueryPeriod.THIS_WEEK, null, null, null, 0, 20);
+
+      assertThat(response.success()).isTrue();
+      assertThat(response.data().content()).isEmpty();
+    }
+  }
+
+  @Nested
+  @DisplayName("GET /api/v1/outings/{code}")
+  class GetOutingDetail {
+
+    @Test
+    @DisplayName("principal의 userId와 code를 그대로 서비스에 전달한다")
+    void passesPrincipalAndCodeToService() {
+      String code = "8A1zx9202n";
+      OutingResponse expected = new OutingResponse(
+          code, "길동이", null, "홍길동", 3, 4, "김선생",
+          "치과 진료", "20260814", OutingTimeSlot.LUNCH, "12:30", "13:40", OutingStatus.PENDING,
+          null);
+      given(outingService.getOutingDetail(
+          eq(STUDENT_ID), eq(code), any(LocalDate.class), any(LocalTime.class)))
+          .willReturn(expected);
+
+      ApiResponse<OutingResponse> response =
+          controller().getOutingDetail(new UserPrincipal(STUDENT_ID), code);
+
+      assertThat(response.success()).isTrue();
+      assertThat(response.data()).isEqualTo(expected);
     }
   }
 }

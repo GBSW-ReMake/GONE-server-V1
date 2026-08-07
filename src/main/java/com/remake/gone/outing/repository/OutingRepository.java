@@ -32,4 +32,26 @@ public interface OutingRepository extends JpaRepository<Outing, Long> {
    */
   List<Outing> findByStudentIdAndOutingDateAndStatusIn(
       Long studentId, LocalDate outingDate, Collection<OutingStatus> statuses);
+
+  /**
+   * 특정 학생이 신청한, 주어진 날짜 범위(양 끝 포함) 안의 외출증을 조회합니다(#41).
+   *
+   * @param studentId 학생 사용자 ID
+   * @param dateFrom  범위 시작일
+   * @param dateTo    범위 종료일
+   * @return 조건에 맞는 외출증 목록, 날짜/시작 시각 오름차순
+   */
+  List<Outing> findByStudentIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
+      Long studentId, LocalDate dateFrom, LocalDate dateTo);
+
+  /**
+   * 특정 선생님에게 담당으로 지정된, 주어진 날짜 범위(양 끝 포함) 안의 외출증을 조회합니다(#41).
+   *
+   * @param teacherId 선생님 사용자 ID
+   * @param dateFrom  범위 시작일
+   * @param dateTo    범위 종료일
+   * @return 조건에 맞는 외출증 목록, 날짜/시작 시각 오름차순
+   */
+  List<Outing> findByTeacherIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
+      Long teacherId, LocalDate dateFrom, LocalDate dateTo);
 }

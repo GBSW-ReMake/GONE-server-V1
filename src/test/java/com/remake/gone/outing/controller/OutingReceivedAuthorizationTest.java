@@ -1,0 +1,48 @@
+package com.remake.gone.outing.controller;
+
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.remake.gone.common.security.JwtProvider;
+import java.util.Set;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.test.web.servlet.MockMvc;
+
+/**
+ * {@code GET /api/v1/outings/me/received}의 인가(@PreAuthorize) 통합 테스트(#41).
+ *
+ * <p>{@code OutingApproveAuthorizationTest}와 같은 이유로, {@code @WebMvcTest} 슬라이스가 아니라
+ * 실제 필터 체인(+ {@code @EnableMethodSecurity})을 통해 STUDENT 역할로는 이 엔드포인트에 접근할
+ * 수 없는지 확인한다.
+ */
+@SpringBootTest
+@AutoConfigureMockMvc
+class OutingReceivedAuthorizationTest {
+
+  @Autowired
+  private MockMvc mockMvc;
+
+  @Autowired
+  private JwtProvider jwtProvider;
+
+  @Test
+  @DisplayName("인증 없이 요청하면 401을 반환한다")
+  void returns401WithoutToken() throws Exception {
+    mockMvc.perform(get("/api/v1/outings/me/received"))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  @DisplayName("STUDENT 역할로 요청하면 403을 반환한다(@EnableMethodSecurity가 실제로 동작함)")
+  void returns403ForStudentRole() throws Exception {
+    String token = jwtProvider.createAccessToken(1L, Set.of("STUDENT"));
+
+    mockMvc.perform(get("/api/v1/outings/me/received")
+            .header("Authorization", "Bearer " + token))
+        .andExpect(status().isForbidden());
+  }
+}
