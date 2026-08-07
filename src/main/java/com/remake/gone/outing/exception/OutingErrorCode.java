@@ -7,9 +7,9 @@ import org.springframework.http.HttpStatus;
  * 외출(Outing) 도메인 에러 코드.
  *
  * <p>코드 네이밍 규칙: {@code OUTING_NNN} (NNN은 3자리 순번). #29에서
- * {@code 001}/{@code 002}/{@code 003}/{@code 011}/{@code 012}를, #30(승인)에서
- * {@code 004}~{@code 006}을 채웠다. 거절/출발/도착/위치 관련 코드는 후속 이슈(#31/...)에서
- * 추가한다.
+ * {@code 001}/{@code 002}/{@code 003}/{@code 011}/{@code 012}를, #30(승인)/#31(거절)에서
+ * {@code 004}~{@code 006}을 채웠다(승인/거절이 같은 원인 체계를 공유해 코드를 그대로
+ * 재사용한다). 출발/도착/위치 관련 코드는 후속 이슈에서 추가한다.
  *
  * @see ErrorCode
  */

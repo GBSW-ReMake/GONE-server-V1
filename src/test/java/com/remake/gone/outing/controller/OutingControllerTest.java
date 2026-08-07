@@ -4,12 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.remake.gone.common.response.ApiResponse;
 import com.remake.gone.common.security.UserPrincipal;
 import com.remake.gone.outing.dto.OutingApplyRequest;
+import com.remake.gone.outing.dto.OutingRejectRequest;
 import com.remake.gone.outing.dto.OutingResponse;
 import com.remake.gone.outing.enums.OutingStatus;
 import com.remake.gone.outing.enums.OutingTimeSlot;
@@ -63,7 +65,8 @@ class OutingControllerTest {
           new OutingApplyRequest("치과 진료", "20260814", OutingTimeSlot.LUNCH, null, null, 42L);
       OutingResponse expected = new OutingResponse(
           "8A1zx9202n", "길동이", null, "홍길동", 3, 4, "김선생",
-          "치과 진료", "20260814", OutingTimeSlot.LUNCH, "12:30", "13:40", OutingStatus.PENDING);
+          "치과 진료", "20260814", OutingTimeSlot.LUNCH, "12:30", "13:40", OutingStatus.PENDING,
+          null);
       given(outingService.applyOuting(
           eq(STUDENT_ID), eq(request), any(LocalDate.class), any(LocalTime.class)))
           .willReturn(expected);
@@ -147,7 +150,8 @@ class OutingControllerTest {
       String code = "8A1zx9202n";
       OutingResponse expected = new OutingResponse(
           code, "길동이", null, "홍길동", 3, 4, "김선생",
-          "치과 진료", "20260814", OutingTimeSlot.LUNCH, "12:30", "13:40", OutingStatus.APPROVED);
+          "치과 진료", "20260814", OutingTimeSlot.LUNCH, "12:30", "13:40", OutingStatus.APPROVED,
+          null);
       given(outingService.approveOuting(eq(TEACHER_ID), eq(code), any(LocalDateTime.class)))
           .willReturn(expected);
 
@@ -156,6 +160,49 @@ class OutingControllerTest {
 
       assertThat(response.success()).isTrue();
       assertThat(response.data()).isEqualTo(expected);
+    }
+  }
+
+  @Nested
+  @DisplayName("PATCH /api/v1/outings/{code}/reject")
+  class RejectOuting {
+
+    @Test
+    @DisplayName("principal의 userId, code, 거절 사유를 그대로 서비스에 전달한다")
+    void passesPrincipalCodeAndReasonToService() {
+      String code = "8A1zx9202n";
+      String reason = "지금은 상담 시간이라 곤란해요";
+      OutingResponse expected = new OutingResponse(
+          code, "길동이", null, "홍길동", 3, 4, "김선생",
+          "치과 진료", "20260814", OutingTimeSlot.LUNCH, "12:30", "13:40", OutingStatus.REJECTED,
+          reason);
+      given(outingService.rejectOuting(TEACHER_ID, code, reason)).willReturn(expected);
+
+      ApiResponse<OutingResponse> response = controller()
+          .rejectOuting(new UserPrincipal(TEACHER_ID), code, new OutingRejectRequest(reason));
+
+      assertThat(response.success()).isTrue();
+      assertThat(response.data()).isEqualTo(expected);
+    }
+
+    @Test
+    @DisplayName("rejectedReason이 비어있으면 400을 반환한다")
+    void returns400WhenRejectedReasonBlank() throws Exception {
+      mockMvc.perform(patch("/api/v1/outings/8A1zx9202n/reject")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content("{\"rejectedReason\": \"\"}"))
+          .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("rejectedReason이 200자를 초과하면 400을 반환한다")
+    void returns400WhenRejectedReasonTooLong() throws Exception {
+      String tooLong = "가".repeat(201);
+
+      mockMvc.perform(patch("/api/v1/outings/8A1zx9202n/reject")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content("{\"rejectedReason\": \"" + tooLong + "\"}"))
+          .andExpect(status().isBadRequest());
     }
   }
 }
