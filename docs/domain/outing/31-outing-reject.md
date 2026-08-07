@@ -2,7 +2,7 @@
 
 관련 이슈: [#31 외출증 거절 API 구현](https://github.com/GBSW-ReMake/GONE-server-V1/issues/31)
 선행 이슈: #30(승인) — 소유권 확인 패턴, `OUTING_004`~`006` 재사용
-마스터 기획서: [outing-domain.md](./outing-domain.md)의 "3. `PATCH /api/v1/outings/{code}/reject`"
+마스터 기획서: [1_outing-domain.md](./1_outing-domain.md)의 "3. `PATCH /api/v1/outings/{code}/reject`"
 
 ## 개요/목적
 담당 선생님이 학생의 외출증 신청을 거절하는 API. 승인(#30)의 반대 케이스로, 상태 전이만

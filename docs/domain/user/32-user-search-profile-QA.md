@@ -4,7 +4,7 @@
 
 ## 코드 리뷰 (9단계, 별도 에이전트 + `code-review` 스킬)
 구현한 세션이 아니라 새로 띄운 에이전트가 `dev...HEAD` diff와 기획서를 보고 독립적으로
-리뷰했다([branch-workflow.md](./rules/branch-workflow.md) 9단계 규칙 참고, 이번에 이 방식으로
+리뷰했다([branch-workflow.md](../../rules/branch-workflow.md) 9단계 규칙 참고, 이번에 이 방식으로
 처음 적용). 발견된 문제 2건은 모두 즉시 수정하고 재빌드/재테스트로 확인했다.
 
 - **N+1 쿼리**: `searchByRealNameContaining`이 `join`(fetch 아님)이라 `Gbsw`가 지연 로딩된 채

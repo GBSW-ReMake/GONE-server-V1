@@ -1,7 +1,7 @@
 # #30 외출증 승인 API
 
 관련 이슈: https://github.com/GBSW-ReMake/GONE-server-V1/issues/30
-전체 도메인 마스터 기획서: [outing-domain.md](./outing-domain.md) — 이 문서는 그중 "승인"
+전체 도메인 마스터 기획서: [1_outing-domain.md](./1_outing-domain.md) — 이 문서는 그중 "승인"
 엔드포인트(2번)만 좁힌 것. 선행 이슈: #29(외출증 신청, 머지 완료).
 
 ## 개요/목적

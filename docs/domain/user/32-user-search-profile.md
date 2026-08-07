@@ -1,7 +1,7 @@
 # #32 학생/선생님 실명 검색 API + 본인 프로필 확장
 
 관련 이슈: https://github.com/GBSW-ReMake/GONE-server-V1/issues/32
-관련 마스터 기획서: [schoolcamp-domain.md](./schoolcamp-domain.md)의 "팀원/담당 선생님 검색"
+관련 마스터 기획서: [1_schoolcamp-domain.md](../schoolcamp/1_schoolcamp-domain.md)의 "팀원/담당 선생님 검색"
 절 — 이 문서는 그중 `user` 도메인이 실제로 만들 부분만 좁힌 것.
 
 ## 개요/목적
@@ -92,7 +92,7 @@
 - 신규: `UserController`에 `GET /api/v1/users/search` 추가, `UserSearchResponse` DTO 신규,
   `UserRepository.searchByRealNameContaining`(`@Query` JPQL `join fetch`, `findByIdForUpdate`와
   같은 커스텀 쿼리 패턴) 추가.
-- **자체 코드 리뷰(별도 에이전트, [branch-workflow.md](./rules/branch-workflow.md) 9단계)에서
+- **자체 코드 리뷰(별도 에이전트, [branch-workflow.md](../../rules/branch-workflow.md) 9단계)에서
   발견해 수정**:
   - `searchByRealNameContaining`이 처음엔 `join`(fetch 아님)이라 `Gbsw`가 지연 로딩된 채로
     반환됐다 — 결과 목록을 순회하며 `user.getGbsw()`를 호출할 때마다 추가 쿼리가 나가는 N+1이

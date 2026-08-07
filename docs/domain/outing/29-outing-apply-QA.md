@@ -1,6 +1,6 @@
 # #29 외출증 신청 API — 코드 리뷰 & QA 결과
 
-기획서: [29-outing-apply.md](./29-outing-apply.md) / 마스터 기획서: [outing-domain.md](./outing-domain.md)
+기획서: [29-outing-apply.md](./29-outing-apply.md) / 마스터 기획서: [1_outing-domain.md](./1_outing-domain.md)
 
 ## 코드 리뷰 (자체 점검, 9단계)
 - 구현 범위가 기획서(신청 엔드포인트 1개)를 벗어나지 않았는지 확인 — 벗어난 부분 없음.

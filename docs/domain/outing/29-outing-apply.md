@@ -1,7 +1,7 @@
 # #29 외출증 신청 API
 
 관련 이슈: https://github.com/GBSW-ReMake/GONE-server-V1/issues/29
-전체 도메인 마스터 기획서: [outing-domain.md](./outing-domain.md) (승인/거절/출발·도착/위치
+전체 도메인 마스터 기획서: [1_outing-domain.md](./1_outing-domain.md) (승인/거절/출발·도착/위치
 추적/가시성/복귀 리마인더 등 전체 흐름은 여기 있고, 이 문서는 그중 "신청" 하나만 좁힌 것)
 
 ## 개요/목적
