@@ -102,6 +102,48 @@ public final class OutingQueryPeriodResolver {
 > 아직 안 돌았어도 항상 실시간으로 정확하다. 스케줄러는 오직 DB를 직접 보는 사람(SQL, 향후
 > 관리자 화면 등)을 위한 뒷정리일 뿐이라 몇 분 지연돼도 이 API의 정확성에는 영향이 없다.
 
+## 페이지네이션 (1/2번 공통, 구현 중 추가)
+> **설계 변경 배경**: 최초 기획(아래 "API 설계 6원칙 체크" 5번 참고)은 "결과 행 수 자체가
+> 작아 페이지네이션이 불필요하다"였다. 구현 완료 후 "목록 조회 엔드포인트는 어디든
+> 페이지네이션을 넣자"는 프로젝트 공통 방향이 정해지면서, 이 이슈(#41)의 두 목록 엔드포인트
+> (1/2번)에 한해 범위를 좁혀 추가했다 — 다른 도메인의 기존 목록 엔드포인트는 이번 범위 밖.
+
+**신규 쿼리 파라미터** (1/2번 공통, `status` 뒤에 위치):
+- **`page`**(선택, 0 이상, 생략 시 `0`)
+- **`size`**(선택, 1~100, 생략 시 `20`)
+
+**검증 규칙**: `page < 0` 이거나 `size`가 `1~100` 범위 밖이면 `400` `OUTING_015`
+(`INVALID_PAGE_PARAMS`) — 엄격 모드 원칙(위 "조회 기간 파라미터 설계" 절과 동일)을 그대로
+따른다.
+
+**응답 포맷 변경**: 1/2번의 `data`가 배열 그대로가 아니라 `PageResponse<OutingResponse>`
+(공통 응답 래퍼, `common/response/PageResponse`)로 감싸진다:
+```json
+{
+  "content": [ /* OutingResponse 배열, 이번 페이지분만 */ ],
+  "page": 0,
+  "size": 20,
+  "totalElements": 3,
+  "totalPages": 1,
+  "hasNext": false
+}
+```
+빈 결과는 `content: []`, `totalElements: 0`, `totalPages: 0`(그대로 `200 OK`, 에러 아님 —
+기존 "빈 배열은 에러가 아니다" 원칙 유지).
+
+**구현 방식 — 메모리 내 페이지네이션(in-memory), DB `LIMIT`/`OFFSET` 아님**: `status` 필터가
+`MISSED` 판정(응답 변환 시점 실시간 계산, DB 컬럼이 아님)을 포함하기 때문에 `status` 필터를
+DB `WHERE` 절로 내릴 수 없다(위 "상태 필터 & `MISSED` 판정" 절 참고). 그래서 날짜 범위로 거른
+전체 목록을 먼저 메모리에 올리고, 유효 상태로 필터링한 뒤, `PageResponse.of(filtered, page,
+size)`로 마지막에 자른다. 하루/한 주 단위로 걸러진 데이터라 행 수 자체가 작다는 기존 전제(5번
+원칙)가 여전히 유효해 이 방식의 성능 비용은 무시할 만하다고 판단했다 — DB 레벨 최적화
+(`LIMIT`/`OFFSET`)는 지금 하지 않는다(YAGNI, 데이터 양이 실제로 커지면 그때 재검토).
+
+**신규 유틸리티**: `common/response/PageResponse<T>`(record, `content`/`page`/`size`/
+`totalElements`/`totalPages`/`hasNext`) + 정적 팩토리 `of(List<T> allContent, int page, int
+size)`. 이 이슈에서 프로젝트 공통 응답 포맷으로 처음 도입하지만, 재사용은 이번엔 #41 두
+엔드포인트에만 적용한다(다른 도메인 목록 엔드포인트 적용은 각자 이슈에서 별도 판단).
+
 ## 엔드포인트
 
 ### 1. `GET /api/v1/outings/me/requests` — 본인이 신청한 외출증 조회
@@ -122,50 +164,61 @@ public final class OutingQueryPeriodResolver {
 > 반환된다 — 신규 에러 코드 불필요.
 
 **요청**: 쿼리 파라미터 `period`/`dateFrom`/`dateTo`(위 "조회 기간 파라미터 설계" 절 그대로)
-+ `status`(선택 — 위 "상태 필터 & `MISSED` 판정" 절 그대로).
++ `status`(선택 — 위 "상태 필터 & `MISSED` 판정" 절 그대로) + `page`/`size`(선택 — 위
+"페이지네이션" 절 그대로).
 
 **응답** (`200 OK`)
 ```json
 {
   "success": true,
-  "data": [
-    {
-      "code": "string",
-      "studentNickname": "string",
-      "studentProfileImageUrl": "string | null",
-      "studentRealName": "string",
-      "studentGrade": "number",
-      "studentClassNo": "number",
-      "teacherName": "string",
-      "reason": "string",
-      "outingDate": "string (yyyyMMdd)",
-      "timeSlot": "LUNCH | DINNER | CUSTOM",
-      "startTime": "string (HH:mm)",
-      "endTime": "string (HH:mm)",
-      "status": "PENDING | APPROVED | REJECTED | DEPARTED | RETURNED | MISSED",
-      "rejectedReason": "string | null"
-    }
-  ],
+  "data": {
+    "content": [
+      {
+        "code": "string",
+        "studentNickname": "string",
+        "studentProfileImageUrl": "string | null",
+        "studentRealName": "string",
+        "studentGrade": "number",
+        "studentClassNo": "number",
+        "teacherName": "string",
+        "reason": "string",
+        "outingDate": "string (yyyyMMdd)",
+        "timeSlot": "LUNCH | DINNER | CUSTOM",
+        "startTime": "string (HH:mm)",
+        "endTime": "string (HH:mm)",
+        "status": "PENDING | APPROVED | REJECTED | DEPARTED | RETURNED | MISSED",
+        "rejectedReason": "string | null"
+      }
+    ],
+    "page": 0,
+    "size": 20,
+    "totalElements": 1,
+    "totalPages": 1,
+    "hasNext": false
+  },
   "message": "외출증 목록을 조회했습니다.",
   "code": null
 }
 ```
-그 범위(+필터)에 해당하는 게 없으면 **빈 배열(`[]`)**, `200 OK`(빈 컬렉션은 에러가 아니다 —
+그 범위(+필터)에 해당하는 게 없으면 **`content: []`**, `200 OK`(빈 컬렉션은 에러가 아니다 —
 `null`을 반환하지 않는다. 이유는 아래 "리스크 및 고려사항" 참고).
 
 **구현 로직**
 1. `@AuthenticationPrincipal`에서 `studentUserId` 추출(역할은 `@PreAuthorize`가 이미 확인)
-2. `OutingQueryPeriodResolver.resolve(period, today, dateFrom, dateTo)`로 실제
+2. `page`/`size` 검증(`page < 0` 또는 `size` 범위 밖이면 `OUTING_015`, 위 "페이지네이션" 절
+   참고)
+3. `OutingQueryPeriodResolver.resolve(period, today, dateFrom, dateTo)`로 실제
    `[dateFrom, dateTo]` 확정(검증 실패 시 위 규칙대로 `OUTING_013`/`OUTING_014`)
-3. `outingRepository.findByStudentIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
+4. `outingRepository.findByStudentIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
    studentUserId, dateFrom, dateTo)`로 조회(신규 리포지토리 메서드) — DB 레벨에서
    `status`로 거르지 않는다(데이터가 적어 굳이 쿼리를 복잡하게 만들 이유가 없다 — 아래
-   4번 참고)
-4. 각 `Outing`을 `toResponse(...)`로 변환하면서 **유효 상태**(effective status)를 계산:
+   5번 참고)
+5. 각 `Outing`을 `toResponse(...)`로 변환하면서 **유효 상태**(effective status)를 계산:
    `outing.getStatus() == PENDING`이고 마감이 지났으면(`OutingTimeUtils`의 새 판정 함수,
    "상태 필터 & MISSED 판정" 절 참고) 응답의 `status`를 `MISSED`로, 아니면 저장된 값 그대로
    사용
-5. `status` 쿼리 파라미터가 있으면 유효 상태 기준으로 필터링 후 반환(없으면 전부 반환)
+6. `status` 쿼리 파라미터가 있으면 유효 상태 기준으로 필터링(없으면 전부 유지)
+7. `PageResponse.of(filtered, page, size)`로 잘라서 반환(위 "페이지네이션" 절 참고)
 
 **에러**
 - 인증 안 됨 → `401` `COMMON_002`(기존 인프라)
@@ -175,6 +228,7 @@ public final class OutingQueryPeriodResolver {
   `400`(기존 공통 핸들러)
 - `period`/`dateFrom`/`dateTo` 조합이 모순됨 → `400` `OUTING_014`(신규)
 - `dateFrom`이 `dateTo`보다 늦음(`CUSTOM`일 때) → `400` `OUTING_013`(신규)
+- `page`가 음수이거나 `size`가 `1~100` 범위 밖 → `400` `OUTING_015`(신규)
 
 ---
 
@@ -186,27 +240,29 @@ public final class OutingQueryPeriodResolver {
 마감이 지나버린 요청(`MISSED`)"을 `status` 필터로 걸러볼 수 있다(필터 생략 시 전부 반환,
 1번과 동일한 방식).
 
-**요청**: 1번과 완전히 동일한 `period`/`dateFrom`/`dateTo`/`status` 규칙.
+**요청**: 1번과 완전히 동일한 `period`/`dateFrom`/`dateTo`/`status`/`page`/`size` 규칙.
 
-**응답** (`200 OK`) — 1번과 완전히 동일한 `OutingResponse` 리스트 구조(`status`에 `MISSED`
-포함). `teacherName`은 항상 호출한 본인의 이름이라 다소 중복이지만, 스키마를 1번과 통일해
-프론트가 같은 컴포넌트로 두 화면을 렌더링할 수 있게 하는 게 더 낫다고 판단했다(원칙 3, 6 —
-새 DTO를 만들지 않아 하위 호환/일관성 모두 좋음).
+**응답** (`200 OK`) — 1번과 완전히 동일한 `PageResponse<OutingResponse>` 구조(`status`에
+`MISSED` 포함). `teacherName`은 항상 호출한 본인의 이름이라 다소 중복이지만, 스키마를 1번과
+통일해 프론트가 같은 컴포넌트로 두 화면을 렌더링할 수 있게 하는 게 더 낫다고 판단했다(원칙
+3, 6 — 새 DTO를 만들지 않아 하위 호환/일관성 모두 좋음).
 
 **구현 로직**
 1. `@AuthenticationPrincipal`에서 `teacherUserId` 추출(역할은 `@PreAuthorize`가 이미 확인)
-2. `OutingQueryPeriodResolver.resolve(...)`로 범위 확정(1번과 동일 로직/검증 공유)
-3. `outingRepository.findByTeacherIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
+2. `page`/`size` 검증(1번과 동일, `OUTING_015`)
+3. `OutingQueryPeriodResolver.resolve(...)`로 범위 확정(1번과 동일 로직/검증 공유)
+4. `outingRepository.findByTeacherIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
    teacherUserId, dateFrom, dateTo)`로 조회(신규 리포지토리 메서드) — 1번과 동일하게 DB
    레벨 `status` 필터 없이 넓게 가져온다(**중요**: DB에 `MISSED`가 실제로 저장되는 일은
    없으므로 — #42 스케줄러 전까지 — 만약 여기서 `WHERE status = 'MISSED'`처럼 걸렀다면
    영원히 빈 결과만 나오는 버그가 됐을 것. 반드시 넓게 가져온 뒤 유효 상태를 계산해서
    걸러야 한다)
-4. 각 `Outing`의 유효 상태 계산 + `toResponse(...)` 변환은 1번과 동일 로직 공유
-5. `status` 쿼리 파라미터가 있으면 유효 상태 기준으로 필터링 후 반환
+5. 각 `Outing`의 유효 상태 계산 + `toResponse(...)` 변환은 1번과 동일 로직 공유
+6. `status` 쿼리 파라미터가 있으면 유효 상태 기준으로 필터링
+7. `PageResponse.of(filtered, page, size)`로 잘라서 반환(1번과 동일)
 
-**에러**: 1번과 동일한 체계(`401`/`403`/`400`/`OUTING_013`/`OUTING_014`), `TEACHER` 역할
-여부만 다르다.
+**에러**: 1번과 동일한 체계(`401`/`403`/`400`/`OUTING_013`/`OUTING_014`/`OUTING_015`),
+`TEACHER` 역할 여부만 다르다.
 
 ---
 
@@ -278,10 +334,14 @@ enum이라 Flyway 마이그레이션은 불필요하다 — 다만 **이 이슈�
   - `findByTeacherIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(Long, LocalDate, LocalDate)`
   - (반환 타입 둘 다 `List<Outing>`, DB 레벨 `status` 필터 없음 — 위 엔드포인트 3번 구현
     로직의 "중요" 설명 참고)
+- `common/response/PageResponse<T>`(신규): `content`/`page`/`size`/`totalElements`/
+  `totalPages`/`hasNext` record + 정적 팩토리 `of(List<T>, int page, int size)`(위
+  "페이지네이션" 절 참고)
 - `OutingService`: `getMyRequests(Long studentUserId, OutingQueryPeriod period, LocalDate
-  dateFrom, LocalDate dateTo, OutingStatus statusFilter, LocalDate today, LocalTime now)`,
-  `getReceivedOutings(...)`(동일 파라미터 구성), `getOutingDetail(Long callerUserId, String
-  code, LocalDate today, LocalTime now)` 추가. 기존 `private toResponse(Outing, User, User)`는
+  dateFrom, LocalDate dateTo, OutingQueryStatus statusFilter, int page, int size, LocalDate
+  today, LocalTime now)`(반환 타입 `PageResponse<OutingResponse>`), `getReceivedOutings(...)`
+  (동일 파라미터 구성), `getOutingDetail(Long callerUserId, String code, LocalDate today,
+  LocalTime now)` 추가. 기존 `private toResponse(Outing, User, User)`는
   유효 상태 계산을 위해 `LocalDate today`/`LocalTime now`를 추가로 받도록 **시그니처만**
   바뀐다 — 그 세 메서드가 반환하는 `status` 값은 실제로 절대 안 바뀐다(방금 생성/승인/거절된
   건이 그 즉시 마감을 지나있을 수는 없으므로) — **기존 API 응답의 관찰 가능한 동작은 변하지
@@ -303,7 +363,8 @@ enum이라 Flyway 마이그레이션은 불필요하다 — 다만 **이 이슈�
   붙여 같은 컨트롤러의 다른 메서드(`approveOuting`/`rejectOuting`)와 인가 애노테이션 사용
   패턴을 통일한다(위 3번 엔드포인트 설명 참고)
 - `OutingErrorCode`: `OUTING_007`(`ACCESS_DENIED` 가칭), `OUTING_013`(`INVALID_DATE_RANGE`
-  가칭), `OUTING_014`(`INVALID_PERIOD_PARAMS` 가칭) 추가
+  가칭), `OUTING_014`(`INVALID_PERIOD_PARAMS` 가칭), `OUTING_015`(`INVALID_PAGE_PARAMS`,
+  페이지네이션 추가 시 같이 추가) 추가
 
 ## API 설계 6원칙 체크
 1. **한 가지를 잘하기**: 엔드포인트 3개로 나눔(본인 신청 목록 / 배정 목록 / 단건 상세) —
@@ -321,10 +382,12 @@ enum이라 Flyway 마이그레이션은 불필요하다 — 다만 **이 이슈�
    않고 에러로 알리기로 한 것도 이 원칙에 따른 결정. `MISSED`를 별도 `status` 값으로 노출한
    것도 같은 맥락 — "승인/거절이 하나도 없었던 것"과 "응답 없이 마감이 지나버린 것"은 사용자
    입장에서 의미가 전혀 다른데 계속 `PENDING`으로만 보여주면 그 차이가 드러나지 않는다.
-5. **확장성/성능**: 범위 조회지만 페이지네이션은 넣지 않는다 — 학생/선생님 모두 하루 처리
-   가능한 건수가 자연히 작아(`outing-domain.md` "정책 가정" 참고) 아무리 넓은 범위(수년치,
-   `CUSTOM`으로 직접 지정 시)를 조회해도 결과 행 수 자체가 작다. 범위 크기 상한도 지금은
-   두지 않는다(YAGNI). `GET /{code}`는 단건이라 해당 없음.
+5. **확장성/성능**: 1/2번은 `page`/`size` 페이지네이션을 지원한다(위 "페이지네이션" 절 —
+   구현 중 프로젝트 공통 방향으로 추가됨, 최초 기획은 "결과 행 수가 작아 불필요"였으나
+   목록 엔드포인트 일관성을 위해 범위를 좁혀 추가했다). 범위 크기 상한은 지금도 두지 않는다
+   (YAGNI) — `CUSTOM`으로 수년치를 조회해도 메모리 내 필터링/페이지네이션 비용은 무시할
+   만하다고 판단했기 때문(위 "페이지네이션" 절의 "구현 방식" 참고). `GET /{code}`는 단건이라
+   해당 없음.
 6. **하위 호환성**: 세 엔드포인트 모두 신규 추가, 기존 응답/스키마 변경 없음. 1/2번이 같은
    `OutingResponse` 스키마를 공유해 프론트 재사용성도 높다.
 
@@ -357,6 +420,12 @@ enum이라 Flyway 마이그레이션은 불필요하다 — 다만 **이 이슈�
     조회 → 그 건만 **나오는지** 확인(DB 값은 그대로 `PENDING`인 채로 필터가 정확히
     갈리는지가 이 기획의 핵심 검증 포인트)
 16. `status=REJECTED`/`APPROVED` 등 나머지 값으로도 필터링이 정확한지 확인
+17. `size`보다 결과가 많게 만든 뒤 `page=0&size=<적은 값>` 호출 → `content` 길이가 `size`와
+    같고 `hasNext: true`, `totalElements`/`totalPages`가 정확한지 확인
+18. 마지막 페이지 다음 페이지(`page`를 `totalPages` 이상으로) 호출 → `content: []`,
+    `hasNext: false`, `200 OK`(에러 아님) 확인
+19. `page=-1` → `400` `OUTING_015`
+20. `size=0`, `size=101` 각각 → `400` `OUTING_015`
 
 ## 리스크 및 고려사항
 - **빈 결과는 `null`이 아니라 항상 `[]`다.** 이미 `GET /users/search`(#32)가 같은 패턴으로

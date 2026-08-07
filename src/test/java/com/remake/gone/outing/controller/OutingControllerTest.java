@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.remake.gone.common.response.ApiResponse;
+import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.common.security.UserPrincipal;
 import com.remake.gone.outing.dto.OutingApplyRequest;
 import com.remake.gone.outing.dto.OutingRejectRequest;
@@ -221,14 +222,14 @@ class OutingControllerTest {
     void passesPrincipalAndParamsToService() {
       given(outingService.getMyRequests(
           eq(STUDENT_ID), eq(OutingQueryPeriod.THIS_WEEK), isNull(), isNull(), isNull(),
-          any(LocalDate.class), any(LocalTime.class)))
-          .willReturn(List.of());
+          eq(0), eq(20), any(LocalDate.class), any(LocalTime.class)))
+          .willReturn(PageResponse.of(List.of(), 0, 20));
 
-      ApiResponse<List<OutingResponse>> response = controller().getMyRequests(
-          new UserPrincipal(STUDENT_ID), OutingQueryPeriod.THIS_WEEK, null, null, null);
+      ApiResponse<PageResponse<OutingResponse>> response = controller().getMyRequests(
+          new UserPrincipal(STUDENT_ID), OutingQueryPeriod.THIS_WEEK, null, null, null, 0, 20);
 
       assertThat(response.success()).isTrue();
-      assertThat(response.data()).isEmpty();
+      assertThat(response.data().content()).isEmpty();
     }
 
     @Test
@@ -236,8 +237,8 @@ class OutingControllerTest {
     void defaultsPeriodToThisWeek() throws Exception {
       given(outingService.getMyRequests(
           eq(STUDENT_ID), eq(OutingQueryPeriod.THIS_WEEK), isNull(), isNull(), isNull(),
-          any(LocalDate.class), any(LocalTime.class)))
-          .willReturn(List.of());
+          eq(0), eq(20), any(LocalDate.class), any(LocalTime.class)))
+          .willReturn(PageResponse.of(List.of(), 0, 20));
 
       mockMvc.perform(get("/api/v1/outings/me/requests"))
           .andExpect(status().isOk());
@@ -274,14 +275,14 @@ class OutingControllerTest {
     void passesPrincipalAndParamsToService() {
       given(outingService.getReceivedOutings(
           eq(TEACHER_ID), eq(OutingQueryPeriod.THIS_WEEK), isNull(), isNull(), isNull(),
-          any(LocalDate.class), any(LocalTime.class)))
-          .willReturn(List.of());
+          eq(0), eq(20), any(LocalDate.class), any(LocalTime.class)))
+          .willReturn(PageResponse.of(List.of(), 0, 20));
 
-      ApiResponse<List<OutingResponse>> response = controller().getReceivedOutings(
-          new UserPrincipal(TEACHER_ID), OutingQueryPeriod.THIS_WEEK, null, null, null);
+      ApiResponse<PageResponse<OutingResponse>> response = controller().getReceivedOutings(
+          new UserPrincipal(TEACHER_ID), OutingQueryPeriod.THIS_WEEK, null, null, null, 0, 20);
 
       assertThat(response.success()).isTrue();
-      assertThat(response.data()).isEmpty();
+      assertThat(response.data().content()).isEmpty();
     }
   }
 

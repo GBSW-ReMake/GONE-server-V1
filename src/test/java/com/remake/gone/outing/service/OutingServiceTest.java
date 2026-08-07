@@ -8,6 +8,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.remake.gone.common.exception.CustomException;
+import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.file.service.R2FileService;
 import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.enums.GbswType;
@@ -564,10 +565,10 @@ class OutingServiceTest {
           STUDENT_ID, LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 16)))
           .willReturn(List.of());
 
-      List<OutingResponse> response = outingService.getMyRequests(
-          STUDENT_ID, OutingQueryPeriod.THIS_WEEK, null, null, null, TODAY, NOW);
+      PageResponse<OutingResponse> response = outingService.getMyRequests(
+          STUDENT_ID, OutingQueryPeriod.THIS_WEEK, null, null, null, 0, 20, TODAY, NOW);
 
-      assertThat(response).isEmpty();
+      assertThat(response.content()).isEmpty();
     }
 
     @Test
@@ -577,11 +578,11 @@ class OutingServiceTest {
           STUDENT_ID, TODAY, TODAY))
           .willReturn(List.of());
 
-      List<OutingResponse> response = outingService.getMyRequests(
+      PageResponse<OutingResponse> response = outingService.getMyRequests(
           STUDENT_ID, OutingQueryPeriod.TODAY,
-          null, null, null, TODAY, NOW);
+          null, null, null, 0, 20, TODAY, NOW);
 
-      assertThat(response).isNotNull().isEmpty();
+      assertThat(response.content()).isNotNull().isEmpty();
     }
 
     @Test
@@ -592,12 +593,12 @@ class OutingServiceTest {
           STUDENT_ID, TODAY, TODAY))
           .willReturn(List.of(pastDeadline));
 
-      List<OutingResponse> response = outingService.getMyRequests(
+      PageResponse<OutingResponse> response = outingService.getMyRequests(
           STUDENT_ID, OutingQueryPeriod.TODAY,
-          null, null, null, TODAY, NOW);
+          null, null, null, 0, 20, TODAY, NOW);
 
-      assertThat(response).hasSize(1);
-      assertThat(response.get(0).status()).isEqualTo(OutingStatus.MISSED);
+      assertThat(response.content()).hasSize(1);
+      assertThat(response.content().get(0).status()).isEqualTo(OutingStatus.MISSED);
       assertThat(pastDeadline.getStatus()).isEqualTo(OutingStatus.PENDING);
     }
 
@@ -610,12 +611,12 @@ class OutingServiceTest {
           STUDENT_ID, TODAY, TODAY))
           .willReturn(List.of(pastDeadline, stillPending));
 
-      List<OutingResponse> response = outingService.getMyRequests(
+      PageResponse<OutingResponse> response = outingService.getMyRequests(
           STUDENT_ID, OutingQueryPeriod.TODAY,
-          null, null, OutingQueryStatus.PENDING, TODAY, NOW);
+          null, null, OutingQueryStatus.PENDING, 0, 20, TODAY, NOW);
 
-      assertThat(response).hasSize(1);
-      assertThat(response.get(0).status()).isEqualTo(OutingStatus.PENDING);
+      assertThat(response.content()).hasSize(1);
+      assertThat(response.content().get(0).status()).isEqualTo(OutingStatus.PENDING);
     }
 
     @Test
@@ -627,12 +628,12 @@ class OutingServiceTest {
           STUDENT_ID, TODAY, TODAY))
           .willReturn(List.of(pastDeadline, stillPending));
 
-      List<OutingResponse> response = outingService.getMyRequests(
+      PageResponse<OutingResponse> response = outingService.getMyRequests(
           STUDENT_ID, OutingQueryPeriod.TODAY,
-          null, null, OutingQueryStatus.MISSED, TODAY, NOW);
+          null, null, OutingQueryStatus.MISSED, 0, 20, TODAY, NOW);
 
-      assertThat(response).hasSize(1);
-      assertThat(response.get(0).status()).isEqualTo(OutingStatus.MISSED);
+      assertThat(response.content()).hasSize(1);
+      assertThat(response.content().get(0).status()).isEqualTo(OutingStatus.MISSED);
     }
 
     @Test
@@ -640,7 +641,7 @@ class OutingServiceTest {
     void rejectsWhenCustomMissingDates() {
       assertThatThrownBy(() -> outingService.getMyRequests(
           STUDENT_ID, OutingQueryPeriod.CUSTOM,
-          null, null, null, TODAY, NOW))
+          null, null, null, 0, 20, TODAY, NOW))
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(OutingErrorCode.INVALID_PERIOD_PARAMS);
@@ -651,7 +652,7 @@ class OutingServiceTest {
     void rejectsWhenNonCustomHasDateParams() {
       assertThatThrownBy(() -> outingService.getMyRequests(
           STUDENT_ID, OutingQueryPeriod.THIS_WEEK,
-          TODAY, null, null, TODAY, NOW))
+          TODAY, null, null, 0, 20, TODAY, NOW))
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(OutingErrorCode.INVALID_PERIOD_PARAMS);
@@ -662,10 +663,43 @@ class OutingServiceTest {
     void rejectsWhenDateFromAfterDateTo() {
       assertThatThrownBy(() -> outingService.getMyRequests(
           STUDENT_ID, OutingQueryPeriod.CUSTOM,
-          LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 10), null, TODAY, NOW))
+          LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 10), null, 0, 20, TODAY, NOW))
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(OutingErrorCode.INVALID_DATE_RANGE);
+    }
+
+    @Test
+    @DisplayName("page가 음수면 거부한다")
+    void rejectsWhenPageNegative() {
+      assertThatThrownBy(() -> outingService.getMyRequests(
+          STUDENT_ID, OutingQueryPeriod.TODAY,
+          null, null, null, -1, 20, TODAY, NOW))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.INVALID_PAGE_PARAMS);
+    }
+
+    @Test
+    @DisplayName("size가 100을 초과하면 거부한다")
+    void rejectsWhenSizeTooLarge() {
+      assertThatThrownBy(() -> outingService.getMyRequests(
+          STUDENT_ID, OutingQueryPeriod.TODAY,
+          null, null, null, 0, 101, TODAY, NOW))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.INVALID_PAGE_PARAMS);
+    }
+
+    @Test
+    @DisplayName("size가 0이면 거부한다")
+    void rejectsWhenSizeZero() {
+      assertThatThrownBy(() -> outingService.getMyRequests(
+          STUDENT_ID, OutingQueryPeriod.TODAY,
+          null, null, null, 0, 0, TODAY, NOW))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.INVALID_PAGE_PARAMS);
     }
   }
 
@@ -692,12 +726,44 @@ class OutingServiceTest {
           TEACHER_ID, TODAY, TODAY))
           .willReturn(List.of(pending));
 
-      List<OutingResponse> response = outingService.getReceivedOutings(
+      PageResponse<OutingResponse> response = outingService.getReceivedOutings(
           TEACHER_ID, OutingQueryPeriod.TODAY,
-          null, null, null, TODAY, NOW);
+          null, null, null, 0, 20, TODAY, NOW);
 
-      assertThat(response).hasSize(1);
-      assertThat(response.get(0).status()).isEqualTo(OutingStatus.PENDING);
+      assertThat(response.content()).hasSize(1);
+      assertThat(response.content().get(0).status()).isEqualTo(OutingStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("size보다 결과가 많으면 요청한 size만큼만 반환하고 hasNext는 true다")
+    void paginatesAndReportsHasNext() {
+      List<Outing> outings = new java.util.ArrayList<>();
+      for (int i = 0; i < 3; i++) {
+        outings.add(Outing.builder()
+            .id(800L + i)
+            .code("PAGECODE" + i)
+            .student(student())
+            .teacher(teacher())
+            .reason("치과 진료")
+            .outingDate(TODAY)
+            .timeSlot(OutingTimeSlot.LUNCH)
+            .startTime(LocalTime.of(12, 30))
+            .endTime(LocalTime.of(13, 40))
+            .status(OutingStatus.PENDING)
+            .build());
+      }
+      given(outingRepository.findByTeacherIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
+          TEACHER_ID, TODAY, TODAY))
+          .willReturn(outings);
+
+      PageResponse<OutingResponse> response = outingService.getReceivedOutings(
+          TEACHER_ID, OutingQueryPeriod.TODAY,
+          null, null, null, 0, 2, TODAY, NOW);
+
+      assertThat(response.content()).hasSize(2);
+      assertThat(response.totalElements()).isEqualTo(3);
+      assertThat(response.totalPages()).isEqualTo(2);
+      assertThat(response.hasNext()).isTrue();
     }
   }
 

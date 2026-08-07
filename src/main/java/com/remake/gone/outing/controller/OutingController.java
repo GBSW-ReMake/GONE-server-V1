@@ -1,6 +1,7 @@
 package com.remake.gone.outing.controller;
 
 import com.remake.gone.common.response.ApiResponse;
+import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.common.security.UserPrincipal;
 import com.remake.gone.outing.dto.OutingApplyRequest;
 import com.remake.gone.outing.dto.OutingRejectRequest;
@@ -110,20 +111,24 @@ public class OutingController {
    * @param dateFrom  {@code period == CUSTOM}일 때의 시작일({@code yyyyMMdd})
    * @param dateTo    {@code period == CUSTOM}일 때의 종료일({@code yyyyMMdd})
    * @param status    걸러볼 상태(생략 시 전부 반환)
-   * @return 조건에 맞는 외출증 목록
+   * @param page      페이지 번호(0부터 시작, 생략 시 0)
+   * @param size      페이지 크기(1~100, 생략 시 20)
+   * @return 조건에 맞는 외출증의 페이지네이션된 목록
    */
   @GetMapping("/me/requests")
   @PreAuthorize("hasRole('STUDENT')")
-  public ApiResponse<List<OutingResponse>> getMyRequests(
+  public ApiResponse<PageResponse<OutingResponse>> getMyRequests(
       @AuthenticationPrincipal UserPrincipal principal,
       @RequestParam(defaultValue = "THIS_WEEK") OutingQueryPeriod period,
       @RequestParam(required = false) @DateTimeFormat(pattern = "yyyyMMdd") LocalDate dateFrom,
       @RequestParam(required = false) @DateTimeFormat(pattern = "yyyyMMdd") LocalDate dateTo,
-      @RequestParam(required = false) OutingQueryStatus status
+      @RequestParam(required = false) OutingQueryStatus status,
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "20") int size
   ) {
     LocalDateTime now = LocalDateTime.now(KST);
-    List<OutingResponse> response = outingService.getMyRequests(
-        principal.userId(), period, dateFrom, dateTo, status,
+    PageResponse<OutingResponse> response = outingService.getMyRequests(
+        principal.userId(), period, dateFrom, dateTo, status, page, size,
         now.toLocalDate(), now.toLocalTime());
     return ApiResponse.success(response, "외출증 목록을 조회했습니다.");
   }
@@ -136,20 +141,24 @@ public class OutingController {
    * @param dateFrom  {@code period == CUSTOM}일 때의 시작일({@code yyyyMMdd})
    * @param dateTo    {@code period == CUSTOM}일 때의 종료일({@code yyyyMMdd})
    * @param status    걸러볼 상태(생략 시 전부 반환)
-   * @return 조건에 맞는 외출증 목록
+   * @param page      페이지 번호(0부터 시작, 생략 시 0)
+   * @param size      페이지 크기(1~100, 생략 시 20)
+   * @return 조건에 맞는 외출증의 페이지네이션된 목록
    */
   @GetMapping("/me/received")
   @PreAuthorize("hasRole('TEACHER')")
-  public ApiResponse<List<OutingResponse>> getReceivedOutings(
+  public ApiResponse<PageResponse<OutingResponse>> getReceivedOutings(
       @AuthenticationPrincipal UserPrincipal principal,
       @RequestParam(defaultValue = "THIS_WEEK") OutingQueryPeriod period,
       @RequestParam(required = false) @DateTimeFormat(pattern = "yyyyMMdd") LocalDate dateFrom,
       @RequestParam(required = false) @DateTimeFormat(pattern = "yyyyMMdd") LocalDate dateTo,
-      @RequestParam(required = false) OutingQueryStatus status
+      @RequestParam(required = false) OutingQueryStatus status,
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "20") int size
   ) {
     LocalDateTime now = LocalDateTime.now(KST);
-    List<OutingResponse> response = outingService.getReceivedOutings(
-        principal.userId(), period, dateFrom, dateTo, status,
+    PageResponse<OutingResponse> response = outingService.getReceivedOutings(
+        principal.userId(), period, dateFrom, dateTo, status, page, size,
         now.toLocalDate(), now.toLocalTime());
     return ApiResponse.success(response, "외출증 목록을 조회했습니다.");
   }

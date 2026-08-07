@@ -2,6 +2,7 @@ package com.remake.gone.outing.service;
 
 import com.remake.gone.common.exception.CommonErrorCode;
 import com.remake.gone.common.exception.CustomException;
+import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.file.service.R2FileService;
 import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.exception.GbswErrorCode;
@@ -55,6 +56,8 @@ public class OutingService {
   private static final String DISCIPLINE_ROLE_CODE = "DISCIPLINE";
   private static final String ADMIN_ROLE_CODE = "ADMIN";
   private static final int MAX_CODE_GENERATION_ATTEMPTS = 5;
+  private static final int MIN_PAGE_SIZE = 1;
+  private static final int MAX_PAGE_SIZE = 100;
 
   private final OutingRepository outingRepository;
   private final UserRepository userRepository;
@@ -163,19 +166,23 @@ public class OutingService {
    * @param dateFrom      {@code period == CUSTOM}일 때의 시작일
    * @param dateTo        {@code period == CUSTOM}일 때의 종료일
    * @param statusFilter  걸러볼 상태(유효 상태 기준). {@code null}이면 전부 반환
+   * @param page          페이지 번호(0부터 시작)
+   * @param size          페이지 크기(1~100)
    * @param today         "오늘" 날짜(KST) — 기간 기본값/유효 상태 계산에 사용
    * @param now           "지금" 시각(KST) — 유효 상태 계산에 사용
-   * @return 조건에 맞는 외출증 목록(날짜/시작 시각 오름차순)
+   * @return 조건에 맞는 외출증의 페이지네이션된 목록(날짜/시작 시각 오름차순)
    */
   @Transactional(readOnly = true)
-  public List<OutingResponse> getMyRequests(
+  public PageResponse<OutingResponse> getMyRequests(
       Long studentUserId, OutingQueryPeriod period, LocalDate dateFrom, LocalDate dateTo,
-      OutingQueryStatus statusFilter, LocalDate today, LocalTime now) {
+      OutingQueryStatus statusFilter, int page, int size, LocalDate today, LocalTime now) {
+    validatePageParams(page, size);
     OutingDateRange range = resolveQueryRange(period, dateFrom, dateTo, today);
     List<Outing> outings = outingRepository
         .findByStudentIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
             studentUserId, range.from(), range.to());
-    return toFilteredResponses(outings, statusFilter, today, now);
+    List<OutingResponse> filtered = toFilteredResponses(outings, statusFilter, today, now);
+    return PageResponse.of(filtered, page, size);
   }
 
   /**
@@ -186,19 +193,29 @@ public class OutingService {
    * @param dateFrom      {@code period == CUSTOM}일 때의 시작일
    * @param dateTo        {@code period == CUSTOM}일 때의 종료일
    * @param statusFilter  걸러볼 상태(유효 상태 기준). {@code null}이면 전부 반환
+   * @param page          페이지 번호(0부터 시작)
+   * @param size          페이지 크기(1~100)
    * @param today         "오늘" 날짜(KST) — 기간 기본값/유효 상태 계산에 사용
    * @param now           "지금" 시각(KST) — 유효 상태 계산에 사용
-   * @return 조건에 맞는 외출증 목록(날짜/시작 시각 오름차순)
+   * @return 조건에 맞는 외출증의 페이지네이션된 목록(날짜/시작 시각 오름차순)
    */
   @Transactional(readOnly = true)
-  public List<OutingResponse> getReceivedOutings(
+  public PageResponse<OutingResponse> getReceivedOutings(
       Long teacherUserId, OutingQueryPeriod period, LocalDate dateFrom, LocalDate dateTo,
-      OutingQueryStatus statusFilter, LocalDate today, LocalTime now) {
+      OutingQueryStatus statusFilter, int page, int size, LocalDate today, LocalTime now) {
+    validatePageParams(page, size);
     OutingDateRange range = resolveQueryRange(period, dateFrom, dateTo, today);
     List<Outing> outings = outingRepository
         .findByTeacherIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
             teacherUserId, range.from(), range.to());
-    return toFilteredResponses(outings, statusFilter, today, now);
+    List<OutingResponse> filtered = toFilteredResponses(outings, statusFilter, today, now);
+    return PageResponse.of(filtered, page, size);
+  }
+
+  private void validatePageParams(int page, int size) {
+    if (page < 0 || size < MIN_PAGE_SIZE || size > MAX_PAGE_SIZE) {
+      throw new CustomException(OutingErrorCode.INVALID_PAGE_PARAMS);
+    }
   }
 
   /**

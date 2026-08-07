@@ -8,7 +8,7 @@ import org.springframework.http.HttpStatus;
  *
  * <p>코드 네이밍 규칙: {@code OUTING_NNN} (NNN은 3자리 순번). #29에서
  * {@code 001}/{@code 002}/{@code 003}/{@code 011}/{@code 012}를, #30(승인)/#31(거절)에서
- * {@code 004}~{@code 006}을, #41(조회)에서 {@code 007}/{@code 013}/{@code 014}를 채웠다
+ * {@code 004}~{@code 006}을, #41(조회)에서 {@code 007}/{@code 013}~{@code 015}를 채웠다
  * (승인/거절이 같은 원인 체계를 공유해 코드를 그대로 재사용한다). 출발/도착/위치 관련
  * 코드는 후속 이슈에서 추가한다.
  *
@@ -50,7 +50,11 @@ public enum OutingErrorCode implements ErrorCode {
   /** period/dateFrom/dateTo 조합이 모순됩니다(#41) — CUSTOM인데 날짜가 없거나, CUSTOM이 아닌데
    *  날짜가 같이 왔습니다. */
   INVALID_PERIOD_PARAMS(
-      HttpStatus.BAD_REQUEST, "OUTING_014", "조회 기간 파라미터 조합이 올바르지 않습니다.");
+      HttpStatus.BAD_REQUEST, "OUTING_014", "조회 기간 파라미터 조합이 올바르지 않습니다."),
+
+  /** page가 음수이거나 size가 1~100 범위 밖입니다(#41). */
+  INVALID_PAGE_PARAMS(
+      HttpStatus.BAD_REQUEST, "OUTING_015", "페이지 파라미터가 올바르지 않습니다(page>=0, 1<=size<=100).");
 
   private final HttpStatus httpStatus;
   private final String code;
