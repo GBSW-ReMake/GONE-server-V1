@@ -37,6 +37,14 @@
 | 18 | `STUDENT`로 `GET /me/received` 호출 | 403 `COMMON_003` | ✅ |
 | 19 | `TEACHER`로 `GET /me/requests` 호출 | 403 `COMMON_003` | ✅ |
 | 20 | 결과 없는 범위 조회 | `data: []`(`null` 아님) | ✅ |
+| 21 | `page=0&size=2`(결과 3건 중) | `content` 2개, `totalElements:3`, `totalPages:2`, `hasNext:true` | ✅ |
+| 22 | 위 상태에서 `page=1&size=2` | `content` 1개, `hasNext:false` | ✅ |
+| 23 | 마지막 페이지 다음 페이지(`page=5&size=2`) | `content: []`, `hasNext:false`, 200(에러 아님) | ✅ |
+| 24 | `page=-1` | 400 `OUTING_015` | ✅ |
+| 25 | `size=0` | 400 `OUTING_015` | ✅ |
+| 26 | `size=101` | 400 `OUTING_015` | ✅ |
+| 27 | `page`/`size` 생략 | 기본값 `page:0`, `size:20` 적용 | ✅ |
+| 28 | 위 21~27번을 `GET /me/received`(선생님)에서도 동일 재현 | 동일 동작 | ✅ |
 
 **코드 리뷰 2번(`status=DEPARTED`/`RETURNED` 거부) 재확인**: 코드 리뷰 직후 바로 수정했고
 (`OutingQueryStatus` 도입), 실서버 수동 재현 대신 자동화 테스트(`OutingQueryStatusTest`,
@@ -48,10 +56,14 @@
 `OutingServiceTest.GetOutingDetail`의 `allowsDisciplineRole`/`allowsAdminRole` 단위
 테스트로 대체 확인했다(#31과 동일한 판단).
 
+**페이지네이션 추가(구현 중, 기획서 "페이지네이션" 절 참고)**: 코드 리뷰(9단계) 이후
+목록 조회 두 엔드포인트에 `page`/`size`를 추가했다. 위 21~28번이 그 검증이며, 기존 코드
+리뷰 결과에는 영향 없는 순수 추가 기능이라 재리뷰 없이 QA만 재실행했다.
+
 ## 2. 결론
 
 Critical/High 없음. Medium 2건(코드 리뷰 1번은 실서버 재현으로 해소, `DISCIPLINE`/`ADMIN`
 계정 제약 1건은 기존 관례대로 단위 테스트 대체), 코드 리뷰 Low 4건 중 1건(2번, 상태 필터)은
 수정 완료, 나머지 3건(3~5번)은 보류(상세 사유는
-[41-outing-query-code-review.md](./41-outing-query-code-review.md) 참고) — 추가 조치 없이
-PR 진행 가능하다고 판단.
+[41-outing-query-code-review.md](./41-outing-query-code-review.md) 참고). 페이지네이션
+추가분(21~28번)도 전부 통과 — 추가 조치 없이 PR 진행 가능하다고 판단.
