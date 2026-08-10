@@ -54,4 +54,13 @@ public interface OutingRepository extends JpaRepository<Outing, Long> {
    */
   List<Outing> findByTeacherIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
       Long teacherId, LocalDate dateFrom, LocalDate dateTo);
+
+  /**
+   * 주어진 상태에 해당하는 외출증을 전부 조회합니다(#42, {@code MISSED} 반영 스케줄러 대상
+   * 조회).
+   *
+   * @param status 조회할 상태
+   * @return 조건에 맞는 외출증 목록
+   */
+  List<Outing> findByStatus(OutingStatus status);
 }
