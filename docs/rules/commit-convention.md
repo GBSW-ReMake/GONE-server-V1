@@ -4,6 +4,8 @@
 - `type`: `feat`, `fix`, `refactor`, `chore`, `test`, `docs`
 - `scope`: 변경이 속한 도메인명 (`auth`, `user`, `file`, `gbsw` 등)
 - 설명은 한글, 현재형("~구현", "~수정", "~추가")으로 간결하게 작성한다.
+- 문장 구조는 [sentence-refinement.md](./sentence-refinement.md)의 원칙 1~5(특히 원칙 2
+  "필요한 정보만 남기기")를 따른다.
 - 작은 task 단위로 자주 커밋한다. 한 기능을 한 번에 몰아서 커밋하지 않는다.
   - 예: 엔티티/마이그레이션 → 서비스 로직 → 컨트롤러 → 테스트 순서로 분리
 - 브랜치 네이밍은 [branch-workflow.md](./branch-workflow.md) 7단계를 따른다: `feat/#{이슈번호}-{slug}` / `fix/#{이슈번호}-{slug}`

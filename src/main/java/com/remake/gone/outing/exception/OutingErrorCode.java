@@ -8,9 +8,10 @@ import org.springframework.http.HttpStatus;
  *
  * <p>코드 네이밍 규칙: {@code OUTING_NNN} (NNN은 3자리 순번). #29에서
  * {@code 001}/{@code 002}/{@code 003}/{@code 011}/{@code 012}를, #30(승인)/#31(거절)에서
- * {@code 004}~{@code 006}을, #41(조회)에서 {@code 007}/{@code 013}~{@code 015}를 채웠다
- * (승인/거절이 같은 원인 체계를 공유해 코드를 그대로 재사용한다). 출발/도착/위치 관련
- * 코드는 후속 이슈에서 추가한다.
+ * {@code 004}~{@code 006}을, #41(조회)에서 {@code 007}/{@code 013}~{@code 015}를, #42
+ * (마감 차단)에서 {@code 008}을 채웠다(승인/거절이 같은 원인 체계를 공유해 코드를 그대로
+ * 재사용한다). 번호는 사전 예약이 아니라 실제 구현되는 순서대로 그 시점에 비어있는 다음
+ * 번호를 쓴다 — 출발/도착/위치 관련 코드는 그 이슈(#43)가 실제로 구현될 때 확정한다.
  *
  * @see ErrorCode
  */
@@ -54,7 +55,11 @@ public enum OutingErrorCode implements ErrorCode {
 
   /** page가 음수이거나 size가 1~100 범위 밖입니다(#41). */
   INVALID_PAGE_PARAMS(
-      HttpStatus.BAD_REQUEST, "OUTING_015", "페이지 파라미터가 올바르지 않습니다(page>=0, 1<=size<=100).");
+      HttpStatus.BAD_REQUEST, "OUTING_015", "페이지 파라미터가 올바르지 않습니다(page>=0, 1<=size<=100)."),
+
+  /** 승인/거절 요청 시점에 이미 그 외출증의 시작 시각이 지났습니다(#42). DB의 {@code status}가
+   *  아직 {@code PENDING}이어도(스케줄러가 아직 반영 전이어도) 매 요청마다 재계산해 차단한다. */
+  DEADLINE_PASSED(HttpStatus.CONFLICT, "OUTING_008", "마감이 지나 더 이상 처리할 수 없는 외출증입니다.");
 
   private final HttpStatus httpStatus;
   private final String code;

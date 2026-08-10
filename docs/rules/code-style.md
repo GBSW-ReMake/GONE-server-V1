@@ -11,6 +11,8 @@
 - 주석/Javadoc:
   - Javadoc은 공개 API(서비스/컨트롤러의 public 메서드, 클래스)에만 작성
   - 코드만 읽어도 알 수 있는 내용은 주석으로 남기지 않는다 (WHY만, WHAT은 지양)
+  - 문장 구조·표현은 [sentence-refinement.md](./sentence-refinement.md)(원칙 1~6, 특히
+    원칙 6 "코드 주석 전용 규칙")를 따른다
 - 기존 도메인 패키지 구조(`controller / dto / service / exception / entity / repository` /
   이미 쓰이고 있는 `enums` / `utils` 등)를 기본으로 따른다.
   - **단, 컨벤션이 유지보수성보다 우선하지 않는다.** `type`처럼 이 목록에 없는 폴더가

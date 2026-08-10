@@ -8,6 +8,7 @@
     `dev`에 머지한 직후 관련 이슈를 `gh issue close {번호}`로 직접 닫는다.
 - `작업 내용` / `변경 사항 상세`: 기획서(`docs/domain/{도메인명}/{이슈번호}-{도메인명}-{간략한 제목}.md`)와 실제 구현이
   다른 부분이 있다면 반드시 명시한다.
+- PR 설명 문장은 [sentence-refinement.md](./sentence-refinement.md)의 원칙 1~5를 따른다.
 - `확인 사항` 체크리스트는 실제로 로컬에서 실행/확인한 항목만 체크한다.
   - `./gradlew build`
   - `./gradlew checkstyleMain`

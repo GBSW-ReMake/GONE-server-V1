@@ -44,6 +44,8 @@
 - 엔드포인트를 설계하기 전 [api-design.md](./api-design.md)의 6원칙(단일 책임/빠른 시작/
   일관성/의미 있는 오류/확장성·성능/하위 호환성)을 검토하고, 기획서의 "리스크 및 고려사항"
   절에 해당 원칙과 관련된 판단(예: 페이지네이션 여부, 하위 호환 여부)을 남긴다.
+- 기획서 본문 문장은 [sentence-refinement.md](./sentence-refinement.md)의 원칙 1~5를
+  따른다(주어를 분명히, 필요한 정보만, 구체적으로, 자연스러운 한국어, 일관된 용어).
 - **경로/문서명 규칙**: `docs/domain/{도메인명}/` 폴더 아래에 둔다. 도메인명은 `auth`/
   `user`/`outing`/`neis` 등 커밋 스코프와 동일한 규칙을 따른다(GitHub 이슈에 `domain:X`
   라벨이 있으면 그 값을 소문자로, 없으면 이슈 종류 라벨을 그대로 폴더명으로 쓴다 — 예:
@@ -84,6 +86,8 @@
 - 작은 task 단위로 커밋한다 (예: 엔티티/마이그레이션 → 서비스 로직 → 컨트롤러 → 테스트 순서로 분리 커밋).
 - 커밋 규칙: [commit-convention.md](./commit-convention.md)
 - 코드 스타일: [code-style.md](./code-style.md)
+- 코드 내 주석(Javadoc/인라인)의 문장 구조: [sentence-refinement.md](./sentence-refinement.md)
+  (원칙 1~6, 특히 원칙 6 "코드 주석 전용 규칙")
 - 테스트: [test-convention.md](./test-convention.md)
 - **기획서와 실제 코드가 달라지는 경우, 변경의 성격에 따라 다르게 처리한다:**
     - **구현 세부사항 변경** (DTO 필드 통합/분리, 내부 메서드 시그니처, 변수명 등 — 승인받은

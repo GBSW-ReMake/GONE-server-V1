@@ -12,6 +12,9 @@
 - 테스트 코드: [docs/rules/test-convention.md](docs/rules/test-convention.md)
 - API 디자인 원칙: [docs/rules/api-design.md](docs/rules/api-design.md) — 새 엔드포인트
   기획서 작성 시(branch-workflow.md 2단계) 반드시 검토
+- 문장 다듬기(기획서/코드 주석): [docs/rules/sentence-refinement.md](docs/rules/sentence-refinement.md)
+  — 기획서 본문, Javadoc/인라인 주석, PR 설명, 커밋 메시지를 작성할 때 반드시 따른다
+  (branch-workflow.md 2단계 기획서 작성, 8단계 구현 시 주석 작성에 적용)
 
 ## Skills (docs/skills)
 - 프로젝트 전용 작업 절차/스킬은 `docs/skills/`에 정리한다. (추가 예정)

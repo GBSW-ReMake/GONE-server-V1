@@ -3,10 +3,12 @@ package com.remake.gone;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /** GONE 서버 애플리케이션 진입점. */
 @SpringBootApplication
 @ConfigurationPropertiesScan
+@EnableScheduling
 public class GoneServerV1Application {
 
   /**

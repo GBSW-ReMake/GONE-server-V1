@@ -38,6 +38,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 /**
  * {@link OutingService}에 대한 단위 테스트.
@@ -455,6 +456,19 @@ class OutingServiceTest {
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(OutingErrorCode.ALREADY_PROCESSED);
     }
+
+    @Test
+    @DisplayName("이미 시작 시각이 지난 PENDING 외출증이면 거부한다(#42)")
+    void rejectsWhenDeadlineHasPassed() {
+      Outing outing = pendingOuting();
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      LocalDateTime pastDeadline = LocalDateTime.of(2026, 8, 14, 13, 0);
+
+      assertThatThrownBy(() -> outingService.approveOuting(TEACHER_ID, OUTING_CODE, pastDeadline))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.DEADLINE_PASSED);
+    }
   }
 
   @Nested
@@ -535,6 +549,134 @@ class OutingServiceTest {
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(OutingErrorCode.ALREADY_PROCESSED);
+    }
+
+    @Test
+    @DisplayName("이미 시작 시각이 지난 PENDING 외출증이면 거부한다(#42)")
+    void rejectsWhenDeadlineHasPassed() {
+      Outing outing = pendingOuting();
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      LocalDateTime pastDeadline = LocalDateTime.of(2026, 8, 14, 13, 0);
+
+      assertThatThrownBy(() -> outingService.rejectOuting(
+          TEACHER_ID, OUTING_CODE, REJECTED_REASON, pastDeadline))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.DEADLINE_PASSED);
+    }
+  }
+
+  @Nested
+  @DisplayName("findOverdueOutingIds")
+  class FindOverdueOutingIds {
+
+    private Outing pendingOuting(Long id, String code, LocalDate outingDate, LocalTime startTime) {
+      return Outing.builder()
+          .id(id)
+          .code(code)
+          .student(student())
+          .teacher(teacher())
+          .reason("치과 진료")
+          .outingDate(outingDate)
+          .timeSlot(OutingTimeSlot.LUNCH)
+          .startTime(startTime)
+          .endTime(startTime.plusHours(1))
+          .status(OutingStatus.PENDING)
+          .build();
+    }
+
+    @Test
+    @DisplayName("마감이 지난 PENDING 외출증의 ID만 반환하고, 아직 안 지난 건은 뺀다")
+    void returnsOnlyOverdueOutingIds() {
+      Outing overdue = pendingOuting(700L, "OVERDUE001", TODAY, LocalTime.of(8, 0));
+      Outing notYetDue = pendingOuting(
+          701L, "NOTDUE0001", LocalDate.of(2026, 8, 14), LocalTime.of(12, 30));
+      given(outingRepository.findByStatus(OutingStatus.PENDING))
+          .willReturn(List.of(overdue, notYetDue));
+
+      List<Long> overdueIds = outingService.findOverdueOutingIds(TODAY, NOW);
+
+      assertThat(overdueIds).containsExactly(700L);
+    }
+
+    @Test
+    @DisplayName("마감 지난 PENDING 건이 없으면 빈 목록을 반환한다")
+    void returnsEmptyListWhenNoneOverdue() {
+      given(outingRepository.findByStatus(OutingStatus.PENDING)).willReturn(List.of());
+
+      List<Long> overdueIds = outingService.findOverdueOutingIds(TODAY, NOW);
+
+      assertThat(overdueIds).isEmpty();
+    }
+  }
+
+  @Nested
+  @DisplayName("markSingleOutingAsMissed")
+  class MarkSingleOutingAsMissed {
+
+    private static final Long OUTING_ID = 700L;
+
+    private Outing pendingOuting() {
+      return Outing.builder()
+          .id(OUTING_ID)
+          .code("OVERDUE001")
+          .student(student())
+          .teacher(teacher())
+          .reason("치과 진료")
+          .outingDate(TODAY)
+          .timeSlot(OutingTimeSlot.LUNCH)
+          .startTime(LocalTime.of(8, 0))
+          .endTime(LocalTime.of(9, 0))
+          .status(OutingStatus.PENDING)
+          .build();
+    }
+
+    @Test
+    @DisplayName("PENDING 외출증이면 MISSED로 갱신한다")
+    void marksPendingOutingAsMissed() {
+      Outing outing = pendingOuting();
+      given(outingRepository.findById(OUTING_ID)).willReturn(Optional.of(outing));
+
+      outingService.markSingleOutingAsMissed(OUTING_ID);
+
+      assertThat(outing.getStatus()).isEqualTo(OutingStatus.MISSED);
+      verify(outingRepository).save(outing);
+    }
+
+    @Test
+    @DisplayName("이미 PENDING이 아니면(승인/거절이 먼저 커밋됨) 건드리지 않는다")
+    void skipsWhenAlreadyProcessed() {
+      Outing outing = pendingOuting();
+      outing.setStatus(OutingStatus.APPROVED);
+      given(outingRepository.findById(OUTING_ID)).willReturn(Optional.of(outing));
+
+      outingService.markSingleOutingAsMissed(OUTING_ID);
+
+      assertThat(outing.getStatus()).isEqualTo(OutingStatus.APPROVED);
+      verify(outingRepository, times(0)).save(any());
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 ID면 아무것도 하지 않는다")
+    void skipsWhenNotFound() {
+      given(outingRepository.findById(OUTING_ID)).willReturn(Optional.empty());
+
+      outingService.markSingleOutingAsMissed(OUTING_ID);
+
+      verify(outingRepository, times(0)).save(any());
+    }
+
+    @Test
+    @DisplayName("저장 중 낙관적 락 충돌이 나면 예외를 삼키고 조용히 넘어간다")
+    void swallowsOptimisticLockingFailure() {
+      Outing outing = pendingOuting();
+      given(outingRepository.findById(OUTING_ID)).willReturn(Optional.of(outing));
+      given(outingRepository.save(outing))
+          .willThrow(new ObjectOptimisticLockingFailureException(Outing.class, OUTING_ID));
+
+      outingService.markSingleOutingAsMissed(OUTING_ID);
+
+      verify(outingRepository).save(outing);
     }
   }
 
