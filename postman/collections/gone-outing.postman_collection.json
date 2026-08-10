@@ -1087,6 +1087,103 @@
               }
             }
           ]
+        },
+        {
+          "name": "마감 지난 PENDING 승인 시도 → 409",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{missedOutingCode}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{missedOutingCode}}",
+                "approve"
+              ]
+            },
+            "description": "#42 마감 지난 PENDING 처리 확인 폴더의 3번(마감 임박 신청) 실행 후, 그 마감 시각이 실제로 지난 뒤에만 의미가 있다. DB status가 아직 PENDING이어도(스케줄러 반영 전) 요청 시점에 마감을 재계산해 즉시 차단한다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409 Conflict, OUTING_008\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.code).to.eql(\"OUTING_008\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "마감 지난 PENDING 거절 시도 → 409",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{missedOutingCode}}/reject",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{missedOutingCode}}",
+                "reject"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rejectedReason\": \"QA 테스트\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "위 승인 케이스와 동일한 조건(마감 지난 PENDING). 마감 재계산은 승인/거절에 동일하게 적용된다. 위 항목을 먼저 실행했어도 DEADLINE_PASSED 체크는 상태를 바꾸지 않으므로 이 요청도 그대로 재현된다(스케줄러가 아직 반영하지 않았다면)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409 Conflict, OUTING_008\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.code).to.eql(\"OUTING_008\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
         }
       ]
     },
@@ -1555,6 +1652,281 @@
               }
             }
           ]
+        }
+      ]
+    },
+    {
+      "name": "#42 마감 지난 PENDING 처리 확인",
+      "item": [
+        {
+          "name": "1. 학생 로그인",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{studentLoginId}}\",\n  \"password\": \"{{studentPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"studentAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));",
+                  "        pm.environment.set(\"studentUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "2. 선생님 로그인",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{teacherLoginId}}\",\n  \"password\": \"{{teacherPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "응답 JWT를 디코드해 `teacherUserId`를 자동으로 추출합니다(외출증 신청 요청 바디에 사용)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"teacherAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));",
+                  "        pm.environment.set(\"teacherUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "3. 마감 임박 외출증 신청 (2분 뒤 마감)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"#42 QA - 마감 임박\",\n  \"outingDate\": \"{{qaOutingDate}}\",\n  \"timeSlot\": \"CUSTOM\",\n  \"customStartTime\": \"{{qaDeadlineStart}}\",\n  \"customEndTime\": \"{{qaDeadlineEnd}}\",\n  \"teacherUserId\": {{teacherUserId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings"
+              ]
+            },
+            "description": "Pre-request Script가 \"지금부터 2분 뒤\"를 customStartTime/customEndTime으로 계산해서 채운다(로컬 PC 시계가 KST 기준이어야 정확함, 08:40~20:30 범위를 벗어나면 실패하니 그 시간대에 실행). 응답의 data.code를 missedOutingCode에 저장한다."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const pad = (n) => String(n).padStart(2, '0');",
+                  "const start = new Date(Date.now() + 2 * 60 * 1000);",
+                  "const end = new Date(start.getTime() + 60 * 1000);",
+                  "const ymd = `${start.getFullYear()}${pad(start.getMonth() + 1)}${pad(start.getDate())}`;",
+                  "pm.environment.set('qaOutingDate', ymd);",
+                  "pm.environment.set('qaDeadlineStart', `${pad(start.getHours())}:${pad(start.getMinutes())}`);",
+                  "pm.environment.set('qaDeadlineEnd', `${pad(end.getHours())}:${pad(end.getMinutes())}`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data && body.data.code) {",
+                  "        pm.environment.set(\"missedOutingCode\", body.data.code);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "4. [2분 대기 후 실행] 마감 지난 승인 시도 → 409 OUTING_008",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{missedOutingCode}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{missedOutingCode}}",
+                "approve"
+              ]
+            },
+            "description": "3번 신청 후 실제로 2분(설정한 마감 시각)이 지날 때까지 기다린 뒤 실행한다. DB의 status는 아직 PENDING이어도(스케줄러가 아직 못 돌았어도) 요청 시점에 마감을 재계산해 즉시 차단되는지 확인한다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409 Conflict, OUTING_008\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.code).to.eql(\"OUTING_008\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "5. [1분 더 대기 후 실행] 스케줄러 DB 반영 확인 → 409 OUTING_005",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{missedOutingCode}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{missedOutingCode}}",
+                "approve"
+              ]
+            },
+            "description": "4번 실행 후 스케줄러 주기(최대 1분) 이상 더 기다린 뒤 다시 실행한다. approveOuting의 체크 순서는 상태 확인(ALREADY_PROCESSED)이 마감 재계산(DEADLINE_PASSED)보다 먼저라, 응답이 OUTING_008에서 OUTING_005로 바뀌었다면 그 사이 스케줄러가 DB의 status를 실제로 MISSED로 갱신했다는 뜻이다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409 Conflict, OUTING_005 (스케줄러가 DB를 MISSED로 갱신함)\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.code).to.eql(\"OUTING_005\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
         }
       ]
     }
