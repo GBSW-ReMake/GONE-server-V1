@@ -455,6 +455,19 @@ class OutingServiceTest {
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(OutingErrorCode.ALREADY_PROCESSED);
     }
+
+    @Test
+    @DisplayName("이미 시작 시각이 지난 PENDING 외출증이면 거부한다(#42)")
+    void rejectsWhenDeadlineHasPassed() {
+      Outing outing = pendingOuting();
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      LocalDateTime pastDeadline = LocalDateTime.of(2026, 8, 14, 13, 0);
+
+      assertThatThrownBy(() -> outingService.approveOuting(TEACHER_ID, OUTING_CODE, pastDeadline))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.DEADLINE_PASSED);
+    }
   }
 
   @Nested
@@ -535,6 +548,66 @@ class OutingServiceTest {
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(OutingErrorCode.ALREADY_PROCESSED);
+    }
+
+    @Test
+    @DisplayName("이미 시작 시각이 지난 PENDING 외출증이면 거부한다(#42)")
+    void rejectsWhenDeadlineHasPassed() {
+      Outing outing = pendingOuting();
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      LocalDateTime pastDeadline = LocalDateTime.of(2026, 8, 14, 13, 0);
+
+      assertThatThrownBy(() -> outingService.rejectOuting(
+          TEACHER_ID, OUTING_CODE, REJECTED_REASON, pastDeadline))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.DEADLINE_PASSED);
+    }
+  }
+
+  @Nested
+  @DisplayName("markOverdueOutingsAsMissed")
+  class MarkOverdueOutingsAsMissed {
+
+    private Outing pendingOuting(String code, LocalDate outingDate, LocalTime startTime) {
+      return Outing.builder()
+          .id(700L)
+          .code(code)
+          .student(student())
+          .teacher(teacher())
+          .reason("치과 진료")
+          .outingDate(outingDate)
+          .timeSlot(OutingTimeSlot.LUNCH)
+          .startTime(startTime)
+          .endTime(startTime.plusHours(1))
+          .status(OutingStatus.PENDING)
+          .build();
+    }
+
+    @Test
+    @DisplayName("마감이 지난 PENDING 외출증만 MISSED로 갱신하고, 아직 안 지난 건은 그대로 둔다")
+    void marksOnlyOverduePendingOutingsAsMissed() {
+      Outing overdue = pendingOuting("OVERDUE001", TODAY, LocalTime.of(8, 0));
+      Outing notYetDue = pendingOuting(
+          "NOTDUE0001", LocalDate.of(2026, 8, 14), LocalTime.of(12, 30));
+      given(outingRepository.findByStatus(OutingStatus.PENDING))
+          .willReturn(List.of(overdue, notYetDue));
+
+      outingService.markOverdueOutingsAsMissed(TODAY, NOW);
+
+      assertThat(overdue.getStatus()).isEqualTo(OutingStatus.MISSED);
+      assertThat(notYetDue.getStatus()).isEqualTo(OutingStatus.PENDING);
+      verify(outingRepository).saveAll(List.of(overdue));
+    }
+
+    @Test
+    @DisplayName("마감 지난 PENDING 건이 없으면 빈 목록으로 저장을 호출한다")
+    void savesEmptyListWhenNoneOverdue() {
+      given(outingRepository.findByStatus(OutingStatus.PENDING)).willReturn(List.of());
+
+      outingService.markOverdueOutingsAsMissed(TODAY, NOW);
+
+      verify(outingRepository).saveAll(List.of());
     }
   }
 
