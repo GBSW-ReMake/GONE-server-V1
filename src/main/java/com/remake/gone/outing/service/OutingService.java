@@ -30,9 +30,11 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.TemporalAdjusters;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -121,10 +123,7 @@ public class OutingService {
     if (outing.getStatus() != OutingStatus.PENDING) {
       throw new CustomException(OutingErrorCode.ALREADY_PROCESSED);
     }
-    if (OutingTimeUtils.isPastDeadline(
-        outing.getOutingDate(), outing.getStartTime(), now.toLocalDate(), now.toLocalTime())) {
-      throw new CustomException(OutingErrorCode.DEADLINE_PASSED);
-    }
+    validateNotPastDeadline(outing, now);
 
     outing.setStatus(OutingStatus.APPROVED);
     outing.setApprovedAt(now);
@@ -157,10 +156,7 @@ public class OutingService {
     if (outing.getStatus() != OutingStatus.PENDING) {
       throw new CustomException(OutingErrorCode.ALREADY_PROCESSED);
     }
-    if (OutingTimeUtils.isPastDeadline(
-        outing.getOutingDate(), outing.getStartTime(), now.toLocalDate(), now.toLocalTime())) {
-      throw new CustomException(OutingErrorCode.DEADLINE_PASSED);
-    }
+    validateNotPastDeadline(outing, now);
 
     outing.setStatus(OutingStatus.REJECTED);
     outing.setRejectedReason(rejectedReason);
@@ -231,6 +227,21 @@ public class OutingService {
   }
 
   /**
+   * 승인/거절 요청 시점을 기준으로 그 외출증의 마감이 이미 지났는지 재계산합니다(#42). DB의
+   * {@code status}가 아직 {@code PENDING}이어도(스케줄러가 아직 반영 전이어도) 이 시각 기준
+   * 마감이 지났으면 거부한다 — DB 값에 의존하지 않는다.
+   *
+   * @param outing 검사할 외출증
+   * @param now    "지금" 시각(KST)
+   */
+  private void validateNotPastDeadline(Outing outing, LocalDateTime now) {
+    if (OutingTimeUtils.isPastDeadline(
+        outing.getOutingDate(), outing.getStartTime(), now.toLocalDate(), now.toLocalTime())) {
+      throw new CustomException(OutingErrorCode.DEADLINE_PASSED);
+    }
+  }
+
+  /**
    * 외출증 단건을 상세 조회합니다(#41). 신청 학생 본인, 지정된 담당 선생님, 또는
    * {@code DISCIPLINE}/{@code ADMIN} 역할 보유자만 조회할 수 있습니다.
    *
@@ -250,25 +261,56 @@ public class OutingService {
   }
 
   /**
-   * 마감이 지난 {@code PENDING} 외출증을 전부 찾아 DB의 {@code status}를 {@code MISSED}로
-   * 갱신합니다(#42). {@code OutingMissedScheduler}가 1분 주기로 이 메서드를 호출한다.
+   * 마감이 지난 {@code PENDING} 외출증의 ID를 전부 조회합니다(#42). {@code
+   * OutingMissedScheduler}가 1분 주기로 이 메서드로 대상을 찾은 뒤, 각 ID를 {@link
+   * #markSingleOutingAsMissed(Long)}로 건별 갱신한다.
    *
-   * <p>스케줄러와 승인/거절 요청이 같은 건을 동시에 처리해도 최종 상태는 어긋나지 않는다 —
-   * 이 메서드가 먼저 커밋되면 뒤이은 승인/거절 시도는 {@code status != PENDING}이라
-   * {@code ALREADY_PROCESSED}로 막히고, 승인/거절이 먼저 커밋되면 그 건은 더 이상
-   * {@code PENDING}이 아니라서 이 메서드의 조회 대상에서 빠진다. 그래서 별도 락을 걸지 않는다.
+   * <p>한 트랜잭션에서 전체를 읽고 한 번에 갱신하지 않는 이유: 이 조회와 승인/거절 요청의
+   * 커밋이 겹치면(스케줄러가 읽은 뒤 승인/거절이 먼저 커밋되고, 스케줄러가 그 스냅샷을
+   * 그대로 다시 덮어쓰는 경우) {@code approvedAt}/{@code rejectedReason}까지 조용히
+   * 유실될 수 있다(#42 코드 리뷰에서 확인). 조회와 갱신을 분리하고 건별로 독립 트랜잭션에서
+   * 갱신하면, 그 사이 승인/거절이 먼저 커밋된 건은 {@link #markSingleOutingAsMissed(Long)}가
+   * 그 시점에 다시 확인해 걸러내거나 {@link Outing#getVersion() 버전} 충돌로 감지한다.
    *
    * @param today "오늘" 날짜(KST)
    * @param now   "지금" 시각(KST)
+   * @return 마감이 지난 {@code PENDING} 외출증의 ID 목록
    */
-  @Transactional
-  public void markOverdueOutingsAsMissed(LocalDate today, LocalTime now) {
-    List<Outing> overdue = outingRepository.findByStatus(OutingStatus.PENDING).stream()
+  @Transactional(readOnly = true)
+  public List<Long> findOverdueOutingIds(LocalDate today, LocalTime now) {
+    return outingRepository.findByStatus(OutingStatus.PENDING).stream()
         .filter(outing -> OutingTimeUtils.isPastDeadline(
             outing.getOutingDate(), outing.getStartTime(), today, now))
+        .map(Outing::getId)
         .toList();
-    overdue.forEach(outing -> outing.setStatus(OutingStatus.MISSED));
-    outingRepository.saveAll(overdue);
+  }
+
+  /**
+   * 외출증 하나를 {@code MISSED}로 갱신합니다(#42). 독립된 트랜잭션에서 실행되도록
+   * {@code OutingMissedScheduler}가 {@link #findOverdueOutingIds(LocalDate, LocalTime)}로
+   * 찾은 ID마다 이 메서드를 개별 호출한다 — 배치 하나로 묶으면 한 건의 낙관적 락 충돌이
+   * 나머지 건까지 전부 롤백시키기 때문이다.
+   *
+   * <p>조회 시점에 이미 {@code PENDING}이 아니면(승인/거절이 먼저 커밋됨) 조용히 건너뛴다.
+   * 저장 시점에 {@link ObjectOptimisticLockingFailureException}이 나면(그 사이 다른
+   * 트랜잭션이 먼저 갱신함) 경고 로그만 남기고 건너뛴다 — 두 경우 모두 승인/거절 결과를
+   * 덮어쓰지 않는 것이 이 메서드가 실패하는 것보다 낫다.
+   *
+   * @param outingId 갱신할 외출증의 내부 PK
+   */
+  @Transactional
+  public void markSingleOutingAsMissed(Long outingId) {
+    Optional<Outing> found = outingRepository.findById(outingId);
+    if (found.isEmpty() || found.get().getStatus() != OutingStatus.PENDING) {
+      return;
+    }
+    Outing outing = found.get();
+    outing.setStatus(OutingStatus.MISSED);
+    try {
+      outingRepository.save(outing);
+    } catch (ObjectOptimisticLockingFailureException e) {
+      log.warn("외출증 MISSED 갱신 중 낙관적 락 충돌로 건너뜀(outingId={})", outingId, e);
+    }
   }
 
   private void validateStudentRole(Long studentUserId) {
