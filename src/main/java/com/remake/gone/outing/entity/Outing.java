@@ -14,6 +14,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -97,4 +98,15 @@ public class Outing {
   @CreationTimestamp
   @Column(name = "created_at", nullable = false, updatable = false)
   private LocalDateTime createdAt;
+
+  /**
+   * 낙관적 락 버전(#42). {@code OutingMissedScheduler}가 배치로 읽어간 스냅샷과, 그 사이에
+   * 승인/거절 요청이 먼저 커밋한 변경이 충돌하면 {@link
+   * org.springframework.orm.ObjectOptimisticLockingFailureException}으로 감지하기 위해
+   * 추가했다 — 이 컬럼이 없으면 Hibernate가 매핑된 전체 컬럼을 스냅샷 값 그대로 덮어써
+   * {@code approvedAt}/{@code rejectedReason}까지 조용히 유실될 수 있다.
+   */
+  @Version
+  @Column(nullable = false)
+  private Long version;
 }
