@@ -77,6 +77,9 @@ public class NeisClient {
     if (!resultNode.isMissingNode()) {
       String code = resultNode.path("CODE").asText("");
       if (code.startsWith("INFO-")) {
+        log.info(
+            "NEIS API 데이터 없음(정상): resourceKey={}, code={}, message={}",
+            resourceKey, code, resultNode.path("MESSAGE").asText(""));
         return List.of();
       }
       log.error(
