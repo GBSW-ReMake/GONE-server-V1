@@ -38,6 +38,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 /**
  * {@link OutingService}에 대한 단위 테스트.
@@ -566,12 +567,12 @@ class OutingServiceTest {
   }
 
   @Nested
-  @DisplayName("markOverdueOutingsAsMissed")
-  class MarkOverdueOutingsAsMissed {
+  @DisplayName("findOverdueOutingIds")
+  class FindOverdueOutingIds {
 
-    private Outing pendingOuting(String code, LocalDate outingDate, LocalTime startTime) {
+    private Outing pendingOuting(Long id, String code, LocalDate outingDate, LocalTime startTime) {
       return Outing.builder()
-          .id(700L)
+          .id(id)
           .code(code)
           .student(student())
           .teacher(teacher())
@@ -585,29 +586,97 @@ class OutingServiceTest {
     }
 
     @Test
-    @DisplayName("마감이 지난 PENDING 외출증만 MISSED로 갱신하고, 아직 안 지난 건은 그대로 둔다")
-    void marksOnlyOverduePendingOutingsAsMissed() {
-      Outing overdue = pendingOuting("OVERDUE001", TODAY, LocalTime.of(8, 0));
+    @DisplayName("마감이 지난 PENDING 외출증의 ID만 반환하고, 아직 안 지난 건은 뺀다")
+    void returnsOnlyOverdueOutingIds() {
+      Outing overdue = pendingOuting(700L, "OVERDUE001", TODAY, LocalTime.of(8, 0));
       Outing notYetDue = pendingOuting(
-          "NOTDUE0001", LocalDate.of(2026, 8, 14), LocalTime.of(12, 30));
+          701L, "NOTDUE0001", LocalDate.of(2026, 8, 14), LocalTime.of(12, 30));
       given(outingRepository.findByStatus(OutingStatus.PENDING))
           .willReturn(List.of(overdue, notYetDue));
 
-      outingService.markOverdueOutingsAsMissed(TODAY, NOW);
+      List<Long> overdueIds = outingService.findOverdueOutingIds(TODAY, NOW);
 
-      assertThat(overdue.getStatus()).isEqualTo(OutingStatus.MISSED);
-      assertThat(notYetDue.getStatus()).isEqualTo(OutingStatus.PENDING);
-      verify(outingRepository).saveAll(List.of(overdue));
+      assertThat(overdueIds).containsExactly(700L);
     }
 
     @Test
-    @DisplayName("마감 지난 PENDING 건이 없으면 빈 목록으로 저장을 호출한다")
-    void savesEmptyListWhenNoneOverdue() {
+    @DisplayName("마감 지난 PENDING 건이 없으면 빈 목록을 반환한다")
+    void returnsEmptyListWhenNoneOverdue() {
       given(outingRepository.findByStatus(OutingStatus.PENDING)).willReturn(List.of());
 
-      outingService.markOverdueOutingsAsMissed(TODAY, NOW);
+      List<Long> overdueIds = outingService.findOverdueOutingIds(TODAY, NOW);
 
-      verify(outingRepository).saveAll(List.of());
+      assertThat(overdueIds).isEmpty();
+    }
+  }
+
+  @Nested
+  @DisplayName("markSingleOutingAsMissed")
+  class MarkSingleOutingAsMissed {
+
+    private static final Long OUTING_ID = 700L;
+
+    private Outing pendingOuting() {
+      return Outing.builder()
+          .id(OUTING_ID)
+          .code("OVERDUE001")
+          .student(student())
+          .teacher(teacher())
+          .reason("치과 진료")
+          .outingDate(TODAY)
+          .timeSlot(OutingTimeSlot.LUNCH)
+          .startTime(LocalTime.of(8, 0))
+          .endTime(LocalTime.of(9, 0))
+          .status(OutingStatus.PENDING)
+          .build();
+    }
+
+    @Test
+    @DisplayName("PENDING 외출증이면 MISSED로 갱신한다")
+    void marksPendingOutingAsMissed() {
+      Outing outing = pendingOuting();
+      given(outingRepository.findById(OUTING_ID)).willReturn(Optional.of(outing));
+
+      outingService.markSingleOutingAsMissed(OUTING_ID);
+
+      assertThat(outing.getStatus()).isEqualTo(OutingStatus.MISSED);
+      verify(outingRepository).save(outing);
+    }
+
+    @Test
+    @DisplayName("이미 PENDING이 아니면(승인/거절이 먼저 커밋됨) 건드리지 않는다")
+    void skipsWhenAlreadyProcessed() {
+      Outing outing = pendingOuting();
+      outing.setStatus(OutingStatus.APPROVED);
+      given(outingRepository.findById(OUTING_ID)).willReturn(Optional.of(outing));
+
+      outingService.markSingleOutingAsMissed(OUTING_ID);
+
+      assertThat(outing.getStatus()).isEqualTo(OutingStatus.APPROVED);
+      verify(outingRepository, times(0)).save(any());
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 ID면 아무것도 하지 않는다")
+    void skipsWhenNotFound() {
+      given(outingRepository.findById(OUTING_ID)).willReturn(Optional.empty());
+
+      outingService.markSingleOutingAsMissed(OUTING_ID);
+
+      verify(outingRepository, times(0)).save(any());
+    }
+
+    @Test
+    @DisplayName("저장 중 낙관적 락 충돌이 나면 예외를 삼키고 조용히 넘어간다")
+    void swallowsOptimisticLockingFailure() {
+      Outing outing = pendingOuting();
+      given(outingRepository.findById(OUTING_ID)).willReturn(Optional.of(outing));
+      given(outingRepository.save(outing))
+          .willThrow(new ObjectOptimisticLockingFailureException(Outing.class, OUTING_ID));
+
+      outingService.markSingleOutingAsMissed(OUTING_ID);
+
+      verify(outingRepository).save(outing);
     }
   }
 
