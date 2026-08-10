@@ -57,7 +57,15 @@
 `rejectsSuccessfully`)는 마감 전 시각을 쓰므로 영향 없음.
 
 ## 2. `MISSED` DB 실제 반영 — 신규 `@Scheduled` 스케줄러
-**신규 컴포넌트**: `outing/scheduler/OutingMissedScheduler.java`
+> **코드 리뷰(9단계) 이후 정정**: 최초 설계는 스케줄러가 마감 지난 `PENDING`을 전부 읽어
+> 한 트랜잭션에서 `saveAll`로 한 번에 갱신하는 방식이었다. 코드 리뷰에서 이 방식이
+> `approvedAt`/`rejectedReason`까지 조용히 유실시킬 수 있는 레이스를 지적했고(아래 "동시성"
+> 절 참고), 보스가 낙관적 락(`@Version`) 도입을 선택해 아래 설계로 바뀌었다. **데이터 모델
+> 변경이 생겨(하단 "데이터 모델 변경" 절 갱신) 최초 기획의 "데이터 모델 변경 없음" 판단도
+> 함께 정정한다.**
+
+**신규 컴포넌트**: `outing/scheduler/OutingMissedScheduler.java` — 조회(읽기 전용)와 건별
+갱신(각각 독립 트랜잭션)을 분리해서 호출한다.
 ```java
 @Component
 @RequiredArgsConstructor
@@ -68,25 +76,47 @@ public class OutingMissedScheduler {
   @Scheduled(fixedDelay = 60_000) // 1분
   public void markOverdueOutingsAsMissed() {
     LocalDateTime now = LocalDateTime.now(KST);
-    outingService.markOverdueOutingsAsMissed(now.toLocalDate(), now.toLocalTime());
+    List<Long> overdueIds =
+        outingService.findOverdueOutingIds(now.toLocalDate(), now.toLocalTime());
+    overdueIds.forEach(outingService::markSingleOutingAsMissed);
   }
 }
 ```
 `fixedDelay`(이전 실행 **종료 후** 60초, `fixedRate` 아님)를 쓴다 — 실행 시간이 늘어나도
 겹쳐 실행되지 않게 하기 위함(현재는 몇 건 안 되지만, 안전한 기본값을 처음부터 선택).
 
-**신규 서비스 메서드**: `OutingService.markOverdueOutingsAsMissed(LocalDate today, LocalTime now)`
+**신규 서비스 메서드 2개** (기존 계획의 `markOverdueOutingsAsMissed(today, now)` 단일
+메서드를 대체):
 ```java
-@Transactional
-public void markOverdueOutingsAsMissed(LocalDate today, LocalTime now) {
-  List<Outing> pending = outingRepository.findByStatus(OutingStatus.PENDING);
-  List<Outing> overdue = pending.stream()
+@Transactional(readOnly = true)
+public List<Long> findOverdueOutingIds(LocalDate today, LocalTime now) {
+  return outingRepository.findByStatus(OutingStatus.PENDING).stream()
       .filter(o -> OutingTimeUtils.isPastDeadline(o.getOutingDate(), o.getStartTime(), today, now))
+      .map(Outing::getId)
       .toList();
-  overdue.forEach(o -> o.setStatus(OutingStatus.MISSED));
-  outingRepository.saveAll(overdue);
+}
+
+@Transactional
+public void markSingleOutingAsMissed(Long outingId) {
+  Optional<Outing> found = outingRepository.findById(outingId);
+  if (found.isEmpty() || found.get().getStatus() != OutingStatus.PENDING) {
+    return; // 조회 이후 이미 승인/거절이 먼저 커밋됨 — 건드리지 않는다
+  }
+  Outing outing = found.get();
+  outing.setStatus(OutingStatus.MISSED);
+  try {
+    outingRepository.save(outing);
+  } catch (ObjectOptimisticLockingFailureException e) {
+    log.warn("외출증 MISSED 갱신 중 낙관적 락 충돌로 건너뜀(outingId={})", outingId, e);
+  }
 }
 ```
+**왜 하나가 아니라 두 메서드로 나눴나**: 배치 하나(`saveAll`)로 묶으면 그 안의 한 건이
+낙관적 락 충돌로 `ObjectOptimisticLockingFailureException`을 던지는 순간, JPA 스펙상 그
+영속성 컨텍스트는 더 이상 쓸 수 없어 같은 트랜잭션의 나머지 건까지 전부 롤백된다. 건마다
+독립 트랜잭션(`markSingleOutingAsMissed`가 `@Transactional`)으로 분리하면 한 건의 충돌이
+다른 건에 영향을 주지 않는다. 조회(`findOverdueOutingIds`)와 갱신을 분리한 것도 같은 이유
+— 조회 시점 스냅샷을 오래 들고 있을수록 그 사이에 승인/거절이 끼어들 창이 넓어진다.
 
 **신규 리포지토리 메서드**: `OutingRepository.findByStatus(OutingStatus status)` → `List<Outing>`
 
@@ -106,12 +136,24 @@ public void markOverdueOutingsAsMissed(LocalDate today, LocalTime now) {
 > 도입처럼 새 인프라가 아니라 기존 Spring Data 쿼리 메서드 이름만 좁히는 것), **검토
 > 단계에서 확인 부탁드립니다.**
 
-**동시성**: 스케줄러가 읽은 뒤 갱신하는 사이에 사용자가 같은 건을 승인/거절할 수 있다
-(1의 마감 체크와 경합). 별도 락은 걸지 않는다 — 최악의 경우도 "스케줄러가 막 `MISSED`로
-바꾼 직후 사용자가 승인 시도 → `status != PENDING`이라 `ALREADY_PROCESSED`(409)로
-자연스럽게 막힘"이라 데이터 정합성이 깨지지 않는다(그 반대 순서도 마찬가지 — 사용자가
-먼저 승인하면 그 시점부터 `status`가 `APPROVED`라 스케줄러의 `findByStatus(PENDING)`
-대상에서 아예 빠진다).
+**동시성(코드 리뷰로 재확인 후 정정)**: 최초 설계는 "스케줄러가 먼저 커밋되면 승인 시도가
+`ALREADY_PROCESSED`로 막히고, 승인이 먼저 커밋되면 스케줄러 조회 대상에서 빠진다"고 봐서
+별도 락 없이 안전하다고 판단했다. 이 설명은 **두 트랜잭션의 읽기 시점이 겹치지 않는다는
+전제**에서만 성립한다 — 실제로는 다음 순서가 가능하다:
+1. 스케줄러(T1)가 마감 지난 외출증 O를 읽는다(`status=PENDING`, `approvedAt=null`).
+2. T1이 커밋하기 전에 선생님이 O를 승인(T2) — `status=APPROVED`, `approvedAt=X`로 커밋.
+3. T1이 뒤늦게 커밋되면, T1이 들고 있던 낡은 스냅샷 그대로 `UPDATE`가 나가 `status=MISSED`,
+   `approved_at=NULL`로 O를 덮어쓴다. **T2의 승인 기록이 에러 없이 사라진다.**
+
+`Outing`에 `@Version`이 없던 시점에는 Hibernate가 매핑된 전체 컬럼을 스냅샷 값 그대로
+`UPDATE`하기 때문에 `status`뿐 아니라 `approvedAt`/`rejectedReason`까지 함께 유실됐다(#42
+코드 리뷰, `42-outing-missed-scheduler-code-review.md` 1번 항목). 이를 막기 위해:
+- `Outing`에 `@Version`을 추가해(아래 "데이터 모델 변경" 참고) T1이 낡은 버전으로 저장을
+  시도하면 `ObjectOptimisticLockingFailureException`으로 **감지**하도록 했다.
+- `markSingleOutingAsMissed`가 저장 직전에 `status`를 다시 확인해(위 코드 참고) 그 사이
+  이미 처리된 건은 애초에 건드리지 않고, 그래도 충돌하면 예외를 잡아 경고 로그만 남기고
+  건너뛴다(그 건은 다음 스케줄러 주기에 다시 시도되지 않는다 — 이미 `PENDING`이 아니게
+  됐을 것이므로 재시도 자체가 불필요).
 
 ## 3. 검토 후 채택하지 않기로 결정한 대안 (이슈 원문 그대로 기록)
 - **개별 마감 시각에 정밀하게 맞춘 동적 스케줄링**(`TaskScheduler.schedule(task, 정확한
@@ -121,14 +163,24 @@ public void markOverdueOutingsAsMissed(LocalDate today, LocalTime now) {
   무관하게 항상 정확함). 소비자(관리자 페이지)도 아직 없어 지금 도입은 과하다.
 
 ## 데이터 모델 변경
-없음. `OutingStatus`의 `MISSED` 값은 #41에서 이미 추가됐다(위 "이슈 본문 대비 정정" 참고).
-Flyway 마이그레이션 불필요(문자열 저장 enum).
+> **코드 리뷰 이후 정정**: 최초 판단("없음")은 스케줄러가 무조건 `saveAll`로 갱신하는
+> 설계 기준이었다. 낙관적 락 도입으로 컬럼이 하나 추가된다.
+
+`Outing`에 `version`(`BIGINT NOT NULL DEFAULT 0`) 컬럼 추가 — JPA `@Version` 매핑,
+낙관적 락 감지용. Flyway 마이그레이션 `V8__add_outing_version.sql` 신규 추가. 기존 행은
+`DEFAULT 0`으로 채워지므로 백필 로직 불필요. `OutingStatus`의 `MISSED` 값은 #41에서 이미
+추가됐다(위 "이슈 본문 대비 정정" 참고).
 
 ## 영향 받는 기존 코드
+- `Outing` 엔티티: `@Version private Long version;` 필드 추가(위 "데이터 모델 변경" 참고)
 - `OutingService`:
-  - `approveOuting`/`rejectOuting`: 마감 체크 분기 추가(위 1번). 시그니처 변경 없음
-    (이미 `LocalDateTime now`를 받고 있어 `now.toLocalDate()`/`now.toLocalTime()`으로 파생).
-  - `markOverdueOutingsAsMissed(LocalDate today, LocalTime now)`(신규, 반환 타입 `void`)
+  - `approveOuting`/`rejectOuting`: 마감 체크를 신규 `private validateNotPastDeadline(Outing,
+    LocalDateTime)`로 추출해 호출(코드 리뷰 Low 항목 반영 — 기존 `validateStudentRole` 등과
+    같은 검증-메서드-분리 컨벤션에 맞춤). 시그니처 변경 없음.
+  - `findOverdueOutingIds(LocalDate today, LocalTime now)`(신규, 반환 `List<Long>`,
+    `@Transactional(readOnly = true)`)
+  - `markSingleOutingAsMissed(Long outingId)`(신규, 반환 `void`, `@Transactional`) — 최초
+    계획의 `markOverdueOutingsAsMissed(today, now)` 단일 메서드를 대체(위 "2." 절 참고)
 - `OutingRepository`: `findByStatus(OutingStatus status)` → `List<Outing>`(신규, Spring Data
   쿼리 메서드)
 - `outing/scheduler/OutingMissedScheduler`(신규 패키지+클래스)
@@ -177,13 +229,15 @@ DB의 `status` 컬럼은 여전히 `PENDING`이다. 조회 API(#41)와 승인/�
 6. 5번 이후 다시 승인/거절 시도 → `409` `OUTING_005`(`ALREADY_PROCESSED`)로 바뀌어 있는지
    확인(마감 체크가 아니라 상태 체크에서 걸리는지 — DB가 이미 `MISSED`이므로 `status !=
    PENDING` 분기에서 막힘)
-7. 단위 테스트: `OutingServiceTest`에 마감 지난 승인/거절 케이스, `markOverdueOutingsAsMissed`
-   케이스(마감 지난 PENDING만 MISSED로 바뀌는지, 마감 전 PENDING/이미 APPROVED 등은
-   그대로인지) 추가
+7. 단위 테스트: `OutingServiceTest`에 마감 지난 승인/거절 케이스, `findOverdueOutingIds`
+   케이스(마감 지난 PENDING의 ID만 반환하는지), `markSingleOutingAsMissed` 케이스(PENDING만
+   MISSED로 바뀌는지, 이미 처리된 건/존재하지 않는 ID는 건드리지 않는지, 낙관적 락 충돌
+   시 예외를 삼키는지) 추가
 
 ## 리스크 및 고려사항
-- **동시성**: 위 "2. MISSED DB 실제 반영" 절의 "동시성" 항목 참고 — 별도 락 없이도
-  최종 상태가 어긋나지 않음을 확인함.
+- **동시성**: 위 "2. MISSED DB 실제 반영" 절의 "동시성" 항목 참고 — 코드 리뷰로 최초 설계의
+  레이스(승인/거절 기록 유실 가능성)를 확인했고, `@Version` 낙관적 락 + 건별 독립 트랜잭션
+  갱신으로 정정함.
 - **스케줄러 조회 범위(`findByStatus`) 변경 제안**: 위 "이슈 본문 대비 정정" 절 — 검토
   단계에서 승인 필요.
 - **에러 코드 번호(`OUTING_008`)**: 마스터 기획서가 작성 시점에 `008`~`010`을 #43(출발/도착
