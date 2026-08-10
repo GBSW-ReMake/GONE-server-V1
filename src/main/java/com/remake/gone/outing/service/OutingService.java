@@ -184,6 +184,7 @@ public class OutingService {
   public PageResponse<OutingResponse> getMyRequests(
       Long studentUserId, OutingQueryPeriod period, LocalDate dateFrom, LocalDate dateTo,
       OutingQueryStatus statusFilter, int page, int size, LocalDate today, LocalTime now) {
+
     validatePageParams(page, size);
     OutingDateRange range = resolveQueryRange(period, dateFrom, dateTo, today);
     List<Outing> outings = outingRepository
