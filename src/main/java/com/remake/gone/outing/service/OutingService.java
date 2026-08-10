@@ -105,7 +105,9 @@ public class OutingService {
    *
    * @param teacherUserId 승인을 요청한 선생님 사용자 ID (Access Token에서 추출됨)
    * @param code          승인할 외출증의 외부 식별자 코드
-   * @param now           "지금" 시각(KST) — {@code approvedAt} 기록에 사용
+   * @param now           "지금" 시각(KST) — {@code approvedAt} 기록 + 마감 재계산에 사용(#42).
+   *                      DB의 {@code status}가 아직 {@code PENDING}이어도, 이 시각 기준으로
+   *                      마감이 지났으면 {@code DEADLINE_PASSED}로 거부한다.
    * @return 승인된 외출증 정보
    */
   @Transactional
@@ -118,6 +120,10 @@ public class OutingService {
     }
     if (outing.getStatus() != OutingStatus.PENDING) {
       throw new CustomException(OutingErrorCode.ALREADY_PROCESSED);
+    }
+    if (OutingTimeUtils.isPastDeadline(
+        outing.getOutingDate(), outing.getStartTime(), now.toLocalDate(), now.toLocalTime())) {
+      throw new CustomException(OutingErrorCode.DEADLINE_PASSED);
     }
 
     outing.setStatus(OutingStatus.APPROVED);
@@ -134,7 +140,9 @@ public class OutingService {
    * @param teacherUserId  거절을 요청한 선생님 사용자 ID (Access Token에서 추출됨)
    * @param code           거절할 외출증의 외부 식별자 코드
    * @param rejectedReason 거절 사유
-   * @param now            "지금" 시각(KST) — 응답 변환 시 유효 상태 계산에 사용
+   * @param now            "지금" 시각(KST) — 응답 변환 시 유효 상태 계산 + 마감 재계산에
+   *                       사용(#42). DB의 {@code status}가 아직 {@code PENDING}이어도, 이
+   *                       시각 기준으로 마감이 지났으면 {@code DEADLINE_PASSED}로 거부한다.
    * @return 거절된 외출증 정보
    */
   @Transactional
@@ -148,6 +156,10 @@ public class OutingService {
     }
     if (outing.getStatus() != OutingStatus.PENDING) {
       throw new CustomException(OutingErrorCode.ALREADY_PROCESSED);
+    }
+    if (OutingTimeUtils.isPastDeadline(
+        outing.getOutingDate(), outing.getStartTime(), now.toLocalDate(), now.toLocalTime())) {
+      throw new CustomException(OutingErrorCode.DEADLINE_PASSED);
     }
 
     outing.setStatus(OutingStatus.REJECTED);
@@ -235,6 +247,28 @@ public class OutingService {
         .orElseThrow(() -> new CustomException(OutingErrorCode.OUTING_NOT_FOUND));
     validateDetailAccess(callerUserId, outing);
     return toResponse(outing, outing.getStudent(), outing.getTeacher(), today, now);
+  }
+
+  /**
+   * 마감이 지난 {@code PENDING} 외출증을 전부 찾아 DB의 {@code status}를 {@code MISSED}로
+   * 갱신합니다(#42). {@code OutingMissedScheduler}가 1분 주기로 이 메서드를 호출한다.
+   *
+   * <p>스케줄러와 승인/거절 요청이 같은 건을 동시에 처리해도 최종 상태는 어긋나지 않는다 —
+   * 이 메서드가 먼저 커밋되면 뒤이은 승인/거절 시도는 {@code status != PENDING}이라
+   * {@code ALREADY_PROCESSED}로 막히고, 승인/거절이 먼저 커밋되면 그 건은 더 이상
+   * {@code PENDING}이 아니라서 이 메서드의 조회 대상에서 빠진다. 그래서 별도 락을 걸지 않는다.
+   *
+   * @param today "오늘" 날짜(KST)
+   * @param now   "지금" 시각(KST)
+   */
+  @Transactional
+  public void markOverdueOutingsAsMissed(LocalDate today, LocalTime now) {
+    List<Outing> overdue = outingRepository.findByStatus(OutingStatus.PENDING).stream()
+        .filter(outing -> OutingTimeUtils.isPastDeadline(
+            outing.getOutingDate(), outing.getStartTime(), today, now))
+        .toList();
+    overdue.forEach(outing -> outing.setStatus(OutingStatus.MISSED));
+    outingRepository.saveAll(overdue);
   }
 
   private void validateStudentRole(Long studentUserId) {
