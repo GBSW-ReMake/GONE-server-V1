@@ -129,9 +129,17 @@ public class JwtProvider {
   }
 
   private SecretKey key(String tokenType) {
-    String secret = TOKEN_TYPE_ACCESS.equals(tokenType)
-        ? jwtProperties.accessTokenSecret()
-        : jwtProperties.refreshTokenSecret();
+    String secret;
+    if (TOKEN_TYPE_ACCESS.equals(tokenType)) {
+      secret = jwtProperties.accessTokenSecret();
+    } else if (TOKEN_TYPE_REFRESH.equals(tokenType)) {
+      secret = jwtProperties.refreshTokenSecret();
+    } else {
+      // 알 수 없는 tokenType이 조용히 refresh 키로 처리되는 걸 막는다(#52 코드 리뷰) —
+      // 이 메서드는 클래스 내부의 TOKEN_TYPE_* 상수만 넘겨받아야 하므로, 여기 도달하면
+      // 호출부 실수(예: 세 번째 토큰 종류를 상수 재사용 없이 추가)를 뜻한다.
+      throw new IllegalArgumentException("unknown token type: " + tokenType);
+    }
     return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
   }
 }
