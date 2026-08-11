@@ -171,6 +171,14 @@ jobs:
       - name: 빌드 + 테스트
         run: ./gradlew build -x checkstyleMain -x checkstyleTest
 
+      - name: 빌드 아티팩트(jar) 업로드
+        # dev EC2 배포(#51)를 위해, 이미 테스트까지 통과한 jar를 이후 job에서 재사용한다.
+        # Docker 이미지 안에서 다시 컴파일하지 않기 위함.
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-jar
+          path: build/libs/*.jar
+
       - name: 실패 시 테스트 리포트 업로드
         if: failure()
         uses: actions/upload-artifact@v4
@@ -290,3 +298,173 @@ jobs:
               url: $url
             }]}')
           curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_CI_WEBHOOK"
+
+  build-and-push-image:
+    # #51: dev 브랜치 push일 때만 실행 — PR에서는 절대 이미지가 푸시되지 않는다.
+    runs-on: ubuntu-22.04
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Code Checkout(코드 체크아웃)
+        uses: actions/checkout@v4
+
+      - name: 빌드 아티팩트(jar) 다운로드
+        uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+          path: build/libs
+
+      - name: GHCR 로그인
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 이미지 빌드 + 푸시
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/gbsw-remake/gone-server-v1:dev
+
+  deploy-dev:
+    # #51: dev EC2에 app 컨테이너만 갱신한다. mysql/redis는 이 job이 건드리지 않는다.
+    runs-on: ubuntu-22.04
+    needs: build-and-push-image
+
+    concurrency:
+      group: deploy-dev
+      cancel-in-progress: false
+
+    env:
+      MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
+      R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      NEIS_API_KEY: ${{ secrets.NEIS_API_KEY }}
+      NEIS_ATPT_OFCDC_SC_CODE: ${{ secrets.NEIS_ATPT_OFCDC_SC_CODE }}
+      NEIS_SD_SCHUL_CODE: ${{ secrets.NEIS_SD_SCHUL_CODE }}
+
+    steps:
+      - name: Code Checkout(코드 체크아웃)
+        uses: actions/checkout@v4
+
+      - name: docker-compose 파일 전송
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEV_EC2_HOST }}
+          username: ${{ secrets.DEV_EC2_USER }}
+          key: ${{ secrets.DEV_EC2_SSH_KEY }}
+          source: "deploy/docker-compose.dev.yml"
+          target: "/opt/gone/dev"
+          strip_components: 1
+
+      - name: .env 생성 + 컨테이너 갱신
+        # 애플리케이션 시크릿은 이 SSH 세션 안에서만 존재한다(GitHub Actions 로그에 남지
+        # 않음). set -x 등 디버그 출력을 쓰지 않는다.
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEV_EC2_HOST }}
+          username: ${{ secrets.DEV_EC2_USER }}
+          key: ${{ secrets.DEV_EC2_SSH_KEY }}
+          envs: MYSQL_ROOT_PASSWORD,JWT_SECRET,R2_ACCOUNT_ID,R2_ACCESS_KEY,R2_SECRET_KEY,R2_BUCKET,R2_ENDPOINT,NEIS_API_KEY,NEIS_ATPT_OFCDC_SC_CODE,NEIS_SD_SCHUL_CODE
+          script: |
+            set -e
+            cd /opt/gone/dev
+            cat > .env <<ENVEOF
+            MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
+            SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/gone?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+            SPRING_DATASOURCE_USERNAME=root
+            SPRING_DATASOURCE_PASSWORD=$MYSQL_ROOT_PASSWORD
+            SPRING_DATA_REDIS_HOST=redis
+            SPRING_DATA_REDIS_PORT=6379
+            JWT_SECRET=$JWT_SECRET
+            JWT_ACCESS_TOKEN_EXPIRATION=1800000
+            JWT_REFRESH_TOKEN_EXPIRATION=1209600000
+            R2_ACCOUNT_ID=$R2_ACCOUNT_ID
+            R2_ACCESS_KEY=$R2_ACCESS_KEY
+            R2_SECRET_KEY=$R2_SECRET_KEY
+            R2_BUCKET=$R2_BUCKET
+            R2_ENDPOINT=$R2_ENDPOINT
+            NEIS_API_KEY=$NEIS_API_KEY
+            NEIS_ATPT_OFCDC_SC_CODE=$NEIS_ATPT_OFCDC_SC_CODE
+            NEIS_SD_SCHUL_CODE=$NEIS_SD_SCHUL_CODE
+            ENVEOF
+            chmod 600 .env
+            docker compose -f docker-compose.dev.yml pull app
+            docker compose -f docker-compose.dev.yml up -d app
+
+      - name: 헬스체크
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEV_EC2_HOST }}
+          username: ${{ secrets.DEV_EC2_USER }}
+          key: ${{ secrets.DEV_EC2_SSH_KEY }}
+          script: |
+            for i in $(seq 1 30); do
+              if curl -s -o /dev/null http://localhost:9091; then
+                echo "healthy"
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "health check failed after 60s"
+            exit 1
+
+      - name: 알림용 컨텍스트 수집
+        if: always()
+        env:
+          PUSH_SHA: ${{ github.sha }}
+          PUSH_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          {
+            echo "SHORT_SHA=${PUSH_SHA:0:7}"
+            echo "COMMIT_MSG=$(printf '%s' "$PUSH_COMMIT_MESSAGE" | head -1)"
+          } >> "$GITHUB_ENV"
+
+      - name: Discord 알림 (dev 배포 성공)
+        if: success()
+        continue-on-error: true
+        env:
+          DISCORD_DEV_WEBHOOK: ${{ secrets.DISCORD_DEV_WEBHOOK }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg title "✅ dev 배포 성공" \
+            --arg commit "\`$SHORT_SHA\` $COMMIT_MSG" \
+            --arg url "$RUN_URL" \
+            '{embeds: [{
+              title: $title,
+              color: 65280,
+              fields: [{name: "커밋", value: $commit}],
+              url: $url
+            }]}')
+          curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_DEV_WEBHOOK"
+
+      - name: Discord 알림 (dev 배포 실패)
+        if: failure()
+        continue-on-error: true
+        env:
+          DISCORD_DEV_WEBHOOK: ${{ secrets.DISCORD_DEV_WEBHOOK }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg title "❌ dev 배포 실패" \
+            --arg commit "\`$SHORT_SHA\` $COMMIT_MSG" \
+            --arg url "$RUN_URL" \
+            '{embeds: [{
+              title: $title,
+              color: 16711680,
+              fields: [{name: "커밋", value: $commit}],
+              url: $url
+            }]}')
+          curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_DEV_WEBHOOK"
