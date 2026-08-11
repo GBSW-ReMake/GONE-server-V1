@@ -146,7 +146,9 @@ jobs:
       R2_ENDPOINT: https://dummy.r2.cloudflarestorage.com
       # JwtProperties(@NotBlank/@NotNull) 검증을 통과시키기 위한 더미 값. 실제 서명 검증은
       # JwtProviderTest 등에서 자체 값으로 하므로, 여기서는 컨텍스트 로딩만 통과하면 된다.
-      JWT_SECRET: dummy-jwt-secret-for-ci-context-loading-only
+      # Access/Refresh Token은 서로 다른 키로 서명하므로(#52) 더미 값도 둘로 나눈다.
+      JWT_ACCESS_TOKEN_SECRET: dummy-jwt-access-secret-for-ci-context-loading-only
+      JWT_REFRESH_TOKEN_SECRET: dummy-jwt-refresh-secret-for-ci-context-loading-only
       JWT_ACCESS_TOKEN_EXPIRATION: 1800000
       JWT_REFRESH_TOKEN_EXPIRATION: 1209600000
       # NeisProperties(@NotBlank) 검증을 통과시키기 위한 더미 값. contextLoads()는 실제 NEIS
