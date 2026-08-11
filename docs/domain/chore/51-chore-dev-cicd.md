@@ -57,7 +57,9 @@ DB/Redis도 컨테이너로 격리해 운영 인프라와 완전히 분리한다
 ```dockerfile
 FROM eclipse-temurin:17-jre
 WORKDIR /app
+RUN useradd --system --no-create-home appuser
 COPY build/libs/*.jar app.jar
+USER appuser
 EXPOSE 9091
 ENTRYPOINT ["java", "-jar", "app.jar"]
 ```
@@ -66,6 +68,12 @@ CI가 이미 `./gradlew build`로 테스트까지 통과한 jar를 만들어두�
 않는다). 빌드 컨텍스트는 `./gradlew build` 실행 직후, 같은 job 안에서 `build/libs/`가
 존재하는 상태로 실행한다.
 
+**컨테이너는 root가 아닌 전용 `appuser`로 실행한다**(코드 리뷰 7번 항목, 🟢 Low —
+Docker 컨테이너를 root로 띄우는 건 표준 모범 사례에서 벗어난다). 저장소 루트에
+`.dockerignore`(`.git`, `.gradle`, `src`, `docs` 등 제외)도 함께 추가해 빌드 컨텍스트
+전송 크기를 줄이고, 이후 Dockerfile에 `COPY . .`류가 실수로 추가돼도 불필요한 파일이
+이미지에 들어가는 걸 막는다.
+
 ### 이미지 태그
 `ghcr.io/gbsw-remake/gone-server-v1:dev` 하나만 쓴다(고정 태그, 매 배포마다 덮어씀).
 GitHub Container Registry(GHCR)를 쓰는 이유: 이 저장소와 같은 GitHub 조직 소속이라 별도
@@ -73,26 +81,32 @@ GitHub Container Registry(GHCR)를 쓰는 이유: 이 저장소와 같은 GitHub
 권한을 받는다 — Docker Hub 등 외부 레지스트리 계정/토큰을 새로 관리할 필요가 없다.
 
 ## `docker compose` 구성 (`deploy/docker-compose.dev.yml`, 저장소에 버전 관리)
+> 🔧 **코드 리뷰(9단계) 반영**: 최초 설계는 `mysql`/`redis`도 호스트 포트에 노출했으나,
+> `app`이 이미 같은 compose 네트워크 안에서 서비스 이름으로 접근하므로 그 노출은
+> 기능적으로 불필요했고, 특히 `redis`는 인증조차 없어 실제 위험이었다(코드 리뷰
+> 1번 항목, 🟠 High). `ports:`를 완전히 제거해 두 서비스 모두 호스트에서 접근할 수
+> 없게 막았다 — EC2 안에서 직접 디버깅해야 하면 SSH로 들어가 `docker exec`를 쓴다.
+> 같은 리뷰(6번 항목, 🟢 Low)에서 `mysql`이 `env_file: .env`로 JWT/R2/NEIS 등 무관한
+> 앱 시크릿까지 통째로 받던 것도 지적됐다 — `mysql`은 `environment:`로 필요한
+> `MYSQL_ROOT_PASSWORD` 하나만 받도록 좁혔다(`docker compose`가 같은 디렉터리의 `.env`를
+> 변수 치환 소스로 자동으로 읽으므로 별도 `export` 없이 `${MYSQL_ROOT_PASSWORD}`가
+> 채워진다).
 ```yaml
 services:
   mysql:
     image: mysql:8.0
     restart: always
-    env_file: .env
     environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: gone
     volumes:
       - mysql-data:/var/lib/mysql
-    ports:
-      - "3306:3306"
 
   redis:
     image: redis:7
     restart: always
     volumes:
       - redis-data:/data
-    ports:
-      - "6379:6379"
 
   app:
     image: ghcr.io/gbsw-remake/gone-server-v1:dev
@@ -108,9 +122,10 @@ volumes:
   mysql-data:
   redis-data:
 ```
-이 파일 자체는 시크릿 값을 담지 않는다(`env_file: .env`로 값만 별도 파일에서 읽어온다).
-저장소에 커밋되고, 배포할 때마다 최신 버전을 EC2로 scp해서 덮어쓴다 — 서비스 정의(포트,
-볼륨, 환경변수 이름 등)가 바뀌면 다음 배포에 자동 반영된다.
+이 파일 자체는 시크릿 값을 담지 않는다(`environment`/`env_file` 모두 값만 별도 파일에서
+읽어온다). 저장소에 커밋되고, 배포할 때마다 최신 버전을 EC2로 scp해서 덮어쓴다 — 서비스
+정의(볼륨, 환경변수 이름 등)가 바뀌면 다음 배포에 자동 반영된다. 호스트에 포트를 여는
+서비스는 `app`(`9091`) 하나뿐이다.
 
 `.env`는 저장소에 없고 `deploy-dev` job이 매 배포마다 GitHub Secrets 값으로 새로 생성한다
 (아래 "GitHub Actions 워크플로우" 참고). 생성되는 내용:
@@ -158,13 +173,24 @@ NEIS_SD_SCHUL_CODE=<GitHub Secret: NEIS_SD_SCHUL_CODE>
 - `build-and-test` job: 기존 그대로. jar 산출물을 다음 job이 쓸 수 있게
   `actions/upload-artifact`로 `build/libs/*.jar` 업로드 스텝만 추가.
 - `build-and-push-image` job(신규): `needs: build-and-test`,
-  `if: github.event_name == 'push' && github.ref == 'refs/heads/dev'`. jar 아티팩트
-  다운로드 → `docker/login-action@v3`(`registry: ghcr.io`, `username:
-  ${{ github.actor }}`, `password: ${{ secrets.GITHUB_TOKEN }}`) → `docker/build-push-
-  action@v6`으로 빌드/푸시. job에 `permissions: packages: write` 추가(GHCR 푸시에 필요).
-- `deploy-dev` job(신규): `needs: build-and-push-image`,
+  `if: success() && github.event_name == 'push' && github.ref == 'refs/heads/dev'`
+  (`success()`를 명시하는 이유 — 코드 리뷰 2번 항목, 🟡 Medium: 커스텀 `if`를 쓰면
+  `needs` job의 성공 여부를 GitHub Actions가 자동으로 검사해주지 않아, 없으면
+  `build-and-test` 실패 시 "스킵"이 아니라 아티팩트를 못 찾는 혼란스러운 실패로 표시된다).
+  `concurrency: { group: build-and-push-image, cancel-in-progress: true }`도 추가한다
+  (코드 리뷰 3번 항목, 🟡 Medium: 연속 push 시 먼저 시작한 이전 커밋의 빌드가 나중에
+  끝나 `:dev` 태그를 최신 커밋 이미지 위에 덮어쓸 수 있어, 뒤이은 push가 오면 진행 중인
+  이전 빌드를 취소한다 — 이미지 빌드는 취소돼도 안전하므로 `deploy-dev`와 달리
+  `cancel-in-progress: true`). jar 아티팩트 다운로드 → `docker/login-action@v3`
+  (`registry: ghcr.io`, `username: ${{ github.actor }}`, `password:
+  ${{ secrets.GITHUB_TOKEN }}`) → `docker/build-push-action@v6`으로 빌드/푸시. job에
+  `permissions: { contents: read, packages: write }` 추가(GHCR 푸시에 필요).
+- `deploy-dev` job(신규): `needs: build-and-push-image`, `permissions: { contents:
+  read }`(코드 리뷰 5번 항목, 🟢 Low: 이 job이 실제로 쓰는 건 SSH 시크릿뿐이라 저장소
+  기본 `GITHUB_TOKEN` 권한을 그대로 물려받을 이유가 없다).
   `concurrency: { group: deploy-dev, cancel-in-progress: false }`(연속 push가 배포를
-  겹쳐 실행하지 않고 순서대로 처리).
+  겹쳐 실행하지 않고 순서대로 처리 — 이 job은 EC2 상태를 직접 바꾸므로 취소 대신 완료를
+  기다린다, `build-and-push-image`와 다른 이유).
   1. `deploy/docker-compose.dev.yml`을 `appleboy/scp-action@v0.1.7`로 EC2의
      `/opt/gone/dev/docker-compose.dev.yml`에 전송(파일명을 바꾸지 않는다 — 이후 명령은
      `docker compose -f docker-compose.dev.yml`로 이 파일을 명시적으로 지정한다).
@@ -216,8 +242,14 @@ NEIS_SD_SCHUL_CODE=<GitHub Secret: NEIS_SD_SCHUL_CODE>
              docker compose -f docker-compose.dev.yml pull app
              docker compose -f docker-compose.dev.yml up -d app
      ```
-  3. `curl` 재시도로 헬스체크(최대 60초, `45-chore-newman-e2e.md`에서 이미 제안한
-     "TCP/포트 응답 확인" 방식과 동일 근거 — 이 프로젝트에 actuator가 없어서다).
+  3. 헬스체크(최대 60초, `curl` 재시도): 단순 연결 확인이 아니라 **HTTP 상태 코드가
+     500 미만인지**를 검사한다(코드 리뷰 4번 항목, 🟡 Medium: `-o /dev/null`만 쓰면
+     curl은 어떤 상태 코드든 응답만 오면 성공으로 보고해, 앱이 500을 반환하는 고장
+     상태에서도 "배포 성공"으로 알림이 갈 뻔했다). `--fail`(2xx/3xx만 성공)을 쓰지 않는
+     이유: 이 프로젝트에 actuator가 없어 보장된 2xx 경로가 없고, 루트 `/`는 정상
+     상태에서도 404를 반환할 수 있어 `--fail`이 오히려 오탐을 낸다. `curl -s -o
+     /dev/null -w "%{http_code}"`로 상태 코드를 받아 `000`(연결 실패)이 아니고 `500`
+     미만이면 정상으로 판정한다.
   4. 성공/실패 여부와 무관하게 Discord 알림.
 
 ## Discord 알림
@@ -288,6 +320,11 @@ NEIS_SD_SCHUL_CODE=<GitHub Secret: NEIS_SD_SCHUL_CODE>
   `appleboy/ssh-action`, `appleboy/scp-action`)은 메이저 버전 태그로 고정**한다 —
   `@master`처럼 움직이는 참조는 쓰지 않는다.
 - **`MYSQL_ROOT_PASSWORD` 회전 시 주의사항** — 위 "docker compose 구성" 절의 경고 참고.
+- **redis에 인증이 없다**(`requirepass` 미설정) — 코드 리뷰 1번 항목에서 함께 지적됐으나,
+  이번 PR에서 호스트 포트 노출 자체를 제거해 외부에서 직접 접근할 경로가 없어졌으므로
+  실제 위험은 해소됐다. redis 비밀번호 도입은 `application.yml`의 기존 컨벤션(redis
+  비밀번호 미사용)을 함께 바꿔야 해 범위가 커서 이번 이슈에 포함하지 않았다 — 필요해지면
+  별도로 검토한다.
 
 ## 완료 조건 (Definition of Done)
 - `dev` 브랜치에 push하면 GHCR에 새 이미지가 푸시되고, EC2의 `app` 컨테이너가 자동으로
