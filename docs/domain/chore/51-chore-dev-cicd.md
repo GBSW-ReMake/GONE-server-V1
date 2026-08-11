@@ -129,6 +129,12 @@ volumes:
 
 `.env`는 저장소에 없고 `deploy-dev` job이 매 배포마다 GitHub Secrets 값으로 새로 생성한다
 (아래 "GitHub Actions 워크플로우" 참고). 생성되는 내용:
+
+> 🔧 **후속 반영(#52 머지 이후)**: `#52`(JWT Access/Refresh Token 서명키 분리)가 `dev`에
+> 머지되면서 `JwtProperties`가 `secret` 하나 대신 `accessTokenSecret`/`refreshTokenSecret`
+> 두 필드를 요구하게 됐다. 아래 `.env`/워크플로우의 `JWT_SECRET` 한 줄을 `JWT_ACCESS_TOKEN_SECRET`/
+> `JWT_REFRESH_TOKEN_SECRET` 두 줄로 갱신해 반영했다 — 실제 코드가 바뀌었으므로 기획서도
+> 그대로 두지 않고 즉시 맞춘다.
 ```
 MYSQL_ROOT_PASSWORD=<GitHub Secret: MYSQL_ROOT_PASSWORD>
 SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/gone?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
@@ -136,7 +142,8 @@ SPRING_DATASOURCE_USERNAME=root
 SPRING_DATASOURCE_PASSWORD=<GitHub Secret: MYSQL_ROOT_PASSWORD>
 SPRING_DATA_REDIS_HOST=redis
 SPRING_DATA_REDIS_PORT=6379
-JWT_SECRET=<GitHub Secret: JWT_SECRET>
+JWT_ACCESS_TOKEN_SECRET=<GitHub Secret: JWT_ACCESS_TOKEN_SECRET>
+JWT_REFRESH_TOKEN_SECRET=<GitHub Secret: JWT_REFRESH_TOKEN_SECRET>
 JWT_ACCESS_TOKEN_EXPIRATION=1800000
 JWT_REFRESH_TOKEN_EXPIRATION=1209600000
 R2_ACCOUNT_ID=<GitHub Secret: R2_ACCOUNT_ID>
@@ -200,7 +207,8 @@ NEIS_SD_SCHUL_CODE=<GitHub Secret: NEIS_SD_SCHUL_CODE>
      ```yaml
      env:
        MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
-       JWT_SECRET: ${{ secrets.JWT_SECRET }}
+       JWT_ACCESS_TOKEN_SECRET: ${{ secrets.JWT_ACCESS_TOKEN_SECRET }}
+       JWT_REFRESH_TOKEN_SECRET: ${{ secrets.JWT_REFRESH_TOKEN_SECRET }}
        R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
        R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
        R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
@@ -215,7 +223,7 @@ NEIS_SD_SCHUL_CODE=<GitHub Secret: NEIS_SD_SCHUL_CODE>
            host: ${{ secrets.DEV_EC2_HOST }}
            username: ${{ secrets.DEV_EC2_USER }}
            key: ${{ secrets.DEV_EC2_SSH_KEY }}
-           envs: MYSQL_ROOT_PASSWORD,JWT_SECRET,R2_ACCOUNT_ID,R2_ACCESS_KEY,R2_SECRET_KEY,R2_BUCKET,R2_ENDPOINT,NEIS_API_KEY,NEIS_ATPT_OFCDC_SC_CODE,NEIS_SD_SCHUL_CODE
+           envs: MYSQL_ROOT_PASSWORD,JWT_ACCESS_TOKEN_SECRET,JWT_REFRESH_TOKEN_SECRET,R2_ACCOUNT_ID,R2_ACCESS_KEY,R2_SECRET_KEY,R2_BUCKET,R2_ENDPOINT,NEIS_API_KEY,NEIS_ATPT_OFCDC_SC_CODE,NEIS_SD_SCHUL_CODE
            script: |
              set -e
              cd /opt/gone/dev
@@ -226,7 +234,8 @@ NEIS_SD_SCHUL_CODE=<GitHub Secret: NEIS_SD_SCHUL_CODE>
              SPRING_DATASOURCE_PASSWORD=$MYSQL_ROOT_PASSWORD
              SPRING_DATA_REDIS_HOST=redis
              SPRING_DATA_REDIS_PORT=6379
-             JWT_SECRET=$JWT_SECRET
+             JWT_ACCESS_TOKEN_SECRET=$JWT_ACCESS_TOKEN_SECRET
+             JWT_REFRESH_TOKEN_SECRET=$JWT_REFRESH_TOKEN_SECRET
              JWT_ACCESS_TOKEN_EXPIRATION=1800000
              JWT_REFRESH_TOKEN_EXPIRATION=1209600000
              R2_ACCOUNT_ID=$R2_ACCOUNT_ID
@@ -266,7 +275,8 @@ NEIS_SD_SCHUL_CODE=<GitHub Secret: NEIS_SD_SCHUL_CODE>
 | `DEV_EC2_USER` | 배포 전용 계정명(`deploy`) |
 | `DISCORD_DEV_WEBHOOK` | dev 배포 전용 Discord 웹훅(신규 생성) |
 | `MYSQL_ROOT_PASSWORD` | MySQL root 비밀번호(app 접속 비밀번호와 동일하게 재사용) |
-| `JWT_SECRET` | JWT 서명 시크릿 |
+| `JWT_ACCESS_TOKEN_SECRET` | Access Token 서명 시크릿(#52로 Refresh Token과 분리됨) |
+| `JWT_REFRESH_TOKEN_SECRET` | Refresh Token 서명 시크릿(위와 다른 값이어야 함) |
 | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY` / `R2_SECRET_KEY` / `R2_BUCKET` / `R2_ENDPOINT` | R2 연동 정보 |
 | `NEIS_API_KEY` / `NEIS_ATPT_OFCDC_SC_CODE` / `NEIS_SD_SCHUL_CODE` | NEIS 연동 정보 |
 
