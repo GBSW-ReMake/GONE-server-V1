@@ -41,10 +41,10 @@ DB/Redis도 컨테이너로 격리해 운영 인프라와 완전히 분리한다
                               |
               4) deploy-dev
                     - deploy/docker-compose.dev.yml을 EC2의
-                      /opt/gone/dev/docker-compose.yml로 scp
+                      /opt/gone/dev/docker-compose.dev.yml로 scp(파일명 유지)
                     - ssh 세션 안에서 GitHub Secrets 값으로 /opt/gone/dev/.env를
                       새로 생성(매 배포마다 덮어씀)
-                    - docker compose pull app && docker compose up -d app
+                    - docker compose -f docker-compose.dev.yml pull app && up -d app
                     - 헬스체크(포트 응답 재시도)
                     - Discord 알림(dev 전용 웹훅)
 ```
@@ -166,7 +166,8 @@ NEIS_SD_SCHUL_CODE=<GitHub Secret: NEIS_SD_SCHUL_CODE>
   `concurrency: { group: deploy-dev, cancel-in-progress: false }`(연속 push가 배포를
   겹쳐 실행하지 않고 순서대로 처리).
   1. `deploy/docker-compose.dev.yml`을 `appleboy/scp-action@v0.1.7`로 EC2의
-     `/opt/gone/dev/docker-compose.yml`에 전송.
+     `/opt/gone/dev/docker-compose.dev.yml`에 전송(파일명을 바꾸지 않는다 — 이후 명령은
+     `docker compose -f docker-compose.dev.yml`로 이 파일을 명시적으로 지정한다).
   2. `appleboy/ssh-action@v1.0.3`로 EC2에 접속해 아래 스크립트 실행. 이 액션의 `envs:`
      옵션으로 job의 `env:` 블록에 매핑해둔 시크릿들을 원격 셸의 환경변수로 전달한다(값이
      GitHub Actions 콘솔 로그에는 등장하지 않고, SSH 세션 안에서만 존재):
@@ -190,7 +191,9 @@ NEIS_SD_SCHUL_CODE=<GitHub Secret: NEIS_SD_SCHUL_CODE>
            key: ${{ secrets.DEV_EC2_SSH_KEY }}
            envs: MYSQL_ROOT_PASSWORD,JWT_SECRET,R2_ACCOUNT_ID,R2_ACCESS_KEY,R2_SECRET_KEY,R2_BUCKET,R2_ENDPOINT,NEIS_API_KEY,NEIS_ATPT_OFCDC_SC_CODE,NEIS_SD_SCHUL_CODE
            script: |
-             cat > /opt/gone/dev/.env <<EOF
+             set -e
+             cd /opt/gone/dev
+             cat > .env <<ENVEOF
              MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
              SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/gone?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
              SPRING_DATASOURCE_USERNAME=root
@@ -208,11 +211,10 @@ NEIS_SD_SCHUL_CODE=<GitHub Secret: NEIS_SD_SCHUL_CODE>
              NEIS_API_KEY=$NEIS_API_KEY
              NEIS_ATPT_OFCDC_SC_CODE=$NEIS_ATPT_OFCDC_SC_CODE
              NEIS_SD_SCHUL_CODE=$NEIS_SD_SCHUL_CODE
-             EOF
-             chmod 600 /opt/gone/dev/.env
-             cd /opt/gone/dev
-             docker compose pull app
-             docker compose up -d app
+             ENVEOF
+             chmod 600 .env
+             docker compose -f docker-compose.dev.yml pull app
+             docker compose -f docker-compose.dev.yml up -d app
      ```
   3. `curl` 재시도로 헬스체크(최대 60초, `45-chore-newman-e2e.md`에서 이미 제안한
      "TCP/포트 응답 확인" 방식과 동일 근거 — 이 프로젝트에 actuator가 없어서다).
@@ -250,11 +252,12 @@ NEIS_SD_SCHUL_CODE=<GitHub Secret: NEIS_SD_SCHUL_CODE>
    `DEV_EC2_SSH_KEY`로 GitHub Secrets에 등록).
 5. `/opt/gone/dev/` 디렉토리 생성(소유자 `deploy`). `.env`는 미리 만들어두지 않는다 —
    위 GitHub Secrets를 전부 등록한 뒤 `dev` 브랜치에 첫 push를 하면 `deploy-dev` job이
-   최초의 `.env`를 만들고 `docker compose up -d app`까지 실행한다(단, `mysql`/`redis`는
-   `app`이 아니므로 이 job이 자동으로 띄워주지 않는다 — 아래 6번 참고).
+   최초의 `.env`를 만들고 `docker compose -f docker-compose.dev.yml up -d app`까지
+   실행한다(단, `mysql`/`redis`는 `app`이 아니므로 이 job이 자동으로 띄워주지 않는다 —
+   아래 6번 참고).
 6. `mysql`/`redis`는 `deploy-dev` job이 건드리지 않으므로(위 "아키텍처" 참고), 5번 이후
-   `docker compose up -d mysql redis`를 1회 수동 실행해 띄워둔다(이때 `.env`가 이미
-   있어야 하므로, 5번의 첫 자동 배포가 끝난 뒤 실행한다).
+   `docker compose -f docker-compose.dev.yml up -d mysql redis`를 1회 수동 실행해
+   띄워둔다(이때 `.env`가 이미 있어야 하므로, 5번의 첫 자동 배포가 끝난 뒤 실행한다).
 
 ## 영향 받는 기존 코드/설정
 - `Dockerfile`(신규, 저장소 루트)
