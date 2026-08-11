@@ -301,13 +301,22 @@ jobs:
 
   build-and-push-image:
     # #51: dev 브랜치 push일 때만 실행 — PR에서는 절대 이미지가 푸시되지 않는다.
+    # if를 직접 지정하면 needs job의 success() 자동 검사가 사라지므로 명시적으로 포함한다
+    # (없으면 build-and-test 실패 시 "스킵"이 아니라 아티팩트 없음으로 인한 실패로 표시됨).
     runs-on: ubuntu-22.04
     needs: build-and-test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    if: success() && github.event_name == 'push' && github.ref == 'refs/heads/dev'
 
     permissions:
       contents: read
       packages: write
+
+    # 연속 push 시 오래된 커밋의 빌드가 나중에 끝나 :dev 태그를 덮어쓰는 걸 막는다
+    # (deploy-dev의 concurrency와 달리, 이미지 빌드는 취소돼도 안전하므로 최신 push만
+    # 남기고 이전 실행을 취소한다).
+    concurrency:
+      group: build-and-push-image
+      cancel-in-progress: true
 
     steps:
       - name: Code Checkout(코드 체크아웃)
@@ -337,6 +346,9 @@ jobs:
     # #51: dev EC2에 app 컨테이너만 갱신한다. mysql/redis는 이 job이 건드리지 않는다.
     runs-on: ubuntu-22.04
     needs: build-and-push-image
+
+    permissions:
+      contents: read
 
     concurrency:
       group: deploy-dev
@@ -410,9 +422,13 @@ jobs:
           username: ${{ secrets.DEV_EC2_USER }}
           key: ${{ secrets.DEV_EC2_SSH_KEY }}
           script: |
+            # 이 프로젝트에 actuator가 없어 보장된 2xx 경로가 없다(루트 "/"는 정상 상태에서도
+            # 404를 반환할 수 있음) — 그래서 --fail(2xx/3xx만 성공)은 오탐을 낸다. 대신
+            # "5xx가 아니면(=서버가 요청을 정상적으로 처리하고 있으면) 정상"으로 판정한다.
             for i in $(seq 1 30); do
-              if curl -s -o /dev/null http://localhost:9091; then
-                echo "healthy"
+              code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:9091 || echo 000)
+              if [ "$code" != "000" ] && [ "$code" -lt 500 ]; then
+                echo "healthy (HTTP $code)"
                 exit 0
               fi
               sleep 2
