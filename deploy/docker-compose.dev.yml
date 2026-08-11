@@ -1,0 +1,33 @@
+services:
+  mysql:
+    image: mysql:8.0
+    restart: always
+    env_file: .env
+    environment:
+      MYSQL_DATABASE: gone
+    volumes:
+      - mysql-data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+
+  redis:
+    image: redis:7
+    restart: always
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+
+  app:
+    image: ghcr.io/gbsw-remake/gone-server-v1:dev
+    restart: always
+    depends_on:
+      - mysql
+      - redis
+    env_file: .env
+    ports:
+      - "9091:9091"
+
+volumes:
+  mysql-data:
+  redis-data:
