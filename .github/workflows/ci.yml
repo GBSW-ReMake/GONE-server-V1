@@ -434,7 +434,7 @@ jobs:
             # 404를 반환할 수 있음) — 그래서 --fail(2xx/3xx만 성공)은 오탐을 낸다. 대신
             # "5xx가 아니면(=서버가 요청을 정상적으로 처리하고 있으면) 정상"으로 판정한다.
             for i in $(seq 1 30); do
-              code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:9091 || echo 000)
+              code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:9090 || echo 000)
               if [ "$code" != "000" ] && [ "$code" -lt 500 ]; then
                 echo "healthy (HTTP $code)"
                 exit 0

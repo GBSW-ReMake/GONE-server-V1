@@ -3,5 +3,5 @@ WORKDIR /app
 RUN useradd --system --no-create-home appuser
 COPY build/libs/*.jar app.jar
 USER appuser
-EXPOSE 9091
+EXPOSE 9090
 ENTRYPOINT ["java", "-jar", "app.jar"]
