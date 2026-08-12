@@ -48,9 +48,18 @@ DB/Redis도 컨테이너로 격리해 운영 인프라와 완전히 분리한다
                     - 헬스체크(포트 응답 재시도)
                     - Discord 알림(dev 전용 웹훅)
 ```
-`mysql`/`redis` 컨테이너는 매 배포마다 재시작되지 않는다 — `docker compose up -d app`은
-`app` 서비스만 갱신한다(볼륨에 데이터가 남아있는 `mysql`/`redis`를 매번 건드릴 이유가
-없다).
+> 🔧 **실제 첫 배포로 확인/정정(#51 머지 후)**: 아래 서술은 최초 설계 당시의 예상이었는데,
+> 실제로 돌려보니 한 가지가 틀렸다 — `app`이 `docker-compose.dev.yml`에서
+> `depends_on: [mysql, redis]`로 선언돼 있어서, `docker compose up -d app`을 실행하면
+> Docker Compose가 **의존 서비스가 아직 안 떠 있으면 자동으로 먼저 띄운다.** 그 덕분에
+> 최초 배포 때 `mysql`/`redis`를 수동으로 띄워야 한다고 적었던 "EC2 사전 준비" 6번
+> 단계는 불필요했다 — 첫 `deploy-dev` 실행만으로 `app`/`mysql`/`redis` 셋 다 자동으로
+> 올라왔다(실제 확인 완료). 아래 "EC2 사전 준비" 절도 그에 맞춰 정정했다.
+
+`mysql`/`redis` 컨테이너는 이미 떠 있으면 매 배포마다 재시작되지 않는다 — `docker
+compose up -d app`은 `app` 서비스만 갱신 대상으로 삼는다(볼륨에 데이터가 남아있는
+`mysql`/`redis`를 매번 건드릴 이유가 없다). 다만 **아직 떠 있지 않다면**(최초 배포 등)
+`depends_on` 때문에 이 명령 하나로 `mysql`/`redis`까지 함께 생성/기동된다.
 
 ## Docker 이미지
 ### `Dockerfile` (저장소 루트, 신규)
@@ -312,12 +321,11 @@ NEIS_SD_SCHUL_CODE=<GitHub Secret: NEIS_SD_SCHUL_CODE>
    `dev` 환경의 `EC2_SSH_KEY`로 GitHub Secrets에 등록).
 5. `/opt/gone/dev/` 디렉토리 생성(소유자 `deploy`). `.env`는 미리 만들어두지 않는다 —
    위 GitHub Secrets를 전부 등록한 뒤 `dev` 브랜치에 첫 push를 하면 `deploy-dev` job이
-   최초의 `.env`를 만들고 `docker compose -f docker-compose.dev.yml up -d app`까지
-   실행한다(단, `mysql`/`redis`는 `app`이 아니므로 이 job이 자동으로 띄워주지 않는다 —
-   아래 6번 참고).
-6. `mysql`/`redis`는 `deploy-dev` job이 건드리지 않으므로(위 "아키텍처" 참고), 5번 이후
-   `docker compose -f docker-compose.dev.yml up -d mysql redis`를 1회 수동 실행해
-   띄워둔다(이때 `.env`가 이미 있어야 하므로, 5번의 첫 자동 배포가 끝난 뒤 실행한다).
+   최초의 `.env`를 만들고 `docker compose -f docker-compose.dev.yml up -d app`을
+   실행한다. **별도 6번 단계는 필요 없다** — `app`이 `depends_on: [mysql, redis]`로
+   선언돼 있어 이 명령 하나로 `mysql`/`redis`까지 자동으로 함께 생성/기동된다(실제
+   첫 배포로 확인 완료, 위 "아키텍처" 절의 정정 내용 참고). 이후 배포부터는 이미 떠
+   있는 `mysql`/`redis`를 건드리지 않고 `app`만 갱신한다.
 
 ## 영향 받는 기존 코드/설정
 - `Dockerfile`(신규, 저장소 루트)
