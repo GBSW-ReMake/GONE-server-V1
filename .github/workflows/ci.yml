@@ -173,6 +173,14 @@ jobs:
       - name: 빌드 + 테스트
         run: ./gradlew build -x checkstyleMain -x checkstyleTest
 
+      - name: 빌드 아티팩트(jar) 업로드
+        # dev EC2 배포(#51)를 위해, 이미 테스트까지 통과한 jar를 이후 job에서 재사용한다.
+        # Docker 이미지 안에서 다시 컴파일하지 않기 위함.
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-jar
+          path: build/libs/*.jar
+
       - name: 실패 시 테스트 리포트 업로드
         if: failure()
         uses: actions/upload-artifact@v4
@@ -292,3 +300,195 @@ jobs:
               url: $url
             }]}')
           curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_CI_WEBHOOK"
+
+  build-and-push-image:
+    # #51: dev 브랜치 push일 때만 실행 — PR에서는 절대 이미지가 푸시되지 않는다.
+    # if를 직접 지정하면 needs job의 success() 자동 검사가 사라지므로 명시적으로 포함한다
+    # (없으면 build-and-test 실패 시 "스킵"이 아니라 아티팩트 없음으로 인한 실패로 표시됨).
+    runs-on: ubuntu-22.04
+    needs: build-and-test
+    if: success() && github.event_name == 'push' && github.ref == 'refs/heads/dev'
+
+    permissions:
+      contents: read
+      packages: write
+
+    # 연속 push 시 오래된 커밋의 빌드가 나중에 끝나 :dev 태그를 덮어쓰는 걸 막는다
+    # (deploy-dev의 concurrency와 달리, 이미지 빌드는 취소돼도 안전하므로 최신 push만
+    # 남기고 이전 실행을 취소한다).
+    concurrency:
+      group: build-and-push-image
+      cancel-in-progress: true
+
+    steps:
+      - name: Code Checkout(코드 체크아웃)
+        uses: actions/checkout@v4
+
+      - name: 빌드 아티팩트(jar) 다운로드
+        uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+          path: build/libs
+
+      - name: GHCR 로그인
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 이미지 빌드 + 푸시
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/gbsw-remake/gone-server-v1:dev
+
+  deploy-dev:
+    # #51: dev EC2에 app 컨테이너만 갱신한다. mysql/redis는 이 job이 건드리지 않는다.
+    # environment: dev로 선언해 이 job은 GitHub Environment "dev"에 등록된 시크릿만
+    # 참조한다 — 나중에 운영 배포 job이 생기면 environment: production을 선언하고
+    # 같은 이름(EC2_HOST 등)으로 다른 값을 등록하면 된다(접두사로 구분할 필요 없음).
+    runs-on: ubuntu-22.04
+    needs: build-and-push-image
+    environment: dev
+
+    permissions:
+      contents: read
+
+    concurrency:
+      group: deploy-dev
+      cancel-in-progress: false
+
+    env:
+      MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+      JWT_ACCESS_TOKEN_SECRET: ${{ secrets.JWT_ACCESS_TOKEN_SECRET }}
+      JWT_REFRESH_TOKEN_SECRET: ${{ secrets.JWT_REFRESH_TOKEN_SECRET }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
+      R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      NEIS_API_KEY: ${{ secrets.NEIS_API_KEY }}
+      NEIS_ATPT_OFCDC_SC_CODE: ${{ secrets.NEIS_ATPT_OFCDC_SC_CODE }}
+      NEIS_SD_SCHUL_CODE: ${{ secrets.NEIS_SD_SCHUL_CODE }}
+
+    steps:
+      - name: Code Checkout(코드 체크아웃)
+        uses: actions/checkout@v4
+
+      - name: docker-compose 파일 전송
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "deploy/docker-compose.dev.yml"
+          target: "/opt/gone/dev"
+          strip_components: 1
+
+      - name: .env 생성 + 컨테이너 갱신
+        # 애플리케이션 시크릿은 이 SSH 세션 안에서만 존재한다(GitHub Actions 로그에 남지
+        # 않음). set -x 등 디버그 출력을 쓰지 않는다.
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: MYSQL_ROOT_PASSWORD,JWT_ACCESS_TOKEN_SECRET,JWT_REFRESH_TOKEN_SECRET,R2_ACCOUNT_ID,R2_ACCESS_KEY,R2_SECRET_KEY,R2_BUCKET,R2_ENDPOINT,NEIS_API_KEY,NEIS_ATPT_OFCDC_SC_CODE,NEIS_SD_SCHUL_CODE
+          script: |
+            set -e
+            cd /opt/gone/dev
+            cat > .env <<ENVEOF
+            MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
+            SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/gone?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+            SPRING_DATASOURCE_USERNAME=root
+            SPRING_DATASOURCE_PASSWORD=$MYSQL_ROOT_PASSWORD
+            SPRING_DATA_REDIS_HOST=redis
+            SPRING_DATA_REDIS_PORT=6379
+            JWT_ACCESS_TOKEN_SECRET=$JWT_ACCESS_TOKEN_SECRET
+            JWT_REFRESH_TOKEN_SECRET=$JWT_REFRESH_TOKEN_SECRET
+            JWT_ACCESS_TOKEN_EXPIRATION=1800000
+            JWT_REFRESH_TOKEN_EXPIRATION=1209600000
+            R2_ACCOUNT_ID=$R2_ACCOUNT_ID
+            R2_ACCESS_KEY=$R2_ACCESS_KEY
+            R2_SECRET_KEY=$R2_SECRET_KEY
+            R2_BUCKET=$R2_BUCKET
+            R2_ENDPOINT=$R2_ENDPOINT
+            NEIS_API_KEY=$NEIS_API_KEY
+            NEIS_ATPT_OFCDC_SC_CODE=$NEIS_ATPT_OFCDC_SC_CODE
+            NEIS_SD_SCHUL_CODE=$NEIS_SD_SCHUL_CODE
+            ENVEOF
+            chmod 600 .env
+            docker compose -f docker-compose.dev.yml pull app
+            docker compose -f docker-compose.dev.yml up -d app
+
+      - name: 헬스체크
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # 이 프로젝트에 actuator가 없어 보장된 2xx 경로가 없다(루트 "/"는 정상 상태에서도
+            # 404를 반환할 수 있음) — 그래서 --fail(2xx/3xx만 성공)은 오탐을 낸다. 대신
+            # "5xx가 아니면(=서버가 요청을 정상적으로 처리하고 있으면) 정상"으로 판정한다.
+            for i in $(seq 1 30); do
+              code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:9091 || echo 000)
+              if [ "$code" != "000" ] && [ "$code" -lt 500 ]; then
+                echo "healthy (HTTP $code)"
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "health check failed after 60s"
+            exit 1
+
+      - name: 알림용 컨텍스트 수집
+        if: always()
+        env:
+          PUSH_SHA: ${{ github.sha }}
+          PUSH_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          {
+            echo "SHORT_SHA=${PUSH_SHA:0:7}"
+            echo "COMMIT_MSG=$(printf '%s' "$PUSH_COMMIT_MESSAGE" | head -1)"
+          } >> "$GITHUB_ENV"
+
+      - name: Discord 알림 (dev 배포 성공)
+        if: success()
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg title "✅ dev 배포 성공" \
+            --arg commit "\`$SHORT_SHA\` $COMMIT_MSG" \
+            --arg url "$RUN_URL" \
+            '{embeds: [{
+              title: $title,
+              color: 65280,
+              fields: [{name: "커밋", value: $commit}],
+              url: $url
+            }]}')
+          curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK"
+
+      - name: Discord 알림 (dev 배포 실패)
+        if: failure()
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg title "❌ dev 배포 실패" \
+            --arg commit "\`$SHORT_SHA\` $COMMIT_MSG" \
+            --arg url "$RUN_URL" \
+            '{embeds: [{
+              title: $title,
+              color: 16711680,
+              fields: [{name: "커밋", value: $commit}],
+              url: $url
+            }]}')
+          curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK"

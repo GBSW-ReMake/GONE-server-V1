@@ -63,3 +63,11 @@ tasks.named('test') {
     useJUnitPlatform()
 }
 
+tasks.named('jar') {
+    // Spring Boot 플러그인은 기본적으로 실행 가능한 bootJar 외에 의존성이 빠진 "plain"
+    // jar도 build/libs/에 함께 만든다. #51의 Dockerfile이 build/libs/*.jar 와일드카드로
+    // jar 하나만 있다고 가정하고 COPY하므로(둘 이상이면 Docker COPY 자체가 실패한다),
+    // 쓰지 않는 plain jar 생성을 꺼서 build/libs/에 bootJar만 남긴다.
+    enabled = false
+}
+

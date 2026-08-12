@@ -1,0 +1,29 @@
+services:
+  mysql:
+    image: mysql:8.0
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: gone
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+  redis:
+    image: redis:7
+    restart: always
+    volumes:
+      - redis-data:/data
+
+  app:
+    image: ghcr.io/gbsw-remake/gone-server-v1:dev
+    restart: always
+    depends_on:
+      - mysql
+      - redis
+    env_file: .env
+    ports:
+      - "9091:9091"
+
+volumes:
+  mysql-data:
+  redis-data:
