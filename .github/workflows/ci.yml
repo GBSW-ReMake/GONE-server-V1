@@ -346,8 +346,12 @@ jobs:
 
   deploy-dev:
     # #51: dev EC2에 app 컨테이너만 갱신한다. mysql/redis는 이 job이 건드리지 않는다.
+    # environment: dev로 선언해 이 job은 GitHub Environment "dev"에 등록된 시크릿만
+    # 참조한다 — 나중에 운영 배포 job이 생기면 environment: production을 선언하고
+    # 같은 이름(EC2_HOST 등)으로 다른 값을 등록하면 된다(접두사로 구분할 필요 없음).
     runs-on: ubuntu-22.04
     needs: build-and-push-image
+    environment: dev
 
     permissions:
       contents: read
@@ -376,9 +380,9 @@ jobs:
       - name: docker-compose 파일 전송
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.DEV_EC2_HOST }}
-          username: ${{ secrets.DEV_EC2_USER }}
-          key: ${{ secrets.DEV_EC2_SSH_KEY }}
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
           source: "deploy/docker-compose.dev.yml"
           target: "/opt/gone/dev"
           strip_components: 1
@@ -388,9 +392,9 @@ jobs:
         # 않음). set -x 등 디버그 출력을 쓰지 않는다.
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.DEV_EC2_HOST }}
-          username: ${{ secrets.DEV_EC2_USER }}
-          key: ${{ secrets.DEV_EC2_SSH_KEY }}
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
           envs: MYSQL_ROOT_PASSWORD,JWT_ACCESS_TOKEN_SECRET,JWT_REFRESH_TOKEN_SECRET,R2_ACCOUNT_ID,R2_ACCESS_KEY,R2_SECRET_KEY,R2_BUCKET,R2_ENDPOINT,NEIS_API_KEY,NEIS_ATPT_OFCDC_SC_CODE,NEIS_SD_SCHUL_CODE
           script: |
             set -e
@@ -422,9 +426,9 @@ jobs:
       - name: 헬스체크
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.DEV_EC2_HOST }}
-          username: ${{ secrets.DEV_EC2_USER }}
-          key: ${{ secrets.DEV_EC2_SSH_KEY }}
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             # 이 프로젝트에 actuator가 없어 보장된 2xx 경로가 없다(루트 "/"는 정상 상태에서도
             # 404를 반환할 수 있음) — 그래서 --fail(2xx/3xx만 성공)은 오탐을 낸다. 대신
@@ -455,7 +459,7 @@ jobs:
         if: success()
         continue-on-error: true
         env:
-          DISCORD_DEV_WEBHOOK: ${{ secrets.DISCORD_DEV_WEBHOOK }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           PAYLOAD=$(jq -n \
@@ -468,13 +472,13 @@ jobs:
               fields: [{name: "커밋", value: $commit}],
               url: $url
             }]}')
-          curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_DEV_WEBHOOK"
+          curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK"
 
       - name: Discord 알림 (dev 배포 실패)
         if: failure()
         continue-on-error: true
         env:
-          DISCORD_DEV_WEBHOOK: ${{ secrets.DISCORD_DEV_WEBHOOK }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           PAYLOAD=$(jq -n \
@@ -487,4 +491,4 @@ jobs:
               fields: [{name: "커밋", value: $commit}],
               url: $url
             }]}')
-          curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_DEV_WEBHOOK"
+          curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK"

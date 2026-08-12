@@ -176,6 +176,19 @@ NEIS_SD_SCHUL_CODE=<GitHub Secret: NEIS_SD_SCHUL_CODE>
 > 직접 변경하거나 볼륨을 초기화해야 한다 — 이 절차는 이번 범위에서 다루지 않고, 필요 시
 > 별도로 진행한다.
 
+## GitHub Environment 사용 (`dev`)
+> 🔧 **후속 반영(운영 환경 준비 과정에서 결정)**: 시크릿을 `DEV_` 접두사로 구분하는 대신,
+> GitHub Environment 기능으로 나눈다. 저장소 Settings → Environments에 `dev` 환경을
+> 만들고 그 안에 이 문서의 시크릿들을 등록했다 — `deploy-dev` job에 `environment: dev`를
+> 선언하면 그 환경에 등록된 시크릿만 참조한다. 이 방식의 이점: (1) 시크릿 이름에서
+> `DEV_` 접두사가 필요 없어진다(`DEV_EC2_HOST` → `EC2_HOST`), (2) 나중에 운영 배포
+> job이 생기면 `environment: production`을 선언하고 **같은 이름**으로 다른 값을
+> 등록하면 되어 워크플로우 코드를 그대로 재사용할 수 있다, (3) GitHub Environment의
+> "Deployment branches and tags" 설정으로 "이 환경은 특정 브랜치/태그에서만 배포 가능"을
+> 플랫폼 레벨에서 강제할 수 있다(운영 환경에 `main`/릴리스 태그만 허용하는 식 — 후속
+> 운영 이슈에서 활용 예정). `MYSQL_ROOT_PASSWORD`/`JWT_*`/`R2_*`/`NEIS_*`는 원래도
+> `DEV_` 접두사가 없었으므로 이름 변경 없이 그대로 `dev` 환경으로 옮긴다.
+
 ## GitHub Actions 워크플로우 (`ci.yml` 수정)
 - `build-and-test` job: 기존 그대로. jar 산출물을 다음 job이 쓸 수 있게
   `actions/upload-artifact`로 `build/libs/*.jar` 업로드 스텝만 추가.
@@ -192,9 +205,10 @@ NEIS_SD_SCHUL_CODE=<GitHub Secret: NEIS_SD_SCHUL_CODE>
   (`registry: ghcr.io`, `username: ${{ github.actor }}`, `password:
   ${{ secrets.GITHUB_TOKEN }}`) → `docker/build-push-action@v6`으로 빌드/푸시. job에
   `permissions: { contents: read, packages: write }` 추가(GHCR 푸시에 필요).
-- `deploy-dev` job(신규): `needs: build-and-push-image`, `permissions: { contents:
-  read }`(코드 리뷰 5번 항목, 🟢 Low: 이 job이 실제로 쓰는 건 SSH 시크릿뿐이라 저장소
-  기본 `GITHUB_TOKEN` 권한을 그대로 물려받을 이유가 없다).
+- `deploy-dev` job(신규): `needs: build-and-push-image`, `environment: dev`(위 "GitHub
+  Environment 사용" 참고), `permissions: { contents: read }`(코드 리뷰 5번 항목, 🟢 Low:
+  이 job이 실제로 쓰는 건 SSH 시크릿뿐이라 저장소 기본 `GITHUB_TOKEN` 권한을 그대로
+  물려받을 이유가 없다).
   `concurrency: { group: deploy-dev, cancel-in-progress: false }`(연속 push가 배포를
   겹쳐 실행하지 않고 순서대로 처리 — 이 job은 EC2 상태를 직접 바꾸므로 취소 대신 완료를
   기다린다, `build-and-push-image`와 다른 이유).
@@ -220,9 +234,9 @@ NEIS_SD_SCHUL_CODE=<GitHub Secret: NEIS_SD_SCHUL_CODE>
      steps:
        - uses: appleboy/ssh-action@v1.0.3
          with:
-           host: ${{ secrets.DEV_EC2_HOST }}
-           username: ${{ secrets.DEV_EC2_USER }}
-           key: ${{ secrets.DEV_EC2_SSH_KEY }}
+           host: ${{ secrets.EC2_HOST }}
+           username: ${{ secrets.EC2_USER }}
+           key: ${{ secrets.EC2_SSH_KEY }}
            envs: MYSQL_ROOT_PASSWORD,JWT_ACCESS_TOKEN_SECRET,JWT_REFRESH_TOKEN_SECRET,R2_ACCOUNT_ID,R2_ACCESS_KEY,R2_SECRET_KEY,R2_BUCKET,R2_ENDPOINT,NEIS_API_KEY,NEIS_ATPT_OFCDC_SC_CODE,NEIS_SD_SCHUL_CODE
            script: |
              set -e
@@ -263,17 +277,21 @@ NEIS_SD_SCHUL_CODE=<GitHub Secret: NEIS_SD_SCHUL_CODE>
 
 ## Discord 알림
 **dev 배포 전용 웹훅을 새로 만든다.** 기존 `DISCORD_CI_WEBHOOK`(체크스타일/빌드 실패 알림)
-과는 별개 채널/웹훅으로, 배포 성공/실패만 알린다 — 시크릿 이름 `DISCORD_DEV_WEBHOOK`.
-알림 포맷(제목/커밋/소요시간, 성공 초록/실패 빨강 embed)은 기존 `ci.yml` 알림 스텝과
-동일한 구조를 그대로 재사용한다.
+과는 별개 채널/웹훅으로, 배포 성공/실패만 알린다 — 시크릿 이름 `DISCORD_WEBHOOK`(`dev`
+환경 소속이라 접두사 불필요, 위 "GitHub Environment 사용" 참고). 알림 포맷(제목/커밋/
+소요시간, 성공 초록/실패 빨강 embed)은 기존 `ci.yml` 알림 스텝과 동일한 구조를 그대로
+재사용한다.
 
 ## 필요한 GitHub Secrets
+전부 저장소 Settings → Environments → `dev` 환경에 등록한다(레포지토리 레벨 Secrets가
+아님 — 위 "GitHub Environment 사용" 참고).
+
 | 이름 | 용도 |
 |---|---|
-| `DEV_EC2_HOST` | dev EC2 접속 주소 |
-| `DEV_EC2_SSH_KEY` | 배포 전용 SSH 개인키(PEM) |
-| `DEV_EC2_USER` | 배포 전용 계정명(`deploy`) |
-| `DISCORD_DEV_WEBHOOK` | dev 배포 전용 Discord 웹훅(신규 생성) |
+| `EC2_HOST` | dev EC2 접속 주소 |
+| `EC2_SSH_KEY` | 배포 전용 SSH 개인키(PEM) |
+| `EC2_USER` | 배포 전용 계정명(`deploy`) |
+| `DISCORD_WEBHOOK` | dev 배포 전용 Discord 웹훅(신규 생성) |
 | `MYSQL_ROOT_PASSWORD` | MySQL root 비밀번호(app 접속 비밀번호와 동일하게 재사용) |
 | `JWT_ACCESS_TOKEN_SECRET` | Access Token 서명 시크릿(#52로 Refresh Token과 분리됨) |
 | `JWT_REFRESH_TOKEN_SECRET` | Refresh Token 서명 시크릿(위와 다른 값이어야 함) |
@@ -291,7 +309,7 @@ NEIS_SD_SCHUL_CODE=<GitHub Secret: NEIS_SD_SCHUL_CODE>
    (`~/.docker/config.json`에 저장되고, 이후 재로그인 불필요 — GitHub Secrets로 관리하지
    않는 이유: 이 값은 EC2 로컬 상태일 뿐 GitHub Actions 워크플로우가 참조하지 않는다).
 4. `deploy` 계정의 `~/.ssh/authorized_keys`에 배포 전용 SSH 공개키 등록(개인키는
-   `DEV_EC2_SSH_KEY`로 GitHub Secrets에 등록).
+   `dev` 환경의 `EC2_SSH_KEY`로 GitHub Secrets에 등록).
 5. `/opt/gone/dev/` 디렉토리 생성(소유자 `deploy`). `.env`는 미리 만들어두지 않는다 —
    위 GitHub Secrets를 전부 등록한 뒤 `dev` 브랜치에 첫 push를 하면 `deploy-dev` job이
    최초의 `.env`를 만들고 `docker compose -f docker-compose.dev.yml up -d app`까지
@@ -339,7 +357,7 @@ NEIS_SD_SCHUL_CODE=<GitHub Secret: NEIS_SD_SCHUL_CODE>
 ## 완료 조건 (Definition of Done)
 - `dev` 브랜치에 push하면 GHCR에 새 이미지가 푸시되고, EC2의 `app` 컨테이너가 자동으로
   그 이미지와 최신 `.env`로 갱신된다.
-- 배포 성공/실패 모두 `DISCORD_DEV_WEBHOOK`으로 알림이 온다.
+- 배포 성공/실패 모두 `dev` 환경의 `DISCORD_WEBHOOK`으로 알림이 온다.
 - `mysql`/`redis` 컨테이너는 배포 중 재시작되지 않고 데이터가 유지된다.
 - 어떤 시크릿 값도 저장소/문서/커밋/GitHub Actions 로그에 평문으로 남지 않는다(값
   자체는 GitHub Secrets → 워크플로우 환경변수 → SSH 세션 안에서만 존재).
