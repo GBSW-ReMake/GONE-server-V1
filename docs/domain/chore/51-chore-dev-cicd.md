@@ -60,7 +60,7 @@ WORKDIR /app
 RUN useradd --system --no-create-home appuser
 COPY build/libs/*.jar app.jar
 USER appuser
-EXPOSE 9091
+EXPOSE 9090
 ENTRYPOINT ["java", "-jar", "app.jar"]
 ```
 CI가 이미 `./gradlew build`로 테스트까지 통과한 jar를 만들어두므로, 이미지 안에서 다시
@@ -116,7 +116,7 @@ services:
       - redis
     env_file: .env
     ports:
-      - "9091:9091"
+      - "9090:9090"
 
 volumes:
   mysql-data:
@@ -125,7 +125,13 @@ volumes:
 이 파일 자체는 시크릿 값을 담지 않는다(`environment`/`env_file` 모두 값만 별도 파일에서
 읽어온다). 저장소에 커밋되고, 배포할 때마다 최신 버전을 EC2로 scp해서 덮어쓴다 — 서비스
 정의(볼륨, 환경변수 이름 등)가 바뀌면 다음 배포에 자동 반영된다. 호스트에 포트를 여는
-서비스는 `app`(`9091`) 하나뿐이다.
+서비스는 `app`(`9090`) 하나뿐이다.
+
+> 🔧 **후속 반영(첫 배포 이후)**: `9091` 인바운드 규칙이 EC2 보안그룹에 없어 외부에서
+> 접근이 안 됐다. 새 인바운드 규칙을 여는 대신, 이미 열려 있던 `9090`을 그대로 쓰기로
+> 하고 `server.port`(애플리케이션 레벨, `application.yml`)와 `EXPOSE`/포트 매핑을 전부
+> `9090`으로 통일했다 — 컨테이너 내부/외부 포트가 항상 같으므로 별도 포트 포워딩
+> 매핑(`외부:내부`가 다른 값)은 두지 않는다.
 
 `.env`는 저장소에 없고 `deploy-dev` job이 매 배포마다 GitHub Secrets 값으로 새로 생성한다
 (아래 "GitHub Actions 워크플로우" 참고). 생성되는 내용:

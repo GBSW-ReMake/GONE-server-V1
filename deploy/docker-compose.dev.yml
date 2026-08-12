@@ -22,7 +22,7 @@ services:
       - redis
     env_file: .env
     ports:
-      - "9091:9091"
+      - "9090:9090"
 
 volumes:
   mysql-data:
