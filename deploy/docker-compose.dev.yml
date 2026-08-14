@@ -21,8 +21,16 @@ services:
       - mysql
       - redis
     env_file: .env
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: always
+    depends_on:
+      - app
     ports:
-      - "9090:9090"
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
 
 volumes:
   mysql-data:
