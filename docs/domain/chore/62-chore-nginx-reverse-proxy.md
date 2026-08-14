@@ -36,7 +36,7 @@ server {
     location / {
         proxy_pass http://app:9090;
         proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Real-IP $http_cf_connecting_ip;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
@@ -48,6 +48,11 @@ server {
 - `X-Forwarded-*` 헤더는 지금 애플리케이션이 참조하지 않지만, 리버스 프록시 뒤에 두는
   일반적인 관례라 지금 추가해둔다 — 나중에 클라이언트 IP 로깅/판단이 필요해지는 기능이
   생겨도 nginx 설정을 다시 건드릴 필요가 없다.
+- `X-Real-IP`는 `$remote_addr`가 아니라 `$http_cf_connecting_ip`를 쓴다(코드 리뷰 2번
+  항목 반영) — `gone-dev.gbsw.hs.kr`는 Cloudflare 프록시가 켜진 레코드라 nginx에 실제로
+  TCP 연결을 맺는 상대는 항상 Cloudflare 엣지다. `$remote_addr`를 그대로 쓰면 모든
+  요청이 Cloudflare IP로 찍혀 클라이언트 IP로 쓸모가 없다 — Cloudflare가 실제 클라이언트
+  IP를 담아 origin까지 전달해주는 `CF-Connecting-IP` 요청 헤더를 그대로 흘려보낸다.
 
 ## `deploy/docker-compose.dev.yml` 변경
 ```yaml
@@ -95,10 +100,18 @@ volumes:
    target: "/opt/gone/dev"
    strip_components: 1
    ```
-2. **`docker compose up -d` 대상에 `nginx` 추가**: `docker compose -f
-   docker-compose.dev.yml up -d app`을 `up -d app nginx`로 바꾼다(`pull`은 `app`
-   이미지만 GHCR에서 받으면 되므로 `pull app`은 그대로 둔다 — `nginx` 이미지는 Docker
-   Hub 공식 이미지라 최초 1회만 받고 이후 태그 고정이라 매 배포 pull이 불필요).
+2. **`app` 기동 후 `nginx`를 매 배포마다 강제 재생성**(코드 리뷰 1번 항목 반영):
+   ```
+   docker compose -f docker-compose.dev.yml up -d app
+   docker compose -f docker-compose.dev.yml up -d --force-recreate nginx
+   ```
+   (`pull`은 `app` 이미지만 GHCR에서 받으면 되므로 `pull app`은 그대로 둔다 — `nginx`
+   이미지는 Docker Hub 공식 이미지라 최초 1회만 받고 이후 태그 고정이라 매 배포 pull이
+   불필요). `nginx`는 이미지 태그/볼륨 경로가 배포마다 바뀌지 않아 `up -d`만으로는
+   재기동되지 않는다 — `--force-recreate`로 매 배포마다 강제로 재생성해야, `app`이 새
+   컨테이너로 뜨며 바뀔 수 있는 내부 IP를 nginx가 다시 조회하고, `nginx.conf` 파일
+   수정도 반영된다(둘 다 nginx가 프로세스 시작 시점에만 확인하는 값이라, 재기동 없이는
+   바인드 마운트로 파일만 바꿔도 실행 중인 nginx에 반영되지 않는다).
 3. **헬스체크 대상을 `9090`에서 `80`으로 변경**: `curl -s -o /dev/null -w
    "%{http_code}" http://localhost:9090` → `http://localhost:80`. 이러면 헬스체크가
    nginx까지 경유하는 실제 요청 경로(Cloudflare가 쓰는 것과 동일한 경로)를 검증하게
