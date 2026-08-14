@@ -383,7 +383,7 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: "deploy/docker-compose.dev.yml"
+          source: "deploy/docker-compose.dev.yml,deploy/nginx.conf"
           target: "/opt/gone/dev"
           strip_components: 1
 
@@ -421,7 +421,7 @@ jobs:
             ENVEOF
             chmod 600 .env
             docker compose -f docker-compose.dev.yml pull app
-            docker compose -f docker-compose.dev.yml up -d app
+            docker compose -f docker-compose.dev.yml up -d app nginx
 
       - name: 헬스체크
         uses: appleboy/ssh-action@v1.0.3
@@ -433,8 +433,9 @@ jobs:
             # 이 프로젝트에 actuator가 없어 보장된 2xx 경로가 없다(루트 "/"는 정상 상태에서도
             # 404를 반환할 수 있음) — 그래서 --fail(2xx/3xx만 성공)은 오탐을 낸다. 대신
             # "5xx가 아니면(=서버가 요청을 정상적으로 처리하고 있으면) 정상"으로 판정한다.
+            # nginx(80)를 거쳐 확인한다 — Cloudflare가 실제로 쓰는 경로와 동일하다(#62).
             for i in $(seq 1 30); do
-              code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:9090 || echo 000)
+              code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80 || echo 000)
               if [ "$code" != "000" ] && [ "$code" -lt 500 ]; then
                 echo "healthy (HTTP $code)"
                 exit 0
