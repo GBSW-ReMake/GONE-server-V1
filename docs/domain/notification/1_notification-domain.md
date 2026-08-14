@@ -1,11 +1,11 @@
 # 알림(Notification) 도메인 — 기능 기획서 (초안)
 
-> 관련 백로그 이슈: [#37 알림 시스템 도입 (외출증 승인/거절, 스쿨캠핑 리마인더 등)](https://github.com/GBSW-ReMake/GONE-server-V1/issues/37)
+> 관련 이슈: [#59 알림 도메인 — Notification 엔티티 + 공통 발송 모듈](https://github.com/GBSW-ReMake/GONE-server-V1/issues/59)
 >
 > 이 문서는 `outing`/`schoolcamp`처럼 알림 도메인 전체를 다루는 마스터 기획서다. 실제
 > 구현은 이 문서에서 파생되는 하위 이슈 단위로 진행하며, 문서명은
 > `docs/domain/notification/{이슈번호}-notification-{제목}.md` 규칙을 따른다(첫 파생 문서:
-> [37-notification-inbox.md](./37-notification-inbox.md)). 각 이슈별 문서가 실제 최신
+> [59-notification-core.md](./59-notification-core.md)). 각 이슈별 문서가 실제 최신
 > 판단의 기준이고, 이 마스터 문서는 최초 설계 의도의 기록으로 남긴다([api-design.md](../../rules/api-design.md)
 > "마스터 기획서 재검토" 원칙과 동일).
 
@@ -47,7 +47,8 @@
 ## 단계 구분
 | 단계 | 내용 | 외부 종속성 | 상태 |
 |---|---|---|---|
-| **1단계 (메인)** | `Notification` 저장 + 목록 조회 + 읽음 처리, `NotificationService.send(...)`가 DB에 저장까지만 담당 | 없음(이 프로젝트 DB만) | [37-notification-inbox.md](./37-notification-inbox.md), 착수 |
+| **1단계 (메인, 착수 조각)** | `Notification` 엔티티 + 마이그레이션 + `NotificationService.send(...)`(저장만, 컨트롤러 없음) | 없음(이 프로젝트 DB만) | [59-notification-core.md](./59-notification-core.md), 착수 |
+| **1단계 (메인, 나머지 조각)** | 목록 조회 + 읽음 처리(단건/모두) + 안 읽은 개수 4개 엔드포인트 | 없음 | 후속 이슈(미생성) |
 | **2단계 (보조)** | FCM 디바이스 토큰 등록/삭제, `NotificationService.send(...)`에 FCM 발송 추가(1단계 시그니처 그대로, 내부 동작만 확장) | Firebase 프로젝트/서비스 계정 | 후속 이슈(미생성) |
 | **3단계 이후** | `outing` 승인/거절·복귀 리마인더, `schoolcamp` 초대·리마인더가 `NotificationService.send(...)` 실제 호출 | 각 도메인 상태 | 각 도메인 후속 이슈(미생성) |
 
