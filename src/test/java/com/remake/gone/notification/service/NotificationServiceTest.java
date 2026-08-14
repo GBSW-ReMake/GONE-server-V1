@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 
+import com.remake.gone.notification.enums.NotificationType;
 import com.remake.gone.notification.repository.NotificationRepository;
 import com.remake.gone.user.entity.User;
 import com.remake.gone.user.repository.UserRepository;
@@ -43,13 +44,13 @@ class NotificationServiceTest {
           .willReturn(User.builder().id(USER_ID).build());
 
       notificationService.send(USER_ID, "외출증이 승인되었습니다", "12:30 외출을 승인했어요.",
-          "OUTING_APPROVED");
+          NotificationType.OUTING);
 
       verify(notificationRepository).save(argThat(notification ->
           notification.getUser().getId().equals(USER_ID)
               && notification.getTitle().equals("외출증이 승인되었습니다")
               && notification.getBody().equals("12:30 외출을 승인했어요.")
-              && notification.getType().equals("OUTING_APPROVED")
+              && notification.getType() == NotificationType.OUTING
               && !notification.isRead()));
     }
 
