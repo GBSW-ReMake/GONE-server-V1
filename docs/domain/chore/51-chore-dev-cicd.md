@@ -220,6 +220,22 @@ NEIS_SD_SCHUL_CODE=<GitHub Secret: NEIS_SD_SCHUL_CODE>
   (`registry: ghcr.io`, `username: ${{ github.actor }}`, `password:
   ${{ secrets.GITHUB_TOKEN }}`) → `docker/build-push-action@v6`으로 빌드/푸시. job에
   `permissions: { contents: read, packages: write }` 추가(GHCR 푸시에 필요).
+
+> ⚠️ **실제로 겪은 레이스 컨디션(#55/#56 머지 직후)**: `concurrency`의 `group` 이름이
+> `build-and-push-image` 고정 문자열이라 브랜치/커밋 구분이 없다 — **완전히 무관한 두
+> PR이 몇 초 간격으로 머지돼도 서로 경합한다.** 실제로 `#55`(문서 정정)와
+> `#56`(포트 변경) 머지가 12초 차이로 들어왔는데, `#56`의 `build-and-push-image`가
+> "Canceling since a higher priority waiting request exists"로 취소됐다 —
+> `checkstyle`/`build-and-test` 소요 시간 차이 때문에 나중에 push된 `#55` 쪽이 그
+> 그룹에 더 늦게 도달해 `#56`을 취소시킨 것으로 보인다(push 순서와 그룹 도달 순서가
+> 항상 같지 않다). 결과적으로 `#56`의 `deploy-dev`(이 job에 물려 있음)도 같이
+> 스킵되어, 실제로는 머지됐는데도 배포가 안 되는 상황이 생겼다 — Discord 알림도
+> 안 왔다(그 job 자체가 안 돌았으므로).
+> **대응**: 이런 경우 취소된 실행을 `gh run rerun <run-id>`로 다시 돌리면 된다(다시
+> 돌릴 때는 경합할 다른 실행이 없어야 함). 자동 재시도는 넣지 않았다 — 흔한 상황이
+> 아니고, 짧은 간격으로 머지가 몰리는 경우 자체가 드물다(YAGNI). 대신 **연속으로
+> 머지했다면 마지막 머지의 Actions 결과를 반드시 직접 확인하는 습관**이 필요하다는
+> 걸 이번에 확인했다.
 - `deploy-dev` job(신규): `needs: build-and-push-image`, `environment: dev`(위 "GitHub
   Environment 사용" 참고), `permissions: { contents: read }`(코드 리뷰 5번 항목, 🟢 Low:
   이 job이 실제로 쓰는 건 SSH 시크릿뿐이라 저장소 기본 `GITHUB_TOKEN` 권한을 그대로
