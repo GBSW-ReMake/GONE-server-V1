@@ -1,9 +1,12 @@
 package com.remake.gone.notification.service;
 
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 
 import com.remake.gone.notification.repository.NotificationRepository;
+import com.remake.gone.user.entity.User;
+import com.remake.gone.user.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -23,6 +26,9 @@ class NotificationServiceTest {
   @Mock
   private NotificationRepository notificationRepository;
 
+  @Mock
+  private UserRepository userRepository;
+
   @InjectMocks
   private NotificationService notificationService;
 
@@ -33,6 +39,9 @@ class NotificationServiceTest {
     @Test
     @DisplayName("전달받은 값 그대로 알림을 저장한다")
     void savesNotificationWithGivenValues() {
+      given(userRepository.getReferenceById(USER_ID))
+          .willReturn(User.builder().id(USER_ID).build());
+
       notificationService.send(USER_ID, "외출증이 승인되었습니다", "12:30 외출을 승인했어요.",
           "OUTING_APPROVED");
 
@@ -47,6 +56,9 @@ class NotificationServiceTest {
     @Test
     @DisplayName("type이 null이어도 저장된다")
     void allowsNullType() {
+      given(userRepository.getReferenceById(USER_ID))
+          .willReturn(User.builder().id(USER_ID).build());
+
       notificationService.send(USER_ID, "제목", "본문", null);
 
       verify(notificationRepository).save(argThat(notification ->

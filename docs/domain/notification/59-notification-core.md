@@ -34,10 +34,12 @@ API는 이번 이슈 범위 밖 — 아래 "범위" 참고.
 public class NotificationService {
 
   private final NotificationRepository notificationRepository;
+  private final UserRepository userRepository;
 
   public void send(Long userId, String title, String body, String type) {
+    User user = userRepository.getReferenceById(userId);
     Notification notification = Notification.builder()
-        .userId(userId)
+        .user(user)
         .title(title)
         .body(body)
         .type(type)
@@ -50,6 +52,15 @@ public class NotificationService {
 - 저장 실패는 그대로 예외 전파한다(삼키지 않음) — 알림 저장은 이 모듈의 핵심 책임이라,
   호출자(향후 `outing`/`schoolcamp`) 트랜잭션과 함께 롤백되는 게 오히려 맞는 동작이다
   (마스터 기획서 "정책 가정" 참고).
+- FK는 `userRepository.getReferenceById(userId)`로 참조 전용 프록시를 받아 연관관계에
+  꽂는다(추가 `SELECT` 없음). `id`만 채운 엔티티를 직접 만들지 않는 이유: 존재하지 않는
+  `userId`가 들어와도 프록시 자체는 조용히 만들어지고, 실제 필드 접근 시점(저장 시)에야
+  `EntityNotFoundException`으로 드러난다 — 다만 이 경로가 "이 값은 FK 참조 전용이고 실제
+  로드된 엔티티가 아니다"라는 의도를 코드로 명시해, 향후 이 연관관계에 실수로 cascade가
+  붙는 걸 막는다(코드 리뷰 문서 1번 항목 참고).
+- `title`/`body`는 각각 100자/500자를 넘으면 안 된다 — 초과 시 DB 컬럼 길이 제약 위반으로
+  저장이 실패한다(Javadoc에 명시, 별도 검증 로직/예외 패키지는 이번 이슈 범위 밖). 호출자가
+  값을 넘기기 전에 그 범위 안인지 보장해야 한다(코드 리뷰 문서 2번 항목 참고).
 - `type`은 자유 문자열(예: `"OUTING_APPROVED"`) — `notification` 패키지가 다른 도메인의
   enum을 참조하지 않기 위해 의도적으로 비타입 문자열로 둔다.
 - **이번 이슈에는 이 메서드를 실제로 호출하는 곳이 없다** — 단위 테스트로만 동작을
