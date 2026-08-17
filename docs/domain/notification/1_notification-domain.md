@@ -96,11 +96,14 @@
 - `user_id` — 수신자(`User` FK)
 - `title` — 알림 제목
 - `body` — 알림 본문
-- `type` — 발송한 도메인이 자유롭게 붙이는 분류 태그(`VARCHAR(50)`, nullable, 예:
-  `"OUTING_APPROVED"`). **알림 도메인은 이 값의 의미를 모른다** — 클라이언트가 아이콘
-  선택/화면 이동(딥링크)에 쓸 수 있도록 문자열 그대로 전달만 한다. `outing`/`schoolcamp`
-  같은 구체 도메인의 enum을 `notification` 패키지가 참조하면 역방향 의존이 생기므로
-  일부러 자유 문자열로 둔다.
+- `type` — 알림 분류(`NotificationType` Enum, `VARCHAR(50)`, nullable, 예: `OUTING`).
+  프론트엔드가 이 값 하나당 이모지 1개를 매핑한다(#65) — 이벤트 단위(승인/거절/리마인더
+  등)가 아니라 **도메인 단위**로 값을 나눈다(`OUTING`/`SCHOOLCAMP`/`MERIT`/`DEMERIT`).
+  Enum은 `notification` 패키지가 직접 소유한다 — `outing`/`schoolcamp`는 이미
+  `NotificationService.send(...)`를 호출하려면 `notification` 패키지에 의존해야 하므로,
+  그 패키지가 소유한 Enum을 함께 참조하는 것은 새로운 역방향 의존을 만들지 않는다(#65
+  기획서 "개요/목적" 참고 — 최초 설계는 이 필드를 자유 문자열로 뒀으나 역방향 의존 우려가
+  실제로는 성립하지 않는다는 판단으로 뒤집었다).
 - `is_read` — 읽음 여부(`BOOLEAN`, 기본 `false`)
 - `created_at` — 발송(저장) 시각
 
@@ -144,7 +147,7 @@ API와 동일한 페이지네이션 파라미터/제약 재사용)
         "id": 501,
         "title": "외출증이 승인되었습니다",
         "body": "김선생님이 12:30 외출을 승인했어요.",
-        "type": "OUTING_APPROVED",
+        "type": "OUTING",
         "isRead": false,
         "createdAt": "2026-08-14T12:29:10"
       }
@@ -280,7 +283,7 @@ public class NotificationService {
 
   private final NotificationRepository notificationRepository;
 
-  public void send(Long userId, String title, String body, String type) {
+  public void send(Long userId, String title, String body, NotificationType type) {
     Notification notification = Notification.builder()
         .userId(userId).title(title).body(body).type(type).isRead(false).build();
     notificationRepository.save(notification); // 저장 실패는 그대로 예외 전파(정책 가정 참고)
@@ -288,7 +291,7 @@ public class NotificationService {
 }
 ```
 다른 도메인(`outing`, `schoolcamp`)은 이 빈을 주입받아 `notificationService.send(userId,
-"외출증이 승인되었습니다", "...", "OUTING_APPROVED")`처럼 호출하기만 하면 된다.
+"외출증이 승인되었습니다", "...", NotificationType.OUTING)`처럼 호출하기만 하면 된다.
 
 ### 2단계에서의 확장 (FCM 추가, 시그니처 불변)
 ```java

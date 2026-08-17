@@ -1,6 +1,7 @@
 package com.remake.gone.notification.service;
 
 import com.remake.gone.notification.entity.Notification;
+import com.remake.gone.notification.enums.NotificationType;
 import com.remake.gone.notification.repository.NotificationRepository;
 import com.remake.gone.user.entity.User;
 import com.remake.gone.user.repository.UserRepository;
@@ -32,9 +33,9 @@ public class NotificationService {
    * @param userId 수신자 사용자 ID
    * @param title  알림 제목(100자 이하)
    * @param body   알림 본문(500자 이하)
-   * @param type   발송 도메인이 붙이는 분류 태그(nullable)
+   * @param type   알림 분류(nullable)
    */
-  public void send(Long userId, String title, String body, String type) {
+  public void send(Long userId, String title, String body, NotificationType type) {
     User user = userRepository.getReferenceById(userId);
     Notification notification = Notification.builder()
         .user(user)

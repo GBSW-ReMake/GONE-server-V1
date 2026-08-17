@@ -1,8 +1,11 @@
 package com.remake.gone.notification.entity;
 
+import com.remake.gone.notification.enums.NotificationType;
 import com.remake.gone.user.entity.User;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -49,14 +52,10 @@ public class Notification {
   @Column(nullable = false, length = 500)
   private String body;
 
-  /**
-   * 발송한 도메인이 자유롭게 붙이는 분류 태그(예: {@code "OUTING_APPROVED"}).
-   *
-   * <p>알림 도메인은 이 값의 의미를 모른다 — {@code outing}/{@code schoolcamp} 같은 구체
-   * 도메인의 enum을 참조하면 역방향 의존이 생기므로 일부러 자유 문자열로 둔다.
-   */
+  /** 알림 분류(프론트엔드 이모지 매핑용, {@link NotificationType} 참고). */
+  @Enumerated(EnumType.STRING)
   @Column(length = 50)
-  private String type;
+  private NotificationType type;
 
   @Column(name = "is_read", nullable = false)
   private boolean isRead;
