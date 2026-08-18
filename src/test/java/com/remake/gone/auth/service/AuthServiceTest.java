@@ -28,6 +28,7 @@ import com.remake.gone.gbsw.repository.GbswRepository;
 import com.remake.gone.role.entity.Role;
 import com.remake.gone.role.repository.RoleRepository;
 import com.remake.gone.role.repository.UserRoleRepository;
+import com.remake.gone.user.enums.UserStatus;
 import com.remake.gone.user.exception.UserErrorCode;
 import com.remake.gone.user.repository.UserRepository;
 import io.jsonwebtoken.JwtException;
@@ -201,6 +202,7 @@ class AuthServiceTest {
               && user.getName().equals("3118정문경")
               && user.getPhoneNumber().equals(PHONE_NUMBER)
               && user.getGbsw() == gbsw
+              && user.getStatus() == UserStatus.ACTIVE
       ));
       verify(userRoleRepository).save(argThat(userRole ->
           userRole.getRole() == studentRole
