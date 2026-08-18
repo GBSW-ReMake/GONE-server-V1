@@ -542,29 +542,13 @@
   사용자를 그대로 노출하면 실사용자에게 바로 영향이 가고, `#35` 자체 작업량도 크지 않아
   선행으로 처리하는 게 합리적이다.
 
-### 추가로 필요한 것: 본인 실명/학년/반 조회
+### 본인 실명/학년/반 조회 (완료됨, 2026-08-18 확인)
 신청 화면에서 "대표 신청자 = 나"를 목록에 표시하려면, 프론트가 **로그인한 본인의**
-실명/학년/반/프로필사진도 알아야 한다. 그런데 지금 `GET /api/v1/users/me`
-(`MyProfileResponse`, 기존 `user` 도메인)는 닉네임(`name`)과 `hasProfileImage`(불리언)만
-주고, 실명/학년/반/프로필사진 URL은 아예 없다.
-
-**기존 `MyProfileResponse` 확장을 제안한다**(신규 엔드포인트 추가가 아니라 필드 추가):
-```json
-{
-  "name": "길동이",
-  "hasProfileImage": true,
-  "profileImageUrl": "https://.../profile/1/abc.jpg?X-Amz-...",
-  "realName": "홍길동",
-  "grade": 3,
-  "classNo": 4
-}
-```
-- `realName`/`grade`/`classNo`는 `user.getGbsw()`에서(`outing`/`schoolcamp`가 다른 사람
-  것을 보여줄 때 쓰는 것과 같은 소스)
-- `profileImageUrl`은 `hasProfileImage`가 `true`일 때 `R2FileService.generateDownloadUrl`로
-  생성(기존 `hasProfileImage` boolean은 그대로 두고 URL을 추가하는 것 — 하위 호환)
-- 이건 `schoolcamp`나 `GET /users/search`보다도 더 앞서 필요한 선행 작업이다 — 스쿨캠핑
-  신청 화면 자체가 이 데이터 없이는 "나"를 못 그린다.
+실명/학년/반/프로필사진도 알아야 한다. 초안 작성 시점엔 `GET /api/v1/users/me`
+(`MyProfileResponse`)에 닉네임/`hasProfileImage`만 있고 이 필드들이 없어 선행 작업으로
+제안했었는데, 실제로는 **`#32`(팀원/담당 선생님 검색 이슈)에서 `GET /api/v1/users/search`와
+함께 이미 구현·머지되어 있다** — `MyProfileResponse`(`src/main/java/com/remake/gone/user/dto/MyProfileResponse.java`)
+가 이미 `realName`/`grade`/`classNo`/`profileImageUrl`을 포함한다. 별도 선행 이슈 불필요.
 
 ---
 
