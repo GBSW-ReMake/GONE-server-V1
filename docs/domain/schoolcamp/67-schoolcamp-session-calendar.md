@@ -110,12 +110,30 @@ public class SchoolCampSession {
   "success": true,
   "data": [
     { "sessionId": 12, "campDate": "20260403", "status": "OPEN", "teacherDisplayName": null, "applicantDisplayName": null },
-    { "sessionId": 13, "campDate": "20260410", "status": "CLOSED", "teacherDisplayName": "박선생", "applicantDisplayName": "홍길동" }
+    { "sessionId": 13, "campDate": "20260410", "status": "CLOSED", "teacherDisplayName": "정문경", "applicantDisplayName": "3218정문경" }
   ],
   "message": "스쿨캠핑 일정을 조회했습니다.",
   "code": null
 }
 ```
+
+**`teacherDisplayName`/`applicantDisplayName` 표시 형식(확정)**: 프론트가 조립하지 않고
+백엔드가 최종 문자열을 그대로 계산해서 보낸다.
+- `teacherDisplayName`: 선생님 실명 그대로(`Gbsw.name`) — 학번 개념이 없으므로 이름만.
+- `applicantDisplayName`: **학번(학년+반+번호) + 실명**을 붙인 한 문자열(예: 3학년 2반
+  18번 정문경 → `"3218정문경"`) — 별도 필드로 안 쪼갠다.
+  - 이 형식은 `AuthService.generateStudentDefaultName`이 회원가입 기본 닉네임을 만들 때
+    쓰는 포맷(`"%d%d%02d%s".formatted(grade, classNo, number, name)`)과 완전히 같다 —
+    다만 목적이 다르다(하나는 "회원가입 시 부여하는 최초 닉네임", 하나는 "관리자/선생님이
+    보는 표시용 라벨"이라 우연히 같은 포맷일 뿐, 개념적으로 같은 값을 재사용하는 게
+    아니다). 이 포맷 문자열(반이 10개 미만이라는 전제로 학년 1자리+반 1자리+번호 2자리
+    0채움 = 고정 4자리)이 두 곳에 따로 있으면 나중에 한쪽만 고치는 실수가 날 수 있어,
+    `gbsw.utils.GbswUtils.studentNumber(Gbsw)`(신규, 학번 4자리 문자열만 반환)로 포맷
+    자체는 공유하고 각 호출부는 자기 목적에 맞게 이어붙인다 — 다만 **이 유틸은 #68이
+    실제로 `applicantDisplayName`을 계산할 때 만든다**(이 이슈엔 그 값을 채우는 코드가
+    없어서 아직 쓸 곳이 없다). `AuthService`를 이 유틸을 쓰도록 바꾸는 것도 #68의 몫으로
+    남긴다(#67 범위 아님 — 계산 로직 자체가 없는 이 이슈에서 미리 리팩터링하면 사용처
+    없는 코드가 된다).
 
 **구현 로직** (마스터 기획서 1번 엔드포인트 그대로)
 1. `month`를 `YearMonth.parse(month, DateTimeFormatter.ofPattern("yyyyMM"))`로 파싱(형식
@@ -124,7 +142,8 @@ public class SchoolCampSession {
 3. 이 이슈 범위에서는 `SchoolCampApplication`이 아직 없으므로(⁠#68에서 추가), `status`는
    `taken_at` 유무로만 계산(`taken_at != null ? CLOSED : OPEN`)하고
    `teacherDisplayName`/`applicantDisplayName`은 항상 `null`로 채운다 — **이 두 필드를
-   실제 신청 정보에서 채우는 로직은 #68이 담당**(그때 이 메서드에 조인 쿼리가 추가된다).
+   실제 신청 정보에서 채우는 로직(및 위 표시 형식 적용)은 #68이 담당**(그때 이 메서드에
+   조인 쿼리가 추가된다).
 4. DTO 리스트 변환
 
 **에러**

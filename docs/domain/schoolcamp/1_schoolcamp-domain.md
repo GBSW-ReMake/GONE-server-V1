@@ -196,13 +196,13 @@
 
 **요청**: `month`(쿼리, 필수, `yyyyMM`)
 
-**응답** (`200 OK`) — **담당 선생님 이름과 대표 신청자 이름을 같이 보여준다(확정,
+**응답** (`200 OK`) — **담당 선생님 이름과 대표 신청자 "학번+이름"을 같이 보여준다(확정,
 2026-08-18)**. 아직 신청이 없는 날짜는 `status: "OPEN"`이고 두 이름 필드가 `null`이다.
 ```json
 {
   "success": true,
   "data": [
-    { "sessionId": 12, "campDate": "20260403", "status": "CLOSED", "teacherDisplayName": "박선생", "applicantDisplayName": "홍길동" },
+    { "sessionId": 12, "campDate": "20260403", "status": "CLOSED", "teacherDisplayName": "정문경", "applicantDisplayName": "3218정문경" },
     { "sessionId": 13, "campDate": "20260410", "status": "OPEN", "teacherDisplayName": null, "applicantDisplayName": null }
   ],
   "message": "스쿨캠핑 일정을 조회했습니다.",
@@ -210,14 +210,24 @@
 }
 ```
 
+**표시 형식(확정, 2026-08-18)**: 프론트가 조립하지 않고 백엔드가 최종 문자열을 계산해서
+보낸다.
+- `teacherDisplayName`: 선생님 실명 그대로(학번 개념 없음)
+- `applicantDisplayName`: **학번(학년+반+번호, 고정 4자리) + 실명**을 붙인 한 문자열(예:
+  3학년 2반 18번 정문경 → `"3218정문경"`). 회원가입 기본 닉네임 생성
+  (`AuthService.generateStudentDefaultName`)과 같은 포맷(`"%d%d%02d%s"`)이지만 목적이
+  다르므로(하나는 최초 닉네임 부여, 하나는 표시용 라벨) 개념적으로 같은 값을 재사용하는
+  건 아니다 — 포맷 문자열 자체(반이 10개 미만이라는 전제)만 `gbsw.utils.GbswUtils.
+  studentNumber(Gbsw)`로 공유해 두 곳이 따로 놀지 않게 한다.
+
 **구현 로직**
 1. `month`를 `YearMonth`로 파싱
 2. `sessionRepository.findByCampDateBetween(월의 첫날, 마지막날)` 조회
 3. `taken_at`이 있는 세션(`status = CLOSED`)마다 그 세션의 활성 신청(`session_id` +
    `cancelled_at IS NULL`, 정확히 1건)을 조회해 `teacherDisplayName`/`applicantDisplayName`
-   채움(둘 다 2번 엔드포인트와 같은 소스 — 선생님은 `teacher_user_id`의 실명 또는
-   `teacher_name`, 대표자는 `applicant_user_id`의 실명). `taken_at`이 없는 세션은
-   `status = OPEN`, 두 필드 모두 `null`
+   채움 — 선생님은 `teacher_user_id`의 `Gbsw.name` 또는 `teacher_name` 그대로,
+   대표자는 `applicant_user_id`의 `Gbsw`로 위 형식(`GbswUtils.studentNumber(gbsw) +
+   gbsw.getName()`)을 계산. `taken_at`이 없는 세션은 `status = OPEN`, 두 필드 모두 `null`
 
 > 💡 `CLOSED`인 날짜도 목록에서 빼버리지 않는다 — 캘린더 UI에서 "마감된 날짜"를 비활성화
 > 표시로 보여줘야 하므로, 아예 안 보이는 것과 "마감돼서 못 누름"은 프론트 입장에서 다르게
