@@ -136,8 +136,11 @@ public class SchoolCampSession {
     없는 코드가 된다).
 
 **구현 로직** (마스터 기획서 1번 엔드포인트 그대로)
-1. `month`를 `YearMonth.parse(month, DateTimeFormatter.ofPattern("yyyyMM"))`로 파싱(형식
-   오류 → `400` `SCHOOLCAMP_010`, 신규 코드 — 아래 "영향 받는 기존 코드" 참고)
+1. 컨트롤러가 `@RequestParam @DateTimeFormat(pattern = "yyyyMM") YearMonth month`로 직접
+   바인딩한다 — `outing`의 `dateFrom`/`dateTo`(`@DateTimeFormat(pattern = "yyyyMMdd")
+   LocalDate`)와 동일한 패턴. 파싱 실패는 Spring이 `MethodArgumentTypeMismatchException`을
+   던지고, `GlobalExceptionHandler`가 이미 이걸 `400` `COMMON_001`로 처리하고 있어(#41에서
+   추가됨) **신규 에러 코드가 필요 없다** — 애초 계획했던 `SCHOOLCAMP_010`은 만들지 않는다.
 2. `sessionRepository.findByCampDateBetween(month.atDay(1), month.atEndOfMonth())` 조회
 3. 이 이슈 범위에서는 `SchoolCampApplication`이 아직 없으므로(⁠#68에서 추가), `status`는
    `taken_at` 유무로만 계산(`taken_at != null ? CLOSED : OPEN`)하고
@@ -147,7 +150,7 @@ public class SchoolCampSession {
 4. DTO 리스트 변환
 
 **에러**
-- `month` 형식이 `yyyyMM`이 아님 → `400` `SCHOOLCAMP_010`(신규)
+- `month` 형식이 `yyyyMM`이 아님 → `400` `COMMON_001`(기존 공통 처리 재사용)
 
 ## 영향 받는 기존 코드
 - 신규 패키지 `schoolcamp`: `entity/SchoolCampSession`, `repository/SchoolCampSessionRepository`,
@@ -157,12 +160,12 @@ public class SchoolCampSession {
   (`OPEN`/`CLOSED`)
 - `SchoolCampErrorCode`(신규): 이 이슈에서 실제로 쓰는 코드만 채운다 —
   `SCHOOLCAMP_005`(400, "신청 가능한 날짜가 아닙니다(금/토/일 포함)"),
-  `SCHOOLCAMP_006`(409, "이미 등록된 날짜입니다"),
-  `SCHOOLCAMP_010`(400, "월 형식이 올바르지 않습니다(yyyyMM)"). 마스터 기획서의 나머지 코드
-  (001~004/007~009)는 #68/#70이 실제로 그 분기에 도달할 때 각자 추가한다 — 지금 다 채워두면
-  아직 쓰이지 않는 코드가 되어 checkstyle의 "미사용" 경고는 안 나지만(enum이라 상수 자체는
-  안전) 리뷰 시 "이거 왜 여기서 안 쓰이지"라는 혼란을 줄 수 있어, 실제 사용 시점에 맞춰
-  점진적으로 추가한다(#41/#42가 `OutingErrorCode`를 채운 방식과 동일).
+  `SCHOOLCAMP_006`(409, "이미 등록된 날짜입니다"). `month` 형식 오류는 위에서 정리한 대로
+  기존 `COMMON_001` 공통 처리로 충분해 신규 코드를 만들지 않는다. 마스터 기획서의 나머지
+  코드(001~004/007~009)는 #68/#70이 실제로 그 분기에 도달할 때 각자 추가한다 — 지금 다
+  채워두면 아직 쓰이지 않는 코드가 되어 checkstyle의 "미사용" 경고는 안 나지만(enum이라
+  상수 자체는 안전) 리뷰 시 "이거 왜 여기서 안 쓰이지"라는 혼란을 줄 수 있어, 실제 사용
+  시점에 맞춰 점진적으로 추가한다(#41/#42가 `OutingErrorCode`를 채운 방식과 동일).
 - `V11__add_schoolcamp_session.sql`(신규 마이그레이션)
 - `SecurityConfig`(수정 없음): `@PreAuthorize`가 이미 `outing`에서 활성화된
   `@EnableMethodSecurity`를 그대로 재사용 — 이 이슈에서 새로 켤 필요 없음(마스터 기획서
