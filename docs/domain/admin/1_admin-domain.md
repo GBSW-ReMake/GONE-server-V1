@@ -93,6 +93,7 @@ CRUD, `1_schoolcamp-domain.md`의 세션 취소/삭제 등). **그 결과 이 �
 | Conduct(미구현 도메인) | 카테고리 CRUD | 이미 `1_conduct-domain.md`가 "별도 웹 관리자 페이지" 몫으로 명시 — `AdminConductController` 신규 | `#58` 후속 |
 | SchoolCamp(미구현 도메인) | 세션 등록 | 이미 `1_schoolcamp-domain.md`가 관리자 몫으로 설계(`schoolcamp` 패키지 자체 컨트롤러) | `#38` 진행 중 |
 | SchoolCamp(미구현 도메인) | 세션 취소/삭제(신청자 존재 시 처리 포함) | `1_schoolcamp-domain.md`가 범위 밖으로 명시 — `AdminSchoolCampController` 신규, 정책은 후속 이슈에서 확정 | `#38` 후속 |
+| SchoolCamp(미구현 도메인) | 예약 현황 캘린더 조회(날짜별 신청 팀/참여자 상세) | `AdminSchoolCampController` 신규 — 학생/선생님용 월별 캘린더 조회를 관리자 관점으로 확장. **실습실(room) 개념은 현재 도메인 모델에 없음**(하루 세션 1개·정원 8명뿐) — 복수 실습실 병렬 예약이 실제로 필요하면 `SchoolCampSession`에 room/location 필드 추가가 선행돼야 함(`#38`에서 확인) | `#38` 후속 |
 | 역할(Role) | 부서 역할(학생회/선도부/총무부/환경부/방송부/체육부) 개별·일괄 부여/회수 | `#15`의 역할 부여 API를 쓰는 웹 어드민 화면층 — API 자체는 `#15` 범위 | `#15` 진행 중 |
 | Notification | 공지/알림 직접 발송(전체/학년·반/개별 대상) | `AdminNotificationController`에 발송 엔드포인트 추가, 기존 `NotificationService.send(...)` 재사용 | 미구현 |
 | Outing(운영 파라미터) | 운영 파라미터 설정(외출 반경/마감시각 등, 현재 `application.yml` 하드코딩) | 신규 — 저장 방식(DB 테이블/캐시)은 후속 이슈에서 확정 | 미구현 |
@@ -233,6 +234,8 @@ CRUD 등)로 한정한다.
 - [ ] Gbsw 엑셀 일괄 임포트 결과 확인(기존 `GbswExcelImportService` 실행 결과 조회)
 - [ ] (정책 확인 후) 계정 임시 정지(`SUSPENDED`) — 학교 규정상 필요성이 확정되기 전까지는
       착수하지 않는다
+- [ ] SchoolCamp 예약 현황 캘린더 조회(관리자) — `#38` 완료 후 착수. 실습실(room) 개념
+      필요 여부를 `#38` 쪽에서 먼저 확인(필요하면 도메인 모델 확장이 이 항목보다 선행)
 
 ## API 설계 6원칙 체크
 - **한 가지를 잘하기**: 위 후속 이슈 목록이 이미 도메인/기능 단위로 쪼개져 있어 각 이슈가
