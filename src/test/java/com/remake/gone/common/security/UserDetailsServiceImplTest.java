@@ -87,11 +87,12 @@ class UserDetailsServiceImplTest {
         .willReturn(Optional.empty());
 
     assertThatThrownBy(() -> userDetailsService.loadUserByUsername("nouser"))
-        .isInstanceOf(UsernameNotFoundException.class);
+        .isInstanceOf(UsernameNotFoundException.class)
+        .hasMessage("계정을 찾을 수 없습니다.");
   }
 
   @Test
-  @DisplayName("자퇴/퇴학 계정이면 계정을 못 찾았을 때와 동일하게 UsernameNotFoundException을 던진다")
+  @DisplayName("자퇴/퇴학 계정이면 계정을 못 찾았을 때와 동일한 예외 타입·메시지를 던진다")
   void throwsWhenUserWithdrawn() {
     User user = User.builder()
         .id(3L)
@@ -103,7 +104,8 @@ class UserDetailsServiceImplTest {
         .willReturn(Optional.of(user));
 
     assertThatThrownBy(() -> userDetailsService.loadUserByUsername("withdrawn01"))
-        .isInstanceOf(UsernameNotFoundException.class);
+        .isInstanceOf(UsernameNotFoundException.class)
+        .hasMessage("계정을 찾을 수 없습니다.");
   }
 
   @Test

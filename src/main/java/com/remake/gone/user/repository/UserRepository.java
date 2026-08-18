@@ -81,8 +81,21 @@ public interface UserRepository extends JpaRepository<User, Long> {
    * @param query LIKE 와일드카드가 이스케이프 처리된 검색어
    * @return 조건에 맞는 사용자 목록
    */
+  default List<User> searchByRealNameContaining(String query) {
+    return searchByRealNameContainingAndStatus(query, UserStatus.ACTIVE);
+  }
+
+  /**
+   * {@link #searchByRealNameContaining(String)}가 위임하는 실제 쿼리. {@code status}를
+   * 파라미터 바인딩으로 받아, 상태 조건이 필요하면 이 메서드를 직접 호출할 수도 있다.
+   *
+   * @param query  LIKE 와일드카드가 이스케이프 처리된 검색어
+   * @param status 결과에 포함할 사용자 상태
+   * @return 조건에 맞는 사용자 목록
+   */
   @Query("select u from User u join fetch u.gbsw g "
       + "where g.name like concat('%', :query, '%') escape '\\' "
-      + "and u.status = com.remake.gone.user.enums.UserStatus.ACTIVE")
-  List<User> searchByRealNameContaining(@Param("query") String query);
+      + "and u.status = :status")
+  List<User> searchByRealNameContainingAndStatus(
+      @Param("query") String query, @Param("status") UserStatus status);
 }

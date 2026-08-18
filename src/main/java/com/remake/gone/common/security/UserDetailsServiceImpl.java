@@ -20,18 +20,22 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 @RequiredArgsConstructor
 public class UserDetailsServiceImpl implements UserDetailsService {
 
+  /**
+   * 계정 미존재/탈퇴(WITHDRAWN) 공통 예외 메시지. 두 경우를 구분해서 응답하면 "이 아이디는
+   * 탈퇴 계정이다"라는 정보가 노출되므로, 두 곳 모두 반드시 이 상수를 재사용해야 한다.
+   */
+  private static final String ACCOUNT_NOT_FOUND_MESSAGE = "계정을 찾을 수 없습니다.";
+
   private final UserRepository userRepository;
   private final UserRoleRepository userRoleRepository;
 
   @Override
   public UserDetails loadUserByUsername(String identifier) {
     User user = userRepository.findFirstByLoginIdOrPhoneNumber(identifier, identifier)
-        .orElseThrow(() -> new UsernameNotFoundException("계정을 찾을 수 없습니다."));
+        .orElseThrow(() -> new UsernameNotFoundException(ACCOUNT_NOT_FOUND_MESSAGE));
 
-    // 자퇴/퇴학 계정은 계정이 없는 것과 동일하게 취급한다. 계정 미존재와 구분해서 응답하면
-    // "이 아이디는 탈퇴 계정이다"라는 정보가 노출되므로, 같은 예외로 합류시킨다.
     if (user.getStatus() == UserStatus.WITHDRAWN) {
-      throw new UsernameNotFoundException("계정을 찾을 수 없습니다.");
+      throw new UsernameNotFoundException(ACCOUNT_NOT_FOUND_MESSAGE);
     }
 
     Set<String> roleCodes = Set.copyOf(userRoleRepository.findRoleCodesByUserId(user.getId()));
