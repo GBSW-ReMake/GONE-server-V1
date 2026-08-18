@@ -90,6 +90,32 @@ class SchoolCampServiceTest {
 
       verify(sessionRepository, never()).saveAll(anyList());
     }
+
+    @Test
+    @DisplayName("요청 안에서 같은 날짜가 중복되면 DB 조회 없이 전체를 거부한다")
+    void rejectsWhenRequestContainsSelfDuplicateDate() {
+      assertThatThrownBy(
+          () -> schoolCampService.registerCampDates(List.of("20260406", "20260406")))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(SchoolCampErrorCode.CAMP_DATE_ALREADY_REGISTERED);
+
+      verify(sessionRepository, never()).existsByCampDateIn(anyList());
+      verify(sessionRepository, never()).saveAll(anyList());
+    }
+
+    @Test
+    @DisplayName("형식은 맞지만 실존하지 않는 날짜가 포함되면 전체를 거부한다")
+    void rejectsWhenDateDoesNotExistOnCalendar() {
+      // "20261332"는 8자리 숫자라 @Pattern은 통과하지만 13월은 실존하지 않는다
+      assertThatThrownBy(
+          () -> schoolCampService.registerCampDates(List.of("20261332")))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(SchoolCampErrorCode.INVALID_CAMP_DATE);
+
+      verify(sessionRepository, never()).saveAll(anyList());
+    }
   }
 
   @Nested

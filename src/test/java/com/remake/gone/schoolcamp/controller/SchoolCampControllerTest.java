@@ -61,6 +61,18 @@ class SchoolCampControllerTest {
     }
 
     @Test
+    @DisplayName("정상 등록 시 201 Created를 반환한다")
+    void returns201OnSuccess() throws Exception {
+      given(schoolCampService.registerCampDates(List.of("20260406")))
+          .willReturn(List.of(new SchoolCampSessionResponse(12L, "20260406")));
+
+      mockMvc.perform(post("/api/v1/school-camps")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content("{\"campDates\": [\"20260406\"]}"))
+          .andExpect(status().isCreated());
+    }
+
+    @Test
     @DisplayName("요청받은 날짜 목록으로 서비스를 호출하고 결과를 그대로 반환한다")
     void callsServiceWithRequestedDates() {
       SchoolCampController controller = new SchoolCampController(schoolCampService);
