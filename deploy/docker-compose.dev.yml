@@ -1,7 +1,17 @@
+# 모든 서비스에 로그 로테이션(x-logging)을 강제한다. Docker의 기본 json-file 드라이버는
+# 크기 제한이 없어, restart: always로 계속 떠 있는 컨테이너의 로그가 무한정 쌓이며 디스크를
+# 채운다 — 실제로 이 방치된 로그가 "no space left on device" 배포 실패의 근본 원인이었다.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   mysql:
     image: mysql:8.0
     restart: always
+    logging: *default-logging
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: gone
@@ -11,12 +21,14 @@ services:
   redis:
     image: redis:7
     restart: always
+    logging: *default-logging
     volumes:
       - redis-data:/data
 
   app:
     image: ghcr.io/gbsw-remake/gone-server-v1:dev
     restart: always
+    logging: *default-logging
     depends_on:
       - mysql
       - redis
@@ -25,6 +37,7 @@ services:
   nginx:
     image: nginx:1.27-alpine
     restart: always
+    logging: *default-logging
     depends_on:
       - app
     ports:

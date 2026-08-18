@@ -420,6 +420,10 @@ jobs:
             NEIS_SD_SCHUL_CODE=$NEIS_SD_SCHUL_CODE
             ENVEOF
             chmod 600 .env
+            # 매 배포마다 :dev 태그가 새 이미지로 갱신되며 이전 레이어가 dangling으로
+            # 남는다. 정리 없이 pull만 반복하면 디스크가 서서히 가득 차 pull 자체가
+            # "no space left on device"로 실패한다 — pull 전에 미사용 이미지를 먼저 비운다.
+            docker image prune -af
             docker compose -f docker-compose.dev.yml pull app
             docker compose -f docker-compose.dev.yml up -d app
             # nginx는 이미지 태그/볼륨 경로가 배포마다 안 바뀌어 위 up -d만으로는
