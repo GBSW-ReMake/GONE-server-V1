@@ -6,6 +6,7 @@ import static org.mockito.BDDMockito.given;
 
 import com.remake.gone.role.repository.UserRoleRepository;
 import com.remake.gone.user.entity.User;
+import com.remake.gone.user.enums.UserStatus;
 import com.remake.gone.user.repository.UserRepository;
 import java.util.List;
 import java.util.Optional;
@@ -40,6 +41,7 @@ class UserDetailsServiceImplTest {
         .id(1L)
         .loginId("testuser01")
         .passwordHash("encoded-password")
+        .status(UserStatus.ACTIVE)
         .build();
     given(userRepository.findFirstByLoginIdOrPhoneNumber("testuser01", "testuser01"))
         .willReturn(Optional.of(user));
@@ -63,6 +65,7 @@ class UserDetailsServiceImplTest {
         .loginId("testuser02")
         .passwordHash("encoded-password")
         .phoneNumber("01099999999")
+        .status(UserStatus.ACTIVE)
         .build();
     given(userRepository.findFirstByLoginIdOrPhoneNumber("01099999999", "01099999999"))
         .willReturn(Optional.of(user));
@@ -84,6 +87,43 @@ class UserDetailsServiceImplTest {
         .willReturn(Optional.empty());
 
     assertThatThrownBy(() -> userDetailsService.loadUserByUsername("nouser"))
-        .isInstanceOf(UsernameNotFoundException.class);
+        .isInstanceOf(UsernameNotFoundException.class)
+        .hasMessage("계정을 찾을 수 없습니다.");
+  }
+
+  @Test
+  @DisplayName("자퇴/퇴학 계정이면 계정을 못 찾았을 때와 동일한 예외 타입·메시지를 던진다")
+  void throwsWhenUserWithdrawn() {
+    User user = User.builder()
+        .id(3L)
+        .loginId("withdrawn01")
+        .passwordHash("encoded-password")
+        .status(UserStatus.WITHDRAWN)
+        .build();
+    given(userRepository.findFirstByLoginIdOrPhoneNumber("withdrawn01", "withdrawn01"))
+        .willReturn(Optional.of(user));
+
+    assertThatThrownBy(() -> userDetailsService.loadUserByUsername("withdrawn01"))
+        .isInstanceOf(UsernameNotFoundException.class)
+        .hasMessage("계정을 찾을 수 없습니다.");
+  }
+
+  @Test
+  @DisplayName("졸업 계정이면 정상적으로 AuthUserDetails를 반환한다")
+  void loadsUserWhenGraduated() {
+    User user = User.builder()
+        .id(4L)
+        .loginId("graduated01")
+        .passwordHash("encoded-password")
+        .status(UserStatus.GRADUATED)
+        .build();
+    given(userRepository.findFirstByLoginIdOrPhoneNumber("graduated01", "graduated01"))
+        .willReturn(Optional.of(user));
+    given(userRoleRepository.findRoleCodesByUserId(4L)).willReturn(List.of("GRADUATE"));
+
+    UserDetails result = userDetailsService.loadUserByUsername("graduated01");
+
+    assertThat(result).isInstanceOf(AuthUserDetails.class);
+    assertThat(((AuthUserDetails) result).userId()).isEqualTo(4L);
   }
 }

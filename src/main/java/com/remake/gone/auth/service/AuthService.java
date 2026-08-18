@@ -20,6 +20,7 @@ import com.remake.gone.role.entity.UserRole;
 import com.remake.gone.role.repository.RoleRepository;
 import com.remake.gone.role.repository.UserRoleRepository;
 import com.remake.gone.user.entity.User;
+import com.remake.gone.user.enums.UserStatus;
 import com.remake.gone.user.exception.UserErrorCode;
 import com.remake.gone.user.repository.UserRepository;
 import io.jsonwebtoken.JwtException;
@@ -107,6 +108,7 @@ public class AuthService {
         .passwordHash(passwordEncoder.encode(request.password()))
         .name(generateDefaultName(gbsw))
         .phoneNumber(phoneNumber)
+        .status(UserStatus.ACTIVE)
         .build();
     userRepository.save(user);
 
