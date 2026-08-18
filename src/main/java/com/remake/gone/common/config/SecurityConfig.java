@@ -154,6 +154,7 @@ public class SecurityConfig {
             .requestMatchers("/api/v1/files/**").authenticated()
             .requestMatchers("/api/v1/timetables/**").authenticated()
             .requestMatchers("/api/v1/outings/**").authenticated()
+            .requestMatchers("/api/v1/school-camps/**").authenticated()
             .anyRequest().permitAll())
         .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 

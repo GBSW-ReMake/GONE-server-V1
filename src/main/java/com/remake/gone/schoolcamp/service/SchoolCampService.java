@@ -11,6 +11,8 @@ import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -41,14 +43,26 @@ public class SchoolCampService {
    */
   @Transactional
   public List<SchoolCampSessionResponse> registerCampDates(List<String> campDates) {
-    List<LocalDate> dates = campDates.stream()
-        .map(date -> LocalDate.parse(date, YMD_FORMATTER))
-        .toList();
+    List<LocalDate> dates;
+    try {
+      dates = campDates.stream().map(date -> LocalDate.parse(date, YMD_FORMATTER)).toList();
+    } catch (DateTimeParseException e) {
+      // @Pattern은 8자리 숫자인지만 확인하고 실존하는 날짜인지는 보장하지 않는다(예:
+      // "20261332", "20260230") — 여기서 걸러 400으로 응답한다.
+      throw new CustomException(SchoolCampErrorCode.INVALID_CAMP_DATE);
+    }
 
     boolean hasClosedDayOfWeek = dates.stream()
         .anyMatch(date -> CLOSED_DAYS_OF_WEEK.contains(date.getDayOfWeek()));
     if (hasClosedDayOfWeek) {
       throw new CustomException(SchoolCampErrorCode.INVALID_CAMP_DATE);
+    }
+
+    if (new HashSet<>(dates).size() != dates.size()) {
+      // 요청 안에서 같은 날짜가 중복되면 DB UNIQUE 제약까지 안 가고 여기서 먼저 걸러
+      // 도메인 에러 코드로 응답한다(그대로 두면 두 번째 삽입이 DataIntegrityViolationException으로
+      // 실패해 범용 COMMON_006으로 응답되어 원인이 불분명해진다).
+      throw new CustomException(SchoolCampErrorCode.CAMP_DATE_ALREADY_REGISTERED);
     }
 
     if (sessionRepository.existsByCampDateIn(dates)) {
