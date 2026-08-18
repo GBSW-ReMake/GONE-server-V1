@@ -1,8 +1,11 @@
 package com.remake.gone.user.entity;
 
 import com.remake.gone.gbsw.entity.Gbsw;
+import com.remake.gone.user.enums.UserStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -63,7 +66,12 @@ public class User {
   @Column(name = "created_at", nullable = false, updatable = false)
   private LocalDateTime createdAt;
 
-  /** 소프트 삭제 시각 (null이면 활성 계정). */
-  @Column(name = "deleted_at")
-  private LocalDateTime deletedAt;
+  /** 재학/졸업/자퇴 상태. 관리자가 수동으로 변경한다({@link UserStatus} 참고). */
+  @Enumerated(EnumType.STRING)
+  @Column(name = "status", nullable = false, length = 20)
+  private UserStatus status;
+
+  /** {@link #status}가 {@code ACTIVE}를 벗어난 시각 (아직 그런 적이 없으면 null). */
+  @Column(name = "status_changed_at")
+  private LocalDateTime statusChangedAt;
 }
