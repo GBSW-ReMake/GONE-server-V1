@@ -35,6 +35,12 @@ import org.springframework.test.web.servlet.MockMvc;
 
 /**
  * {@link SchoolCampController}에 대한 웹 계층(슬라이스) 테스트.
+ *
+ * <p>이 프로젝트의 {@code @WebMvcTest} 슬라이스는 Spring Security 필터 체인이 MockMvc에 실제로
+ * 붙지 않아 {@code @AuthenticationPrincipal} 주입을 검증할 수 없다({@code OutingControllerTest}/
+ * {@code FileControllerTest}와 같은 이유). 요청 검증(Bean Validation)은 MockMvc로, principal이
+ * 관련된 로직({@code applyToCamp})은 컨트롤러를 직접 호출해서 검증한다 — 실제 인증/인가까지
+ * 거치는 경로는 {@code SchoolCampAuthorizationTest}(`@SpringBootTest`)가 담당한다.
  */
 @WebMvcTest(SchoolCampController.class)
 @AutoConfigureMockMvc(addFilters = false)

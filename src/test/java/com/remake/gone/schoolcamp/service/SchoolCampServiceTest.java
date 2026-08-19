@@ -193,7 +193,7 @@ class SchoolCampServiceTest {
     }
 
     @Test
-    @DisplayName("taken_at이 있는 세션은 CLOSED이고 활성 신청에서 표시 이름을 채운다")
+    @DisplayName("taken_at이 있는 세션은 CLOSED이고 활성 신청에서 표시 이름을 채운다(자유 입력 선생님)")
     void returnsClosedSessionWithDisplayNames() {
       SchoolCampSession closedSession = SchoolCampSession.builder()
           .id(2L)
@@ -202,20 +202,70 @@ class SchoolCampServiceTest {
           .build();
       User applicant = studentUser(101L, studentGbsw(3, 2, 18, "정문경"), "닉네임");
       SchoolCampApplication application = SchoolCampApplication.builder()
+          .session(closedSession)
           .applicant(applicant)
           .teacherName("박선생")
           .build();
       given(sessionRepository.findByCampDateBetween(
           LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 30)))
           .willReturn(List.of(closedSession));
-      given(applicationRepository.findBySessionIdAndCancelledAtIsNull(2L))
-          .willReturn(Optional.of(application));
+      given(applicationRepository.findBySessionIdInAndCancelledAtIsNull(List.of(2L)))
+          .willReturn(List.of(application));
 
       List<SchoolCampCalendarResponse> result =
           schoolCampService.getCalendar(YearMonth.of(2026, 4));
 
       assertThat(result).containsExactly(new SchoolCampCalendarResponse(
           2L, "20260410", SchoolCampStatus.CLOSED, "박선생", "3218정문경"));
+    }
+
+    @Test
+    @DisplayName("taken_at이 있는 세션은 CLOSED이고 활성 신청에서 표시 이름을 채운다(가입된 선생님)")
+    void returnsClosedSessionWithRegisteredTeacherDisplayName() {
+      SchoolCampSession closedSession = SchoolCampSession.builder()
+          .id(2L)
+          .campDate(LocalDate.of(2026, 4, 10))
+          .takenAt(LocalDateTime.of(2026, 3, 20, 9, 12))
+          .build();
+      User applicant = studentUser(101L, studentGbsw(3, 2, 18, "정문경"), "닉네임");
+      User teacher = studentUser(42L, studentGbsw(1, 1, 1, "김선생"), "김선생");
+      SchoolCampApplication application = SchoolCampApplication.builder()
+          .session(closedSession)
+          .applicant(applicant)
+          .teacherUser(teacher)
+          .build();
+      given(sessionRepository.findByCampDateBetween(
+          LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 30)))
+          .willReturn(List.of(closedSession));
+      given(applicationRepository.findBySessionIdInAndCancelledAtIsNull(List.of(2L)))
+          .willReturn(List.of(application));
+
+      List<SchoolCampCalendarResponse> result =
+          schoolCampService.getCalendar(YearMonth.of(2026, 4));
+
+      assertThat(result).containsExactly(new SchoolCampCalendarResponse(
+          2L, "20260410", SchoolCampStatus.CLOSED, "김선생", "3218정문경"));
+    }
+
+    @Test
+    @DisplayName("점유됐지만 활성 신청이 없는 세션(유령 점유)은 예외 없이 이름만 비운 CLOSED로 반환한다")
+    void returnsClosedSessionWithNullNamesWhenApplicationMissing() {
+      SchoolCampSession ghostSession = SchoolCampSession.builder()
+          .id(3L)
+          .campDate(LocalDate.of(2026, 4, 13))
+          .takenAt(LocalDateTime.of(2026, 3, 20, 9, 12))
+          .build();
+      given(sessionRepository.findByCampDateBetween(
+          LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 30)))
+          .willReturn(List.of(ghostSession));
+      given(applicationRepository.findBySessionIdInAndCancelledAtIsNull(List.of(3L)))
+          .willReturn(List.of());
+
+      List<SchoolCampCalendarResponse> result =
+          schoolCampService.getCalendar(YearMonth.of(2026, 4));
+
+      assertThat(result).containsExactly(new SchoolCampCalendarResponse(
+          3L, "20260413", SchoolCampStatus.CLOSED, null, null));
     }
 
     @Test
@@ -330,6 +380,46 @@ class SchoolCampServiceTest {
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(SchoolCampErrorCode.INVALID_APPLICATION_FORMAT);
+
+      verify(sessionClaimService).release(SESSION_ID);
+      verifyNoInteractions(applicationRepository, memberRepository);
+    }
+
+    @Test
+    @DisplayName("같은 studentUserId가 중복되면 400을 던지고 세션 점유를 반환한다")
+    void throwsAndReleasesWhenMemberDuplicated() {
+      given(sessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session()));
+      given(sessionClaimService.claim(SESSION_ID, NOW)).willReturn(true);
+      given(userRepository.findById(APPLICANT_ID))
+          .willReturn(Optional.of(studentUser(APPLICANT_ID, studentGbsw(3, 4, 1, "홍길동"), "길동")));
+      SchoolCampApplyRequest request = new SchoolCampApplyRequest(null, "박선생", List.of(
+          new SchoolCampMemberRequest(55L, null), new SchoolCampMemberRequest(55L, null)));
+
+      assertThatThrownBy(
+          () -> schoolCampService.applyToCamp(APPLICANT_ID, SESSION_ID, request, NOW))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(SchoolCampErrorCode.INVALID_MEMBER_INFO);
+
+      verify(sessionClaimService).release(SESSION_ID);
+      verifyNoInteractions(applicationRepository, memberRepository);
+    }
+
+    @Test
+    @DisplayName("대표 신청자 본인이 팀원으로 포함되면 400을 던지고 세션 점유를 반환한다")
+    void throwsAndReleasesWhenApplicantIncludedInMembers() {
+      given(sessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session()));
+      given(sessionClaimService.claim(SESSION_ID, NOW)).willReturn(true);
+      given(userRepository.findById(APPLICANT_ID))
+          .willReturn(Optional.of(studentUser(APPLICANT_ID, studentGbsw(3, 4, 1, "홍길동"), "길동")));
+      SchoolCampApplyRequest request = new SchoolCampApplyRequest(null, "박선생", List.of(
+          new SchoolCampMemberRequest(APPLICANT_ID, null)));
+
+      assertThatThrownBy(
+          () -> schoolCampService.applyToCamp(APPLICANT_ID, SESSION_ID, request, NOW))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(SchoolCampErrorCode.INVALID_MEMBER_INFO);
 
       verify(sessionClaimService).release(SESSION_ID);
       verifyNoInteractions(applicationRepository, memberRepository);
