@@ -1,6 +1,8 @@
 package com.remake.gone.schoolcamp.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -8,11 +10,17 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.remake.gone.common.response.ApiResponse;
+import com.remake.gone.common.security.UserPrincipal;
 import com.remake.gone.schoolcamp.dto.RegisterSchoolCampDatesRequest;
+import com.remake.gone.schoolcamp.dto.SchoolCampApplicationResponse;
+import com.remake.gone.schoolcamp.dto.SchoolCampApplyRequest;
 import com.remake.gone.schoolcamp.dto.SchoolCampCalendarResponse;
+import com.remake.gone.schoolcamp.dto.SchoolCampMemberRequest;
+import com.remake.gone.schoolcamp.dto.SchoolCampMemberResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampSessionResponse;
 import com.remake.gone.schoolcamp.enums.SchoolCampStatus;
 import com.remake.gone.schoolcamp.service.SchoolCampService;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -27,6 +35,12 @@ import org.springframework.test.web.servlet.MockMvc;
 
 /**
  * {@link SchoolCampController}에 대한 웹 계층(슬라이스) 테스트.
+ *
+ * <p>이 프로젝트의 {@code @WebMvcTest} 슬라이스는 Spring Security 필터 체인이 MockMvc에 실제로
+ * 붙지 않아 {@code @AuthenticationPrincipal} 주입을 검증할 수 없다({@code OutingControllerTest}/
+ * {@code FileControllerTest}와 같은 이유). 요청 검증(Bean Validation)은 MockMvc로, principal이
+ * 관련된 로직({@code applyToCamp})은 컨트롤러를 직접 호출해서 검증한다 — 실제 인증/인가까지
+ * 거치는 경로는 {@code SchoolCampAuthorizationTest}(`@SpringBootTest`)가 담당한다.
  */
 @WebMvcTest(SchoolCampController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -120,6 +134,51 @@ class SchoolCampControllerTest {
       assertThat(response.success()).isTrue();
       assertThat(response.data()).isEqualTo(expected);
       verify(schoolCampService).getCalendar(YearMonth.of(2026, 4));
+    }
+  }
+
+  @Nested
+  @DisplayName("POST /api/v1/school-camps/{sessionId}/applications")
+  class ApplyToCamp {
+
+    @Test
+    @DisplayName("sessionId가 숫자가 아니면 400을 반환한다")
+    void returns400WhenSessionIdNotNumeric() throws Exception {
+      mockMvc.perform(post("/api/v1/school-camps/abc/applications")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content("{\"teacherUserId\": 42}"))
+          .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("팀원 자유 입력 이름이 50자를 초과하면 400을 반환한다")
+    void returns400WhenGuestNameTooLong() throws Exception {
+      String tooLongName = "가".repeat(51);
+      mockMvc.perform(post("/api/v1/school-camps/5/applications")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content("{\"teacherUserId\": 42, \"additionalMembers\": "
+                  + "[{\"guestName\": \"" + tooLongName + "\"}]}"))
+          .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("정상 요청이면 201과 서비스 응답을 그대로 반환한다")
+    void returns201OnSuccess() {
+      SchoolCampController controller = new SchoolCampController(schoolCampService);
+      UserPrincipal principal = new UserPrincipal(101L);
+      SchoolCampApplyRequest request = new SchoolCampApplyRequest(42L, null, List.of());
+      SchoolCampApplicationResponse expected = new SchoolCampApplicationResponse(
+          301L, "20260403", "박선생",
+          List.of(new SchoolCampMemberResponse("홍길동", 3, 4, null, true)),
+          "2026-03-20T09:12:00");
+      given(schoolCampService.applyToCamp(eq(101L), eq(5L), eq(request), any(LocalDateTime.class)))
+          .willReturn(expected);
+
+      ApiResponse<SchoolCampApplicationResponse> response =
+          controller.applyToCamp(principal, 5L, request);
+
+      assertThat(response.success()).isTrue();
+      assertThat(response.data()).isEqualTo(expected);
     }
   }
 }

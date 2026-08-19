@@ -1,13 +1,13 @@
 {
   "info": {
     "name": "GONE - SchoolCamp API",
-    "description": "스쿨캠핑(SchoolCamp) 도메인 API 컬렉션. #67(세션 등록 + 캘린더 조회) 2개 엔드포인트를 다룹니다.\n\n**폴더 구성**: \"사전 준비\" 폴더(관리자/학생 로그인 + 토큰 준비) 뒤에 최상위 \"스쿨캠핑 날짜 등록\"/\"스쿨캠핑 캘린더 조회\" → \"에러 케이스\" 폴더(관련 없는 순서로 무엇이든 실행 가능).\n\n**사전 준비**: `teacherLoginId`(teacher1)/`studentLoginId`(user1) 테스트 계정이 DB에 있어야 합니다. 관리자 역할 부여 API가 아직 없어(#15 진행 중), `teacher1` 계정에 ADMIN 역할을 DB에서 직접 부여해야 \"스쿨캠핑 날짜 등록\" 요청이 성공합니다(user_role 테이블에 직접 INSERT, 실행 후 원복 권장).\n\n**#67 검증 폴더 추가**: 두 엔드포인트를 처음부터 끝까지 순서대로 확인하는 \"#67 세션 등록 + 캘린더 조회 확인\" 폴더를 추가했습니다.",
+    "description": "스쿨캠핑(SchoolCamp) 도메인 API 컬렉션. #67(세션 등록 + 캘린더 조회) 2개 + #68(신청) 1개, 총 3개 엔드포인트를 다룹니다.\n\n**폴더 구성**: \"사전 준비\" 폴더(관리자/학생/팀원 로그인 + 토큰 준비) 뒤에 최상위 \"스쿨캠핑 날짜 등록\"/\"스쿨캠핑 캘린더 조회\"/\"스쿨캠핑 신청\" → \"에러 케이스\" 폴더(관련 없는 순서로 무엇이든 실행 가능).\n\n**사전 준비**: `teacherLoginId`(teacher1)/`studentLoginId`(user1)/`loginId`(testuser01, #68 팀원용) 테스트 계정이 DB에 있어야 합니다. 관리자/학생 역할 부여 API가 아직 없어(#15 진행 중), `teacher1` 계정에 ADMIN 역할을, `testuser01` 계정에 STUDENT 역할을 DB에서 직접 부여해야 각각 \"스쿨캠핑 날짜 등록\"과 #68의 팀원 관련 요청이 성공합니다(user_role 테이블에 직접 INSERT, 실행 후 원복 권장).\n\n**검증 폴더**: 두 엔드포인트를 처음부터 끝까지 순서대로 확인하는 \"#67 세션 등록 + 캘린더 조회 확인\" 폴더와, 신청 엔드포인트의 정상/에러 시나리오를 전부 순서대로 재현하는 \"#68 스쿨캠핑 신청 확인\" 폴더를 각각 추가했습니다.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
     {
       "name": "사전 준비",
-      "description": "관리자 로그인은 teacher1 계정을 그대로 쓴다 — 역할 부여 관리자 화면/API(#15)가 아직 없어, 이 컬렉션을 실행하기 전에 DB에서 그 계정에 ADMIN 역할을 수동으로 부여해둬야 한다(user_role 테이블에 직접 INSERT).",
+      "description": "관리자 로그인은 teacher1 계정을 그대로 쓴다 — 역할 부여 관리자 화면/API(#15)가 아직 없어, 이 컬렉션을 실행하기 전에 DB에서 그 계정에 ADMIN 역할을 수동으로 부여해둬야 한다(user_role 테이블에 직접 INSERT). #68의 팀원 관련 요청(팀원 추가/월 중복 확인)을 검증하려면 testuser01 계정에도 같은 방식으로 STUDENT 역할을 수동으로 부여해야 한다.",
       "item": [
         {
           "name": "관리자 로그인 (teacher1, ADMIN 역할 수동 부여 필요)",
@@ -120,6 +120,62 @@
             }
           ],
           "response": []
+        },
+        {
+          "name": "팀원 학생 로그인 (testuser01, STUDENT 역할 수동 부여 필요, #68)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{loginId}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"memberAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));",
+                  "        pm.environment.set(\"memberUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
         }
       ]
     },
@@ -220,6 +276,66 @@
               "pm.test(\"200 OK\", function () {",
               "    pm.response.to.have.status(200);",
               "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "스쿨캠핑 신청",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{studentAccessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/school-camps/{{schoolCampSessionId}}/applications",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "school-camps",
+            "{{schoolCampSessionId}}",
+            "applications"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"teacherUserId\": {{teacherUserId}},\n  \"additionalMembers\": [\n    { \"studentUserId\": {{memberUserId}} }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "대표 학생(STUDENT) 1명이 담당 선생님 + 팀원 1명을 등록해 스쿨캠핑에 신청한다(#68, 선착순). 201 Created를 반환한다. 실행 전에 '사전 준비'(관리자/학생/팀원 로그인)와 '스쿨캠핑 날짜 등록'을 먼저 실행해 schoolCampSessionId가 아직 아무도 신청하지 않은 세션을 가리켜야 한다 — 상세 순서는 '#68 스쿨캠핑 신청 확인' 폴더 참고."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"201 Created\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "if (pm.response.code === 201) {",
+              "    const body = pm.response.json();",
+              "    if (body.success && body.data) {",
+              "        pm.environment.set(\"schoolCampApplicationId\", body.data.id);",
+              "    }",
+              "}"
             ]
           }
         }
@@ -525,6 +641,120 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "존재하지 않는 세션에 신청 → 404 SCHOOLCAMP_001 (#68)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/999999/applications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "999999",
+                "applications"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"teacherUserId\": {{teacherUserId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "STUDENT 아닌 계정(TEACHER)으로 신청 시도 → 403 (#68)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/1/applications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "1",
+                "applications"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"teacherUserId\": {{teacherUserId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "@PreAuthorize가 컨트롤러 진입 전에 역할부터 걸러내므로, 세션 id(경로의 1)가 실존하는지는 이 테스트와 무관하다."
+          },
+          "response": []
+        },
+        {
+          "name": "인증 없이 신청 시도 → 401 (#68)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/1/applications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "1",
+                "applications"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"teacherUserId\": {{teacherUserId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
         }
       ]
     },
@@ -742,6 +972,1104 @@
                   "    pm.expect(found.teacherDisplayName).to.be.null;",
                   "    pm.expect(found.applicantDisplayName).to.be.null;",
                   "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "#68 스쿨캠핑 신청 확인",
+      "description": "#67 폴더와 별개로, #68에서 추가한 신청 엔드포인트의 정상/에러 시나리오를 처음부터 끝까지 순서대로 재현하는 폴더. 순서대로 실행해야 한다 — 각 단계가 다음 단계가 쓰는 schoolCampSessionId/schoolCampApplicationId를 갱신한다.",
+      "item": [
+        {
+          "name": "1. 관리자 로그인 (teacher1, ADMIN 역할 수동 부여 필요)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{teacherLoginId}}\",\n  \"password\": \"{{teacherPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"teacherAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));",
+                  "        pm.environment.set(\"teacherUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "2. 대표 학생 로그인 (user1)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{studentLoginId}}\",\n  \"password\": \"{{studentPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"studentAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));",
+                  "        pm.environment.set(\"studentUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "3. 팀원 학생 로그인 (testuser01, STUDENT 역할 수동 부여 필요)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{loginId}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"memberAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));",
+                  "        pm.environment.set(\"memberUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "4. 날짜 등록 (campDateApply1)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"campDates\": [\n    \"{{campDateApply1}}\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    pm.environment.set(\"schoolCampSessionId\", body.data[0].sessionId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. 신청 - 정상 케이스 (담당 선생님 + 가입된 팀원)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/{{schoolCampSessionId}}/applications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "{{schoolCampSessionId}}",
+                "applications"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"teacherUserId\": {{teacherUserId}},\n  \"additionalMembers\": [\n    { \"studentUserId\": {{memberUserId}} }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    pm.environment.set(\"schoolCampApplicationId\", body.data.id);",
+                  "    pm.test(\"팀원 2명(대표+가입 팀원), 담당 선생님 이름이 채워짐\", function () {",
+                  "        pm.expect(body.data.members.length).to.eql(2);",
+                  "        pm.expect(body.data.teacherDisplayName).to.not.be.null;",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6. 캘린더 재조회 (CLOSED + 이름 채워짐 확인)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps?month={{schoolCampMonthApply}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps"
+              ],
+              "query": [
+                {
+                  "key": "month",
+                  "value": "{{schoolCampMonthApply}}"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"신청한 세션이 CLOSED이고 이름이 채워져 있다\", function () {",
+                  "    const body = pm.response.json();",
+                  "    const found = body.data.find(",
+                  "        s => s.campDate === pm.environment.get(\"campDateApply1\"));",
+                  "    pm.expect(found).to.not.be.undefined;",
+                  "    pm.expect(found.status).to.eql(\"CLOSED\");",
+                  "    pm.expect(found.teacherDisplayName).to.not.be.null;",
+                  "    pm.expect(found.applicantDisplayName).to.not.be.null;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7. 재신청 시도(다른 학생, 같은 세션) → 409 SCHOOLCAMP_002",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{memberAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/{{schoolCampSessionId}}/applications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "{{schoolCampSessionId}}",
+                "applications"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"teacherUserId\": {{teacherUserId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "5번에서 이미 성사된 세션에 팀원 계정(memberAccessToken)이 대표로 다시 신청 — 선착순 마감(409)을 재현한다."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409 Conflict, SCHOOLCAMP_002\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "    pm.expect(pm.response.json().code).to.eql(\"SCHOOLCAMP_002\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "8. 날짜 등록 (campDateApplyFormatError, 새 세션)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"campDates\": [\n    \"{{campDateApplyFormatError}}\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    pm.environment.set(\"schoolCampSessionId\", body.data[0].sessionId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9. 신청 - 담당 선생님 정보 둘 다 있음 → 400 SCHOOLCAMP_004",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/{{schoolCampSessionId}}/applications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "{{schoolCampSessionId}}",
+                "applications"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"teacherUserId\": {{teacherUserId}},\n  \"teacherName\": \"teacher-name\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request, SCHOOLCAMP_004\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "    pm.expect(pm.response.json().code).to.eql(\"SCHOOLCAMP_004\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10. 신청 - 담당 선생님 정보 둘 다 없음 → 400 SCHOOLCAMP_004",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/{{schoolCampSessionId}}/applications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "{{schoolCampSessionId}}",
+                "applications"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "9번이 claim 후 release로 세션을 되돌려놓았으므로 같은 세션을 계속 재사용할 수 있다."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request, SCHOOLCAMP_004\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "    pm.expect(pm.response.json().code).to.eql(\"SCHOOLCAMP_004\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11. 신청 - 총원 8명 초과 → 400 SCHOOLCAMP_004",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/{{schoolCampSessionId}}/applications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "{{schoolCampSessionId}}",
+                "applications"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"teacherName\": \"teacher-name\",\n  \"additionalMembers\": [\n    {\"guestName\": \"a\"}, {\"guestName\": \"b\"}, {\"guestName\": \"c\"}, {\"guestName\": \"d\"},\n    {\"guestName\": \"e\"}, {\"guestName\": \"f\"}, {\"guestName\": \"g\"}, {\"guestName\": \"h\"}\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request, SCHOOLCAMP_004\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "    pm.expect(pm.response.json().code).to.eql(\"SCHOOLCAMP_004\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12. 캘린더 재조회 (release로 여전히 OPEN인지 확인)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps?month={{schoolCampMonthApply}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps"
+              ],
+              "query": [
+                {
+                  "key": "month",
+                  "value": "{{schoolCampMonthApply}}"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"9~11번에서 실패한 세션이 여전히 OPEN이다\", function () {",
+                  "    const body = pm.response.json();",
+                  "    const found = body.data.find(",
+                  "        s => s.campDate === pm.environment.get(\"campDateApplyFormatError\"));",
+                  "    pm.expect(found).to.not.be.undefined;",
+                  "    pm.expect(found.status).to.eql(\"OPEN\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "13. 날짜 등록 (campDateApplyMemberError, 새 세션)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"campDates\": [\n    \"{{campDateApplyMemberError}}\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    pm.environment.set(\"schoolCampSessionId\", body.data[0].sessionId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "14. 신청 - 존재하지 않는 studentUserId → 400 SCHOOLCAMP_008",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/{{schoolCampSessionId}}/applications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "{{schoolCampSessionId}}",
+                "applications"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"teacherName\": \"teacher-name\",\n  \"additionalMembers\": [\n    { \"studentUserId\": 999999 }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request, SCHOOLCAMP_008\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "    pm.expect(pm.response.json().code).to.eql(\"SCHOOLCAMP_008\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "15. 신청 - 팀원 studentUserId 중복 → 400 SCHOOLCAMP_008",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/{{schoolCampSessionId}}/applications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "{{schoolCampSessionId}}",
+                "applications"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"teacherName\": \"teacher-name\",\n  \"additionalMembers\": [\n    { \"studentUserId\": {{memberUserId}} },\n    { \"studentUserId\": {{memberUserId}} }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request, SCHOOLCAMP_008\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "    pm.expect(pm.response.json().code).to.eql(\"SCHOOLCAMP_008\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "16. 신청 - 대표 신청자 본인이 팀원에 포함 → 400 SCHOOLCAMP_008",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/{{schoolCampSessionId}}/applications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "{{schoolCampSessionId}}",
+                "applications"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"teacherName\": \"teacher-name\",\n  \"additionalMembers\": [\n    { \"studentUserId\": {{studentUserId}} }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request, SCHOOLCAMP_008\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "    pm.expect(pm.response.json().code).to.eql(\"SCHOOLCAMP_008\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "17. 날짜 등록 (campDateApplyDuplicateMonth, 5번과 같은 달)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"campDates\": [\n    \"{{campDateApplyDuplicateMonth}}\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    pm.environment.set(\"schoolCampSessionId\", body.data[0].sessionId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "18. 신청 - 이미 이번 달 참여한 팀원 포함 → 409 SCHOOLCAMP_003",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/{{schoolCampSessionId}}/applications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "{{schoolCampSessionId}}",
+                "applications"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"teacherName\": \"teacher-name\",\n  \"additionalMembers\": [\n    { \"studentUserId\": {{memberUserId}} }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "memberUserId(testuser01)는 5번 신청에서 이미 이번 달(campDateApplyDuplicateMonth와 같은 달) 팀원으로 참여했다."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409 Conflict, SCHOOLCAMP_003\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "    pm.expect(pm.response.json().code).to.eql(\"SCHOOLCAMP_003\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "19. 날짜 등록 (campDateApplyGuest, 다른 달)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"campDates\": [\n    \"{{campDateApplyGuest}}\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    pm.environment.set(\"schoolCampSessionId\", body.data[0].sessionId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "20. 신청 - 자유 입력 선생님 + 기타(자유 입력) 팀원",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/{{schoolCampSessionId}}/applications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "{{schoolCampSessionId}}",
+                "applications"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"teacherName\": \"자유입력선생님\",\n  \"additionalMembers\": [\n    { \"guestName\": \"김철수(외부인)\" }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "19번에서 새로 등록한(다른 달) 세션이라 5번/7번의 월 중복 제한과 무관하게 성공해야 한다."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    pm.test(\"자유 입력 선생님/팀원이 그대로 반영됨\", function () {",
+                  "        pm.expect(body.data.teacherDisplayName).to.eql(\"자유입력선생님\");",
+                  "        pm.expect(body.data.members[1].guestName).to.eql(\"김철수(외부인)\");",
+                  "    });",
+                  "}"
                 ]
               }
             }

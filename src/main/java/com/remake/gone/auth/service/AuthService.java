@@ -15,6 +15,7 @@ import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.enums.GbswType;
 import com.remake.gone.gbsw.exception.GbswErrorCode;
 import com.remake.gone.gbsw.repository.GbswRepository;
+import com.remake.gone.gbsw.utils.GbswUtils;
 import com.remake.gone.role.entity.Role;
 import com.remake.gone.role.entity.UserRole;
 import com.remake.gone.role.repository.RoleRepository;
@@ -142,18 +143,13 @@ public class AuthService {
   }
 
   private String generateStudentDefaultName(Gbsw gbsw) {
-    Integer grade = gbsw.getGrade();
-    Integer classNo = gbsw.getClassNo();
-    Integer number = gbsw.getNumber();
-    if (grade == null || classNo == null || number == null) {
+    if (gbsw.getGrade() == null || gbsw.getClassNo() == null || gbsw.getNumber() == null) {
       // 학생 명단이면 항상 채워져 있어야 하는 값들이다 — 엑셀 명단 입력 오류 등 데이터 이상.
       throw new IllegalStateException("학생 명단에 학번 정보가 없습니다: gbswId=" + gbsw.getId());
     }
-    // classNo를 0채움하지 않는다 — 이 학교는 한 학년에 반이 4개뿐이라 항상 1자리이고, 그래야
-    // grade(1자리)+classNo(1자리)+number(2자리 0채움) = 고정 4자리라는 유일성 근거가 성립한다
-    // (docs/20.md 리스크 섹션 참고). 반이 10개 이상으로 늘어나 classNo가 2자리가 되면 이 전제가
-    // 깨지므로, 그때는 number처럼 2자리로 0채움하도록 포맷을 함께 바꿔야 한다.
-    return "%d%d%02d%s".formatted(grade, classNo, number, gbsw.getName());
+    // 포맷 계산(classNo 0채움 안 함, 반 10개 미만 전제) 자체는 GbswUtils.studentNumber와
+    // 공유한다 — 그 전제가 깨지면 고칠 곳이 한 곳으로 줄어든다.
+    return GbswUtils.studentNumber(gbsw) + gbsw.getName();
   }
 
   private String generateTeacherDefaultName(Gbsw gbsw) {
