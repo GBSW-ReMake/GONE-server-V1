@@ -455,19 +455,22 @@ HikariCP 풀은 기본값(10)이다. 당첨자가 4~8번(DB 왕복 12~20회 안�
   - 이미 다른 신청이 그 세션을 선점 → `409`
   - **동시 신청 레이스**: 같은 세션에 두 스레드(또는 두 트랜잭션)가 동시에
     `SchoolCampSessionClaimService.claim` 호출 시 정확히 하나만 성공(`true`)하고 나머지는
-    `false`를 반환하는지 검증
+    `false`를 반환하는지 검증 — 실 DB(로컬 MySQL) 붙는 통합 테스트로 확인 완료
+    (`SchoolCampSessionClaimServiceIntegrationTest.Claim
+    #onlyOneClaimSucceedsUnderConcurrency`, 20개 스레드 동시 호출)
   - **claim 실패 시 조기 종료**: 세션이 이미 점유된 상태로 신청하면, 담당 선생님 역할
     조회/팀원 존재 조회/월 중복 조회가 전혀 호출되지 않는지 목(mock) 검증(순서 재배치가
-    실제로 지켜지는지 확인)
+    실제로 지켜지는지 확인) — `SchoolCampServiceTest.ApplyToCamp
+    #throwsWhenSessionAlreadyTaken`로 확인 완료
   - **claim은 즉시 커밋된다**: `claim` 호출 직후(같은 요청의 나머지 로직이 끝나기 전) 별도
     커넥션/트랜잭션으로 세션을 조회하면 이미 `taken_at`이 채워져 있는지 확인(`REQUIRES_NEW`가
-    실제로 별도 트랜잭션으로 즉시 커밋하는지 검증 — `@SpringBootTest`/`@DataJpaTest`
-    슬라이스 필요)
+    실제로 별도 트랜잭션으로 즉시 커밋하는지 검증) — `SchoolCampSessionClaimService
+    IntegrationTest.Claim#commitsImmediately`로 확인 완료
   - **claim 이후 검증 실패 시 명시적 반환**: claim에는 성공했지만 이후 검증(예: 존재하지
     않는 `teacherUserId`)에서 실패하면, `SchoolCampSessionClaimService.release`가
-    호출되어 세션의 `taken_at`이 다시 `null`로 돌아오는지 검증(통합 테스트 레벨 — 이제는
-    트랜잭션 롤백이 아니라 명시적 호출이므로, `release` 호출 자체를 목 검증하거나 DB 상태를
-    직접 재조회해 확인)
+    호출되어 세션의 `taken_at`이 다시 `null`로 돌아오는지 검증 — 목 검증은
+    `SchoolCampServiceTest.ApplyToCamp`의 각 실패 케이스에서, 실제 DB 재조회 검증은
+    `SchoolCampSessionClaimServiceIntegrationTest.Release#reopensSession`으로 확인 완료
   - `STUDENT`가 아닌 계정 호출 → `403`
   - 가입된 팀원에게 초대 알림이 저장되는지(`NotificationService.send` 호출 검증)
 - `GbswUtils.studentNumber`: 정상 케이스(반이 1자리 확인), `AuthService.generateStudentDefaultName`
