@@ -1,5 +1,7 @@
 package com.remake.gone.schoolcamp.controller;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -72,5 +74,21 @@ class SchoolCampAuthorizationTest {
             .contentType(MediaType.APPLICATION_JSON)
             .content("{\"teacherUserId\": 42}"))
         .andExpect(status().isForbidden());
+  }
+
+  @Test
+  @DisplayName("취소 엔드포인트는 인증 없이 요청하면 401을 반환한다(#70)")
+  void cancelReturns401WithoutToken() throws Exception {
+    mockMvc.perform(delete("/api/v1/school-camps/applications/1"))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  @DisplayName("수정 엔드포인트는 인증 없이 요청하면 401을 반환한다(#70)")
+  void updateReturns401WithoutToken() throws Exception {
+    mockMvc.perform(patch("/api/v1/school-camps/applications/1")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"teacherUserId\": 42}"))
+        .andExpect(status().isUnauthorized());
   }
 }

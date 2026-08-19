@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -25,6 +26,7 @@ import com.remake.gone.schoolcamp.dto.SchoolCampCalendarResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampMemberRequest;
 import com.remake.gone.schoolcamp.dto.SchoolCampSessionResponse;
 import com.remake.gone.schoolcamp.entity.SchoolCampApplication;
+import com.remake.gone.schoolcamp.entity.SchoolCampMember;
 import com.remake.gone.schoolcamp.entity.SchoolCampSession;
 import com.remake.gone.schoolcamp.enums.SchoolCampStatus;
 import com.remake.gone.schoolcamp.exception.SchoolCampErrorCode;
@@ -36,6 +38,7 @@ import com.remake.gone.user.repository.UserRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
@@ -521,6 +524,292 @@ class SchoolCampServiceTest {
           .send(eq(55L), anyString(), anyString(), eq(NotificationType.SCHOOLCAMP));
       verify(notificationService, never())
           .send(eq(APPLICANT_ID), anyString(), anyString(), eq(NotificationType.SCHOOLCAMP));
+    }
+  }
+
+  @Nested
+  @DisplayName("cancelApplication")
+  class CancelApplication {
+
+    private static final Long APPLICATION_ID = 301L;
+    private static final Long APPLICANT_ID = 101L;
+    private static final Long SESSION_ID = 15L;
+    private static final LocalDateTime NOW = LocalDateTime.of(2026, 4, 10, 9, 0);
+
+    private SchoolCampApplication application(LocalDate campDate) {
+      SchoolCampSession session =
+          SchoolCampSession.builder().id(SESSION_ID).campDate(campDate).build();
+      User applicant = studentUser(APPLICANT_ID, studentGbsw(3, 4, 1, "홍길동"), "길동");
+      return SchoolCampApplication.builder()
+          .id(APPLICATION_ID)
+          .session(session)
+          .applicant(applicant)
+          .teacherName("박선생")
+          .build();
+    }
+
+    @Test
+    @DisplayName("정상 취소 시 cancelledAt을 채우고 세션을 반환한다")
+    void cancelsSuccessfully() {
+      SchoolCampApplication application = application(LocalDate.of(2026, 4, 20));
+      given(applicationRepository.findByIdAndCancelledAtIsNull(APPLICATION_ID))
+          .willReturn(Optional.of(application));
+
+      schoolCampService.cancelApplication(APPLICANT_ID, APPLICATION_ID, NOW);
+
+      assertThat(application.getCancelledAt()).isEqualTo(NOW);
+      verify(applicationRepository).save(application);
+      verify(sessionRepository).release(SESSION_ID);
+      verifyNoInteractions(sessionClaimService);
+    }
+
+    @Test
+    @DisplayName("본인 신청이 아니면 403을 던지고 아무것도 변경하지 않는다")
+    void throwsWhenNotOwner() {
+      SchoolCampApplication application = application(LocalDate.of(2026, 4, 20));
+      given(applicationRepository.findByIdAndCancelledAtIsNull(APPLICATION_ID))
+          .willReturn(Optional.of(application));
+
+      assertThatThrownBy(() -> schoolCampService.cancelApplication(999L, APPLICATION_ID, NOW))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(SchoolCampErrorCode.NOT_APPLICATION_OWNER);
+
+      verify(applicationRepository, never()).save(any());
+      verify(sessionRepository, never()).release(anyLong());
+    }
+
+    @Test
+    @DisplayName("존재하지 않거나 이미 취소된 신청이면 404를 던진다")
+    void throwsWhenApplicationNotFound() {
+      given(applicationRepository.findByIdAndCancelledAtIsNull(APPLICATION_ID))
+          .willReturn(Optional.empty());
+
+      assertThatThrownBy(
+          () -> schoolCampService.cancelApplication(APPLICANT_ID, APPLICATION_ID, NOW))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(SchoolCampErrorCode.APPLICATION_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("캠핑 당일 취소 시도하면 400을 던지고 아무것도 변경하지 않는다")
+    void throwsWhenCancelOnCampDay() {
+      SchoolCampApplication application = application(NOW.toLocalDate());
+      given(applicationRepository.findByIdAndCancelledAtIsNull(APPLICATION_ID))
+          .willReturn(Optional.of(application));
+
+      assertThatThrownBy(
+          () -> schoolCampService.cancelApplication(APPLICANT_ID, APPLICATION_ID, NOW))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(SchoolCampErrorCode.CANCEL_NOT_ALLOWED_ON_CAMP_DAY);
+
+      verify(applicationRepository, never()).save(any());
+      verify(sessionRepository, never()).release(anyLong());
+    }
+  }
+
+  @Nested
+  @DisplayName("updateApplication")
+  class UpdateApplication {
+
+    private static final Long APPLICATION_ID = 301L;
+    private static final Long APPLICANT_ID = 101L;
+    private static final Long SESSION_ID = 15L;
+
+    private SchoolCampApplication application;
+    private SchoolCampMember applicantMember;
+
+    private void newApplication() {
+      SchoolCampSession session = SchoolCampSession.builder()
+          .id(SESSION_ID).campDate(LocalDate.of(2026, 4, 20)).build();
+      User applicant = studentUser(APPLICANT_ID, studentGbsw(3, 4, 1, "홍길동"), "길동");
+      application = SchoolCampApplication.builder()
+          .id(APPLICATION_ID)
+          .session(session)
+          .applicant(applicant)
+          .teacherName("박선생")
+          .appliedAt(LocalDateTime.of(2026, 3, 20, 9, 12))
+          .build();
+      applicantMember = SchoolCampMember.builder()
+          .id(1L).application(application).studentUser(applicant).applicant(true).build();
+    }
+
+    /** 소유권 확인까지만 도달하는 테스트용 — 신청 조회 스텁만 준비한다. */
+    private void stubApplication() {
+      if (application == null) {
+        newApplication();
+      }
+      given(applicationRepository.findByIdAndCancelledAtIsNull(APPLICATION_ID))
+          .willReturn(Optional.of(application));
+    }
+
+    /** diff 계산까지 도달하는 테스트용 — 신청 조회 + 기존 팀원 목록 스텁을 준비한다. */
+    private void stubApplicationWithMembers(SchoolCampMember... otherMembers) {
+      stubApplication();
+      List<SchoolCampMember> members = new ArrayList<>(List.of(applicantMember));
+      members.addAll(List.of(otherMembers));
+      given(memberRepository.findByApplicationId(APPLICATION_ID)).willReturn(members);
+    }
+
+    @Test
+    @DisplayName("담당 선생님만 변경하면 기존 팀원은 그대로 유지되고 세션은 건드리지 않는다")
+    void changesTeacherOnlyKeepsExistingMembers() {
+      newApplication();
+      User existingStudent = studentUser(55L, studentGbsw(3, 2, 9, "이영희"), "영희");
+      SchoolCampMember existingMember = SchoolCampMember.builder()
+          .id(2L).application(application).studentUser(existingStudent).applicant(false).build();
+      stubApplicationWithMembers(existingMember);
+      given(applicationRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
+
+      User newTeacher = studentUser(99L, studentGbsw(1, 1, 1, "김선생"), "김선생");
+      given(userRepository.findById(99L)).willReturn(Optional.of(newTeacher));
+      given(userRoleRepository.findRoleCodesByUserId(99L)).willReturn(List.of("TEACHER"));
+      given(userRepository.findAllById(List.of(55L))).willReturn(List.of(existingStudent));
+
+      SchoolCampApplyRequest request = new SchoolCampApplyRequest(
+          99L, null, List.of(new SchoolCampMemberRequest(55L, null)));
+
+      SchoolCampApplicationResponse response =
+          schoolCampService.updateApplication(APPLICANT_ID, APPLICATION_ID, request);
+
+      assertThat(response.teacherDisplayName()).isEqualTo("김선생");
+      assertThat(response.members()).hasSize(2);
+      verify(memberRepository, never()).deleteAllById(anyList());
+      verify(memberRepository, never()).saveAll(anyList());
+      verify(memberRepository, never()).findParticipatedStudentIdsInMonth(any(), any(), any());
+      verifyNoInteractions(sessionRepository, sessionClaimService);
+    }
+
+    @Test
+    @DisplayName("가입 학생 + 기타 팀원을 새로 추가하면 추가된 팀원에게만 알림을 보낸다")
+    void addsRegisteredAndGuestMembers() {
+      stubApplicationWithMembers();
+      given(applicationRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
+      given(memberRepository.saveAll(anyList())).willAnswer(inv -> inv.getArgument(0));
+
+      User newStudent = studentUser(77L, studentGbsw(2, 1, 3, "최민수"), "민수");
+      given(userRepository.findAllById(List.of(77L))).willReturn(List.of(newStudent));
+      given(memberRepository.findParticipatedStudentIdsInMonth(anyCollection(), any(), any()))
+          .willReturn(List.of());
+
+      SchoolCampApplyRequest request = new SchoolCampApplyRequest(null, "박선생", List.of(
+          new SchoolCampMemberRequest(77L, null),
+          new SchoolCampMemberRequest(null, "새게스트")));
+
+      SchoolCampApplicationResponse response =
+          schoolCampService.updateApplication(APPLICANT_ID, APPLICATION_ID, request);
+
+      assertThat(response.members()).hasSize(3);
+      verify(memberRepository).saveAll(anyList());
+      verify(notificationService)
+          .send(eq(77L), anyString(), anyString(), eq(NotificationType.SCHOOLCAMP));
+      verify(notificationService, never())
+          .send(eq(APPLICANT_ID), anyString(), anyString(), eq(NotificationType.SCHOOLCAMP));
+    }
+
+    @Test
+    @DisplayName("요청에서 빠진 기존 팀원은 삭제된다")
+    void removesMemberNotInRequest() {
+      newApplication();
+      User existingStudent = studentUser(55L, studentGbsw(3, 2, 9, "이영희"), "영희");
+      SchoolCampMember existingMember = SchoolCampMember.builder()
+          .id(2L).application(application).studentUser(existingStudent).applicant(false).build();
+      stubApplicationWithMembers(existingMember);
+      given(applicationRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
+
+      SchoolCampApplyRequest request = new SchoolCampApplyRequest(null, "박선생", List.of());
+
+      SchoolCampApplicationResponse response =
+          schoolCampService.updateApplication(APPLICANT_ID, APPLICATION_ID, request);
+
+      assertThat(response.members()).hasSize(1);
+      verify(memberRepository).deleteAllById(List.of(2L));
+    }
+
+    @Test
+    @DisplayName("새로 추가한 팀원이 이번 달 이미 참여 중이면 409를 던지고 아무것도 변경하지 않는다")
+    void throwsWhenAddedMemberAlreadyParticipatedThisMonth() {
+      stubApplicationWithMembers();
+
+      User newStudent = studentUser(88L, studentGbsw(2, 1, 4, "박지민"), "지민");
+      given(userRepository.findAllById(List.of(88L))).willReturn(List.of(newStudent));
+      given(memberRepository.findParticipatedStudentIdsInMonth(anyCollection(), any(), any()))
+          .willReturn(List.of(88L));
+
+      SchoolCampApplyRequest request = new SchoolCampApplyRequest(
+          null, "박선생", List.of(new SchoolCampMemberRequest(88L, null)));
+
+      assertThatThrownBy(
+          () -> schoolCampService.updateApplication(APPLICANT_ID, APPLICATION_ID, request))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(SchoolCampErrorCode.ALREADY_PARTICIPATED_THIS_MONTH);
+
+      verify(memberRepository, never()).deleteAllById(anyList());
+      verify(memberRepository, never()).saveAll(anyList());
+      verify(applicationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("본인 신청이 아니면 403을 던진다")
+    void throwsWhenNotOwner() {
+      stubApplication();
+      SchoolCampApplyRequest request = new SchoolCampApplyRequest(null, "박선생", List.of());
+
+      assertThatThrownBy(() -> schoolCampService.updateApplication(999L, APPLICATION_ID, request))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(SchoolCampErrorCode.NOT_APPLICATION_OWNER);
+    }
+
+    @Test
+    @DisplayName("존재하지 않거나 취소된 신청이면 404를 던진다")
+    void throwsWhenApplicationNotFound() {
+      given(applicationRepository.findByIdAndCancelledAtIsNull(APPLICATION_ID))
+          .willReturn(Optional.empty());
+      SchoolCampApplyRequest request = new SchoolCampApplyRequest(null, "박선생", List.of());
+
+      assertThatThrownBy(
+          () -> schoolCampService.updateApplication(APPLICANT_ID, APPLICATION_ID, request))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(SchoolCampErrorCode.APPLICATION_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("총원이 8명을 초과하면 400을 던진다")
+    void throwsWhenTeamSizeExceedsLimit() {
+      stubApplication();
+      List<SchoolCampMemberRequest> eightAdditionalMembers = List.of(
+          new SchoolCampMemberRequest(1L, null), new SchoolCampMemberRequest(2L, null),
+          new SchoolCampMemberRequest(3L, null), new SchoolCampMemberRequest(4L, null),
+          new SchoolCampMemberRequest(5L, null), new SchoolCampMemberRequest(6L, null),
+          new SchoolCampMemberRequest(7L, null), new SchoolCampMemberRequest(8L, null));
+      SchoolCampApplyRequest request =
+          new SchoolCampApplyRequest(null, "박선생", eightAdditionalMembers);
+
+      assertThatThrownBy(
+          () -> schoolCampService.updateApplication(APPLICANT_ID, APPLICATION_ID, request))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(SchoolCampErrorCode.INVALID_APPLICATION_FORMAT);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 studentUserId가 포함되면 400을 던진다")
+    void throwsWhenMemberDoesNotExist() {
+      stubApplication();
+      given(userRepository.findAllById(List.of(999L))).willReturn(List.of());
+      SchoolCampApplyRequest request = new SchoolCampApplyRequest(
+          null, "박선생", List.of(new SchoolCampMemberRequest(999L, null)));
+
+      assertThatThrownBy(
+          () -> schoolCampService.updateApplication(APPLICANT_ID, APPLICATION_ID, request))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(SchoolCampErrorCode.INVALID_MEMBER_INFO);
     }
   }
 }
