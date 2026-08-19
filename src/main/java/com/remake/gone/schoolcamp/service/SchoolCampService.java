@@ -232,6 +232,174 @@ public class SchoolCampService {
     }
   }
 
+  /**
+   * 본인 신청을 취소합니다(#70). 취소된 신청은 {@code cancelled_at}만 채우고(hard delete
+   * 아님) 세션을 다시 빈 날짜로 되돌린다.
+   *
+   * <p>세션 반환은 {@link SchoolCampSessionClaimService#release}(REQUIRES_NEW)를 거치지
+   * 않고 {@code sessionRepository.release}를 이 메서드 자신의 트랜잭션 안에서 직접
+   * 호출한다 — 취소는 그 신청의 유일한 소유자만 호출할 수 있어(아래 소유권 확인이 이미 그
+   * 사실을 보장) 애초에 경합 상대가 없다. 오히려 {@code cancelledAt} 갱신과 {@code taken_at}
+   * 반환을 같은 트랜잭션으로 묶어야, 이후 어떤 이유로든 커밋이 실패했을 때 두 변경이 함께
+   * 롤백돼 "신청은 취소됐는데 세션은 여전히 잠긴" 불일치가 생기지 않는다 — claim/release가
+   * REQUIRES_NEW라서 안았던 "release 실패 시 유령 점유" 잔여 리스크가 이 메서드에는 없다.
+   *
+   * @param applicantUserId 취소를 요청한 사용자 ID(Access Token에서 추출됨)
+   * @param applicationId   취소할 신청의 PK
+   * @param now             "지금"(KST) — 당일 취소 금지 판단과 {@code cancelledAt} 기록에 사용
+   */
+  @Transactional
+  public void cancelApplication(Long applicantUserId, Long applicationId, LocalDateTime now) {
+    SchoolCampApplication application =
+        applicationRepository.findByIdAndCancelledAtIsNull(applicationId)
+            .orElseThrow(() -> new CustomException(SchoolCampErrorCode.APPLICATION_NOT_FOUND));
+
+    if (!application.getApplicant().getId().equals(applicantUserId)) {
+      throw new CustomException(SchoolCampErrorCode.NOT_APPLICATION_OWNER);
+    }
+    if (application.getSession().getCampDate().equals(now.toLocalDate())) {
+      throw new CustomException(SchoolCampErrorCode.CANCEL_NOT_ALLOWED_ON_CAMP_DAY);
+    }
+
+    application.setCancelledAt(now);
+    applicationRepository.save(application);
+    sessionRepository.release(application.getSession().getId());
+  }
+
+  /**
+   * 담당 선생님/팀원 정보를 수정합니다(#70). {@code additionalMembers}는 전체 교체
+   * 방식이다 — 대표 신청자를 제외한 최종 팀원 목록 전체를 받아 기존 팀원과 비교(diff)해서,
+   * 새로 추가되는 학생만 이번 달 중복 참여를 재확인하고 빠진 학생/기존 "기타" 팀원의 행만
+   * 삭제한다. "기타"(자유 입력) 팀원은 안정적인 식별자가 없어 diff 대상이 아니다 — 기존
+   * guest 행은 전부 삭제하고 요청받은 목록으로 전부 새로 삽입한다. 세션의 {@code taken_at}은
+   * 건드리지 않는다 — 그 날짜는 이미 이 신청 하나가 통째로 차지한 상태라 별도 정원 조작이
+   * 필요 없다.
+   *
+   * @param applicantUserId 수정을 요청한 사용자 ID(Access Token에서 추출됨)
+   * @param applicationId   수정할 신청의 PK
+   * @param request         새 담당 선생님/팀원 스냅샷
+   * @return 갱신된 신청 정보
+   */
+  @Transactional
+  public SchoolCampApplicationResponse updateApplication(
+      Long applicantUserId, Long applicationId, SchoolCampApplyRequest request) {
+
+    SchoolCampApplication application =
+        applicationRepository.findByIdAndCancelledAtIsNull(applicationId)
+            .orElseThrow(() -> new CustomException(SchoolCampErrorCode.APPLICATION_NOT_FOUND));
+    if (!application.getApplicant().getId().equals(applicantUserId)) {
+      throw new CustomException(SchoolCampErrorCode.NOT_APPLICATION_OWNER);
+    }
+
+    List<SchoolCampMemberRequest> additionalMembers =
+        request.additionalMembers() == null ? List.of() : request.additionalMembers();
+    validateApplicationFormat(request, additionalMembers);
+
+    final User teacher =
+        request.teacherUserId() != null ? findValidTeacher(request.teacherUserId()) : null;
+    Map<Long, User> studentsById = findExistingStudents(applicantUserId, additionalMembers);
+
+    List<SchoolCampMember> existingMembers = memberRepository.findByApplicationId(applicationId);
+    MemberDiff diff = computeMemberDiff(existingMembers, studentsById.keySet());
+
+    if (!diff.addedStudentIds().isEmpty()) {
+      validateNoDuplicateThisMonth(diff.addedStudentIds(), application.getSession().getCampDate());
+    }
+    if (!diff.memberIdsToDelete().isEmpty()) {
+      memberRepository.deleteAllById(diff.memberIdsToDelete());
+    }
+
+    List<SchoolCampMember> newMembers =
+        buildNewMembers(application, additionalMembers, studentsById, diff.addedStudentIds());
+    if (!newMembers.isEmpty()) {
+      memberRepository.saveAll(newMembers);
+    }
+
+    application.setTeacherUser(teacher);
+    application.setTeacherName(teacher == null ? request.teacherName() : null);
+    applicationRepository.save(application);
+
+    sendInviteNotifications(application.getApplicant(), application.getSession(), newMembers);
+
+    List<SchoolCampMember> finalMembers = new ArrayList<>();
+    finalMembers.add(diff.applicantMember());
+    finalMembers.addAll(diff.keptMembers());
+    finalMembers.addAll(newMembers);
+
+    return toApplicationResponse(application, teacher, application.getSession(), finalMembers);
+  }
+
+  /**
+   * {@link #updateApplication}이 기존 팀원과 요청받은 팀원 스냅샷을 비교(diff)한 결과.
+   *
+   * @param applicantMember   대표 신청자 팀원 행(항상 유지, diff 대상 아님)
+   * @param keptMembers       그대로 유지되는 기존 팀원(가입 학생만 — "기타"는 항상 diff 대상)
+   * @param addedStudentIds   새로 추가되는 학생 ID(이번 달 중복 재확인 대상)
+   * @param memberIdsToDelete 삭제할 팀원 행 PK(빠진 학생 + 기존 "기타" 전체)
+   */
+  private record MemberDiff(
+      SchoolCampMember applicantMember,
+      List<SchoolCampMember> keptMembers,
+      Set<Long> addedStudentIds,
+      List<Long> memberIdsToDelete) {}
+
+  private MemberDiff computeMemberDiff(
+      List<SchoolCampMember> existingMembers, Set<Long> newStudentIds) {
+    SchoolCampMember applicantMember = existingMembers.stream()
+        .filter(SchoolCampMember::isApplicant)
+        .findFirst()
+        .orElseThrow(() -> new IllegalStateException("신청에 대표 신청자 팀원 행이 없습니다."));
+
+    List<SchoolCampMember> existingNonApplicantMembers = existingMembers.stream()
+        .filter(member -> !member.isApplicant())
+        .toList();
+
+    Set<Long> existingStudentIds = existingNonApplicantMembers.stream()
+        .filter(member -> member.getStudentUser() != null)
+        .map(member -> member.getStudentUser().getId())
+        .collect(Collectors.toSet());
+
+    Set<Long> addedStudentIds = new HashSet<>(newStudentIds);
+    addedStudentIds.removeAll(existingStudentIds);
+
+    List<SchoolCampMember> keptMembers = existingNonApplicantMembers.stream()
+        .filter(member -> member.getStudentUser() != null
+            && newStudentIds.contains(member.getStudentUser().getId()))
+        .toList();
+
+    List<Long> memberIdsToDelete = existingNonApplicantMembers.stream()
+        .filter(member -> member.getStudentUser() == null
+            || !newStudentIds.contains(member.getStudentUser().getId()))
+        .map(SchoolCampMember::getId)
+        .toList();
+
+    return new MemberDiff(applicantMember, keptMembers, addedStudentIds, memberIdsToDelete);
+  }
+
+  private List<SchoolCampMember> buildNewMembers(
+      SchoolCampApplication application, List<SchoolCampMemberRequest> additionalMembers,
+      Map<Long, User> studentsById, Set<Long> addedStudentIds) {
+    List<SchoolCampMember> newMembers = new ArrayList<>();
+    for (SchoolCampMemberRequest memberRequest : additionalMembers) {
+      if (memberRequest.studentUserId() != null) {
+        if (addedStudentIds.contains(memberRequest.studentUserId())) {
+          newMembers.add(SchoolCampMember.builder()
+              .application(application)
+              .studentUser(studentsById.get(memberRequest.studentUserId()))
+              .applicant(false)
+              .build());
+        }
+      } else {
+        newMembers.add(SchoolCampMember.builder()
+            .application(application)
+            .guestName(memberRequest.guestName())
+            .applicant(false)
+            .build());
+      }
+    }
+    return newMembers;
+  }
+
   private void validateApplicationFormat(
       SchoolCampApplyRequest request, List<SchoolCampMemberRequest> additionalMembers) {
     boolean hasTeacherUserId = request.teacherUserId() != null;
@@ -265,7 +433,9 @@ public class SchoolCampService {
         request.teacherUserId() != null ? findValidTeacher(request.teacherUserId()) : null;
 
     Map<Long, User> studentsById = findExistingStudents(applicantUserId, additionalMembers);
-    validateNoDuplicateThisMonth(applicantUserId, studentsById.keySet(), session.getCampDate());
+    Set<Long> candidateIds = new HashSet<>(studentsById.keySet());
+    candidateIds.add(applicantUserId);
+    validateNoDuplicateThisMonth(candidateIds, session.getCampDate());
 
     SchoolCampApplication application = SchoolCampApplication.builder()
         .session(session)
@@ -321,11 +491,14 @@ public class SchoolCampService {
     return byId;
   }
 
-  private void validateNoDuplicateThisMonth(
-      Long applicantUserId, Set<Long> memberStudentIds, LocalDate campDate) {
-    Set<Long> candidateIds = new HashSet<>(memberStudentIds);
-    candidateIds.add(applicantUserId);
-
+  /**
+   * 후보 학생 중 이번 달에 이미(대표/팀원 구분 없이) 참여 중인 사람이 있으면 거부한다.
+   * 후보 집합은 호출부가 직접 구성한다 — {@link #applyToCamp}(신규 신청)는 대표 신청자
+   * 본인을 항상 포함해야 하지만, {@link #updateApplication}(#70, 새로 추가되는 팀원만
+   * 재검사)은 포함하면 안 된다(대표 신청자는 이미 이 신청으로 참여 중이라 넣으면 항상
+   * 걸린다) — 그래서 이 메서드가 자동으로 넣지 않는다.
+   */
+  private void validateNoDuplicateThisMonth(Set<Long> candidateIds, LocalDate campDate) {
     YearMonth month = YearMonth.from(campDate);
     List<Long> participated = memberRepository.findParticipatedStudentIdsInMonth(
         candidateIds, month.atDay(1), month.atEndOfMonth());
