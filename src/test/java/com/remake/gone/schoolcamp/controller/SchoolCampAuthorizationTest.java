@@ -52,4 +52,25 @@ class SchoolCampAuthorizationTest {
             .content("{\"campDates\": [\"20260406\"]}"))
         .andExpect(status().isForbidden());
   }
+
+  @Test
+  @DisplayName("신청 엔드포인트는 인증 없이 요청하면 401을 반환한다")
+  void applyReturns401WithoutToken() throws Exception {
+    mockMvc.perform(post("/api/v1/school-camps/1/applications")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"teacherUserId\": 42}"))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  @DisplayName("신청 엔드포인트는 TEACHER 역할로 요청하면 403을 반환한다(STUDENT 전용)")
+  void applyReturns403ForTeacherRole() throws Exception {
+    String token = jwtProvider.createAccessToken(1L, Set.of("TEACHER"));
+
+    mockMvc.perform(post("/api/v1/school-camps/1/applications")
+            .header("Authorization", "Bearer " + token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"teacherUserId\": 42}"))
+        .andExpect(status().isForbidden());
+  }
 }
