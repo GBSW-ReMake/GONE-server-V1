@@ -8,9 +8,7 @@ import org.springframework.http.HttpStatus;
  *
  * <p>코드 네이밍 규칙: {@code SCHOOLCAMP_NNN} (NNN은 3자리 순번). 번호는 마스터 기획서
  * (`docs/domain/schoolcamp/1_schoolcamp-domain.md`)의 전체 목록 중 실제로 구현되는 순서대로
- * 채운다 — #67에서는 005/006만 쓰였고, #68은 001/002/003/004/008을 쓴다. 이 중 001/002는
- * 이번 커밋(세션 원자적 점유 로직)에서, 003/004/008은 후속 커밋(무거운 검증 로직)에서
- * 추가한다.
+ * 채운다 — #67에서는 005/006만 쓰였고, #68은 001/002/003/004/008을 쓴다.
  *
  * @see ErrorCode
  */
@@ -36,11 +34,33 @@ public enum SchoolCampErrorCode implements ErrorCode {
    */
   SESSION_ALREADY_TAKEN(HttpStatus.CONFLICT, "SCHOOLCAMP_002", "이미 다른 팀이 신청한 날짜입니다."),
 
+  /**
+   * 대표 신청자 본인 또는 팀원 중 이번 달에 이미 참여(대표/팀원 구분 없이)한 사람이
+   * 포함되어 있습니다.
+   */
+  ALREADY_PARTICIPATED_THIS_MONTH(
+      HttpStatus.CONFLICT, "SCHOOLCAMP_003", "이번 달에 이미 참여한 사용자가 포함되어 있습니다."),
+
+  /**
+   * 담당 선생님 정보 형식이 올바르지 않습니다 — {@code teacherUserId}/{@code teacherName}
+   * 중 정확히 하나가 아니거나, 지정한 {@code teacherUserId}가 {@code TEACHER} 역할이
+   * 아니거나, 총원(대표 포함)이 8명을 초과한 경우 모두 이 코드를 쓴다.
+   */
+  INVALID_APPLICATION_FORMAT(HttpStatus.BAD_REQUEST, "SCHOOLCAMP_004", "담당 선생님 정보가 올바르지 않습니다."),
+
   /** 요청한 날짜 중 금/토/일이 포함되어 있습니다. */
   INVALID_CAMP_DATE(HttpStatus.BAD_REQUEST, "SCHOOLCAMP_005", "신청 가능한 날짜가 아닙니다."),
 
   /** 요청한 날짜 중 이미 세션이 등록된 날짜가 있습니다. */
-  CAMP_DATE_ALREADY_REGISTERED(HttpStatus.CONFLICT, "SCHOOLCAMP_006", "이미 등록된 날짜입니다.");
+  CAMP_DATE_ALREADY_REGISTERED(HttpStatus.CONFLICT, "SCHOOLCAMP_006", "이미 등록된 날짜입니다."),
+
+  /**
+   * 팀원 정보가 올바르지 않습니다 — {@code additionalMembers}의 각 항목이
+   * {@code studentUserId}/{@code guestName} 중 정확히 하나가 아니거나, 존재하지 않는
+   * {@code studentUserId}이거나, 같은 {@code studentUserId}가 중복되거나, 대표 신청자
+   * 본인이 포함된 경우 모두 이 코드를 쓴다.
+   */
+  INVALID_MEMBER_INFO(HttpStatus.BAD_REQUEST, "SCHOOLCAMP_008", "팀원 정보가 올바르지 않습니다.");
 
   private final HttpStatus httpStatus;
   private final String code;
