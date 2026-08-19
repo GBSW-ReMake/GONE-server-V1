@@ -46,7 +46,7 @@ public enum SchoolCampErrorCode implements ErrorCode {
    * 중 정확히 하나가 아니거나, 지정한 {@code teacherUserId}가 {@code TEACHER} 역할이
    * 아니거나, 총원(대표 포함)이 8명을 초과한 경우 모두 이 코드를 쓴다.
    */
-  INVALID_APPLICATION_FORMAT(HttpStatus.BAD_REQUEST, "SCHOOLCAMP_004", "담당 선생님 정보가 올바르지 않습니다."),
+  INVALID_APPLICATION_FORMAT(HttpStatus.BAD_REQUEST, "SCHOOLCAMP_004", "신청 정보가 올바르지 않습니다."),
 
   /** 요청한 날짜 중 금/토/일이 포함되어 있습니다. */
   INVALID_CAMP_DATE(HttpStatus.BAD_REQUEST, "SCHOOLCAMP_005", "신청 가능한 날짜가 아닙니다."),

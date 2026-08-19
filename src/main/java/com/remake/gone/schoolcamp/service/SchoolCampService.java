@@ -35,7 +35,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,6 +46,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class SchoolCampService {
 
   private static final DateTimeFormatter YMD_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
@@ -115,6 +118,10 @@ public class SchoolCampService {
    * 특정 달의 스쿨캠핑 캘린더(날짜별 점유 상태)를 조회합니다. 점유된 세션마다 그 세션의
    * 활성 신청에서 담당 선생님/대표 신청자 표시 이름을 채운다.
    *
+   * <p>점유된 세션의 활성 신청을 세션 수만큼 개별 조회하지 않고, 점유된 세션 ID를 모아
+   * {@link SchoolCampApplicationRepository#findBySessionIdInAndCancelledAtIsNull} 한 번으로
+   * 배치 조회한다(N+1 방지) — 코드 리뷰(#68) 지적 사항.
+   *
    * @param month 조회할 달
    * @return 그 달의 세션별 캘린더 정보
    */
@@ -123,20 +130,43 @@ public class SchoolCampService {
     List<SchoolCampSession> sessions =
         sessionRepository.findByCampDateBetween(month.atDay(1), month.atEndOfMonth());
 
-    return sessions.stream().map(this::toCalendarResponse).toList();
+    List<Long> takenSessionIds = sessions.stream()
+        .filter(session -> session.getTakenAt() != null)
+        .map(SchoolCampSession::getId)
+        .toList();
+    Map<Long, SchoolCampApplication> applicationsBySessionId = takenSessionIds.isEmpty()
+        ? Map.of()
+        : applicationRepository.findBySessionIdInAndCancelledAtIsNull(takenSessionIds).stream()
+            .collect(Collectors.toMap(
+                application -> application.getSession().getId(), application -> application));
+
+    return sessions.stream()
+        .map(session -> toCalendarResponse(session, applicationsBySessionId.get(session.getId())))
+        .toList();
   }
 
-  private SchoolCampCalendarResponse toCalendarResponse(SchoolCampSession session) {
+  /**
+   * 점유되지 않은 세션은 즉시 {@code OPEN}으로 반환한다. 점유된 세션인데 활성 신청이 없으면
+   * (claim 이후 release 실패로 남은 "유령 점유" — {@code 68-schoolcamp-application.md}
+   * "잔여 리스크" 참고) 예외로 전체 요청을 실패시키지 않고, 그 세션 하나만 이름 없이
+   * {@code CLOSED}로 방어적으로 채운 뒤 경고 로그를 남긴다 — 코드 리뷰(#68)에서 지적된 대로,
+   * 여기서 예외를 던지면 그 세션 하나가 아니라 이 메서드가 처리하던 스트림 전체가 중단되어
+   * 그 달의 캘린더 조회 자체가 500으로 막힌다.
+   */
+  private SchoolCampCalendarResponse toCalendarResponse(
+      SchoolCampSession session, SchoolCampApplication application) {
     if (session.getTakenAt() == null) {
       return new SchoolCampCalendarResponse(
           session.getId(), session.getCampDate().format(YMD_FORMATTER),
           SchoolCampStatus.OPEN, null, null);
     }
 
-    SchoolCampApplication application =
-        applicationRepository.findBySessionIdAndCancelledAtIsNull(session.getId())
-            .orElseThrow(() -> new IllegalStateException(
-                "점유된 세션에 활성 신청이 없습니다: sessionId=" + session.getId()));
+    if (application == null) {
+      log.warn("점유된 세션에 활성 신청이 없습니다(유령 점유 의심): sessionId={}", session.getId());
+      return new SchoolCampCalendarResponse(
+          session.getId(), session.getCampDate().format(YMD_FORMATTER),
+          SchoolCampStatus.CLOSED, null, null);
+    }
 
     return new SchoolCampCalendarResponse(
         session.getId(),
@@ -182,8 +212,23 @@ public class SchoolCampService {
     try {
       return completeApplication(applicantUserId, session, request, additionalMembers);
     } catch (RuntimeException e) {
-      sessionClaimService.release(sessionId);
+      releaseQuietly(sessionId, e);
       throw e;
+    }
+  }
+
+  /**
+   * claim 이후 검증 실패 시 세션을 반환한다. {@code release} 호출 자체가 실패해도(DB
+   * 순단 등, 기획서 "잔여 리스크" 참고) 원래 실패 원인({@code originalFailure})을 가리지
+   * 않고 그대로 다시 던질 수 있도록, release 실패는 로그로만 남기고 삼킨다 — 코드
+   * 리뷰(#68) 지적 사항.
+   */
+  private void releaseQuietly(Long sessionId, RuntimeException originalFailure) {
+    try {
+      sessionClaimService.release(sessionId);
+    } catch (RuntimeException releaseFailure) {
+      log.error("claim 이후 실패 처리 중 release마저 실패했습니다: sessionId={}, "
+          + "원래 실패 원인={}", sessionId, originalFailure.toString(), releaseFailure);
     }
   }
 

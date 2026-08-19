@@ -53,6 +53,13 @@ public class SchoolCampSessionClaimService {
    * 트랜잭션으로 감싸 즉시 커밋한다 — 호출 시점에 이미 진행 중인 바깥 트랜잭션(있다면)은
    * 이 호출이 끝날 때까지 잠시 중단(suspend)됐다가 재개된다.
    *
+   * <p><b>주의(코드 리뷰(#68) 지적 사항)</b>: 이 메서드는 {@code UPDATE}를 별도 영속성
+   * 컨텍스트(REQUIRES_NEW)에서 벌크로 실행하므로, 호출한 쪽이 이미 로드해 들고 있는
+   * {@code SchoolCampSession} 엔티티는 이 호출이 끝나도 자동으로 갱신되지 않는다 —
+   * {@code session.getTakenAt()}은 여전히 호출 전 값(보통 {@code null})을 반환한다. claim
+   * 성공 이후 점유 여부를 다시 확인해야 하면 그 엔티티를 그대로 읽지 말고 반드시
+   * 리포지토리로 재조회해야 한다.
+   *
    * @param sessionId 점유할 세션의 PK
    * @param takenAt   점유 시각으로 기록할 값
    * @return 이번 호출로 점유에 성공했으면 {@code true}, 이미 다른 신청이 선점해
