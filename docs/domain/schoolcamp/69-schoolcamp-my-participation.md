@@ -14,9 +14,9 @@
 1. `GET /api/v1/school-camps/me` — 본인 참여 이력 **목록**(요약, 페이지네이션)
 2. `GET /api/v1/school-camps/applications/{id}` — 신청 1건의 **상세**(팀원 전체 포함)
 
-학생 본인이 대표로 신청했든 팀원으로 초대받았든, 지금까지 참여한 스쿨캠핑 이력을 먼저
-목록으로 훑어보고, 특정 건을 골라 상세(담당 선생님/팀원 전체)를 확인하는 2단계 조회
-흐름이다.
+학생 본인이 대표로 신청했든 팀원으로 초대받았든, 또는 선생님이 담당으로 지정됐든(설계
+변경 3), 지금까지 본인과 관련된 스쿨캠핑 이력을 먼저 목록으로 훑어보고, 특정 건을 골라
+상세(담당 선생님/팀원 전체)를 확인하는 2단계 조회 흐름이다.
 
 **설계 변경 1(검토 반영) — 필수 `month` → 선택 파라미터 + 페이지네이션 + 취소 이력 포함**:
 마스터 기획서 초안은 `month=yyyyMM`을 필수로 받아 "그 달의 참여 현황"만, 그것도 유효한
@@ -41,11 +41,26 @@
 `/applications/{id}` 경로에 GET 메서드만 추가)로 분리한다 — 이슈 1개당 엔드포인트 1~2개
 범위([issue-template.md](../../rules/issue-template.md)) 안에 들어온다.
 
+**설계 변경 3(검토 반영, 2026-08-20) — 선생님도 같은 엔드포인트로 조회 가능**: 초안은
+`STUDENT` 전용이었으나, 담당 선생님도 본인이 담당하는 스쿨캠핑 이력을 볼 수 있어야 한다는
+요구로 두 엔드포인트 모두 `TEACHER` 역할도 허용하도록 넓힌다. 새 엔드포인트를 따로 만들지
+않고 같은 `GET /me`/`GET /applications/{id}`를 그대로 재사용한다 — "본인과 관련된 스쿨캠핑
+이력 조회"라는 목적 자체는 학생/선생님이 같고, 달라지는 건 "본인과 관련됐다"의 판정 기준뿐이다
+(학생은 `SchoolCampMember` 행, 선생님은 `SchoolCampApplication.teacherUser`). `SchoolCampMyRole`에
+`TEACHER` 값을 추가해 구분한다. 상세 구현은 아래 각 엔드포인트 절 참고.
+- **가입된(`teacherUser`) 선생님만 대상**이다 — 자유 입력(`teacherName`)으로 지정된 담당
+  선생님은 로그인 계정이 없어 애초에 이 API를 호출할 사람이 없다(기존 `teacherDisplayName`이
+  가입 여부와 무관하게 표시용 이름 하나로 통일하는 것과 같은 이유로, 조회 주체 쪽에서는
+  자연스러운 제약이다).
+- 한 사람이 이론상 같은 신청에 학생(팀원)이면서 동시에 그 신청의 담당 선생님일 수는 없다
+  (담당 선생님 지정은 `TEACHER` 역할 보유자만 가능하도록 `findValidTeacher`가 이미 검증하고,
+  학교 운영상 겹칠 일이 없는 조합이라 별도 방어 로직을 넣지 않는다).
+
 ## 엔드포인트
 
 ### 1. `GET /api/v1/school-camps/me` — 본인 참여 내역 목록(요약)
-**권한**: `STUDENT`(컨트롤러 `@PreAuthorize("hasRole('STUDENT')")`, `#68` 신청 엔드포인트와
-동일 패턴 — 본인 계정으로만 조회하므로 서비스 레벨 소유권 검증이 따로 필요 없다)
+**권한**: `STUDENT` 또는 `TEACHER`(컨트롤러 `@PreAuthorize("hasAnyRole('STUDENT','TEACHER')")`,
+설계 변경 3 반영 — 본인 계정으로만 조회하므로 서비스 레벨 소유권 검증이 따로 필요 없다)
 
 **요청** — 쿼리 파라미터
 - `month` (선택, `yyyyMM`): 지정하면 그 달의 이력만, 생략하면 전체 이력을 조회한다
@@ -73,11 +88,19 @@
         "myRole": "MEMBER",
         "appliedAt": "2026-02-20T08:03:00",
         "cancelledAt": "2026-02-25T10:00:00"
+      },
+      {
+        "id": 312,
+        "campDate": "20260220",
+        "teacherDisplayName": "박선생",
+        "myRole": "TEACHER",
+        "appliedAt": "2026-02-15T10:00:00",
+        "cancelledAt": null
       }
     ],
     "page": 0,
     "size": 20,
-    "totalElements": 2,
+    "totalElements": 3,
     "totalPages": 1,
     "hasNext": false
   },
@@ -86,33 +109,47 @@
 }
 ```
 목록은 `campDate` 내림차순(최근 참여가 먼저)이다. `id`는 상세 조회(2번 엔드포인트)에 바로
-쓸 수 있는 신청 PK다. 참여 내역이 없으면 `content: []`(에러 아님).
+쓸 수 있는 신청 PK다. 참여 내역이 없으면 `content: []`(에러 아님). `myRole: TEACHER`
+항목(위 예시 세 번째)은 로그인 계정이 담당 선생님으로 지정된 세션이다 — 이 경우 응답의
+`teacherDisplayName`은 항상 그 계정 본인의 실명과 같다(참고용으로만 남겨둔 필드이지 별도
+의미는 없다).
 
 **구현 로직**
 1. `page`/`size` 유효성 검증(`page >= 0`, `1 <= size <= 100`) — `outing`의
    `validatePageParams`와 동일한 규칙, 위반 시 `400` `SCHOOLCAMP_012`
-2. `month` 지정 여부에 따라 리포지토리 메서드를 나눠 호출한다(둘 다 신규):
+2. **학생 쪽 이력**: `month` 지정 여부에 따라 리포지토리 메서드를 나눠 호출한다(둘 다 신규):
    - 지정: `SchoolCampMemberRepository.findMyParticipationsInMonth(userId, monthStart, monthEnd)`
    - 생략: `SchoolCampMemberRepository.findMyParticipations(userId)`
    두 메서드 모두 `cancelledAt` 조건 없이(취소 포함) `campDate` 내림차순으로, 본인의
-   `SchoolCampMember` 행 자체를 반환한다 — 그 행의 `isApplicant()`가 곧 `myRole`이다.
-3. `PageResponse.of(...)`로 먼저 페이지를 자른 뒤, 그 페이지 안의 항목만 요약 DTO로
-   변환한다(팀원 조회 없음 — 목록에는 애초에 필요 없다).
-4. `teacherDisplayName`은 기존 `SchoolCampService.teacherDisplayName(application)` private
+   `SchoolCampMember` 행 자체를 반환한다 — 그 행의 `isApplicant()`가 `APPLICANT`/`MEMBER`
+   `myRole`이 된다.
+3. **선생님 쪽 이력**(설계 변경 3, 신규): 마찬가지로 `month` 지정 여부에 따라
+   `SchoolCampApplicationRepository.findByTeacherUserId(userId)` 또는
+   `findByTeacherUserIdInMonth(userId, monthStart, monthEnd)`를 호출한다 — 취소 여부와
+   무관하게, `campDate` 내림차순으로 본인이 담당 선생님으로 지정된 `SchoolCampApplication`을
+   반환한다. 이쪽은 `myRole`이 항상 `TEACHER`다.
+4. 2~3번 결과를 하나의 목록으로 합쳐 `campDate` 내림차순으로 다시 정렬한다(둘 다 이미
+   내림차순이지만 병합 후 전체 순서를 보장해야 함) — 한 사용자가 그 달에 학생으로서의
+   이력과 선생님으로서의 이력을 동시에 가질 일은 실질적으로 없지만(위 "설계 변경 3" 참고),
+   있다 해도 시간순으로 자연스럽게 섞여 보이게 한다.
+5. `PageResponse.of(...)`로 병합된 목록을 먼저 페이지를 자른 뒤, 그 페이지 안의 항목만
+   요약 DTO로 변환한다(팀원 조회 없음 — 목록에는 애초에 필요 없다).
+6. `teacherDisplayName`은 기존 `SchoolCampService.teacherDisplayName(application)` private
    메서드를 그대로 재사용한다(`getCalendar`가 쓰는 것과 동일 — `teacherUser`가 지정된
-   항목은 지연 로딩 1회가 나가지만, 한 학생의 개인 이력이라 건수 자체가 작아
+   항목은 지연 로딩 1회가 나가지만, 한 사람의 개인 이력이라 건수 자체가 작아
    `getCalendar`와 동일하게 특별히 최적화하지 않는다).
 
 **에러**
 - 인증 토큰 없음 → `401`
-- `STUDENT`가 아닌 역할로 호출 → `403` `COMMON_003`
+- `STUDENT`/`TEACHER` 둘 다 아닌 역할로 호출 → `403` `COMMON_003`
 - `month` 형식이 `yyyyMM`이 아님 → `400` `COMMON_001`
 - `page`가 음수이거나 `size`가 `1~100` 범위 밖 → `400` `SCHOOLCAMP_012`(신규)
 
 ---
 
 ### 2. `GET /api/v1/school-camps/applications/{id}` — 참여 신청 상세
-**권한**: `STUDENT` + 본인이 그 신청의 참여자(대표 또는 팀원)여야 함(서비스 레벨 검증)
+**권한**: `STUDENT` 또는 `TEACHER` + 본인이 그 신청의 참여자(대표, 팀원, 또는 담당
+선생님)여야 함(서비스 레벨 검증, 설계 변경 3 반영)
 
 **요청**: 경로 변수 `id`(`SchoolCampApplication.id`, 1번 엔드포인트 응답의 `id`)
 
@@ -143,18 +180,22 @@
    조회한다(취소된 신청도 상세를 볼 수 있어야 하므로, 위 "설계 변경 1" 참고). 없으면 `404`
    `SCHOOLCAMP_010`(`APPLICATION_NOT_FOUND`, `#70`이 이미 추가한 코드 재사용)
 2. `memberRepository.findByApplicationId(id)`(`#70`에서 이미 추가된 메서드 재사용)로 팀원
-   전체를 조회하고, 그중 `studentUser.id`가 요청자 본인인 행을 찾는다. 없으면(본인이 대표도
-   팀원도 아님) `403` `SCHOOLCAMP_013`(신규, `NOT_APPLICATION_PARTICIPANT`) — `#70`의
-   `NOT_APPLICATION_OWNER`(`SCHOOLCAMP_007`, "본인 신청만 취소/수정할 수 있습니다")는 대표
-   신청자 전용 취소/수정 인가에 쓰는 코드라 의미가 다르다(원인이 다르면 코드를 분리한다,
-   원칙 4). 본인 행을 찾았으면 그 행의 `isApplicant()`로 `myRole`을 정한다.
+   전체를 조회하고, 그중 `studentUser.id`가 요청자 본인인 행을 찾는다.
+   - 찾았으면 그 행의 `isApplicant()`로 `myRole`을 `APPLICANT`/`MEMBER`로 정한다.
+   - 못 찾았으면(**설계 변경 3, 신규**) `application.getTeacherUser()`가 본인인지 확인한다
+     — 맞으면 `myRole`을 `TEACHER`로 정한다.
+   - 어느 쪽도 아니면(본인이 대표도, 팀원도, 담당 선생님도 아님) `403` `SCHOOLCAMP_013`
+     (`NOT_APPLICATION_PARTICIPANT`) — `#70`의 `NOT_APPLICATION_OWNER`(`SCHOOLCAMP_007`,
+     "본인 신청만 취소/수정할 수 있습니다")는 대표 신청자 전용 취소/수정 인가에 쓰는
+     코드라 의미가 다르다(원인이 다르면 코드를 분리한다, 원칙 4).
 3. DTO 변환 반환(`teacherDisplayName`/`toMemberResponse` 기존 private 메서드 재사용)
 
 **에러**
 - 인증 토큰 없음 → `401`
-- `STUDENT`가 아닌 역할로 호출 → `403` `COMMON_003`
+- `STUDENT`/`TEACHER` 둘 다 아닌 역할로 호출 → `403` `COMMON_003`
 - 존재하지 않는 신청 → `404` `SCHOOLCAMP_010`
-- 본인이 참여자가 아닌 신청 조회 시도 → `403` `SCHOOLCAMP_013`(신규)
+- 본인이 참여자(대표/팀원/담당 선생님 어느 쪽도)가 아닌 신청 조회 시도 → `403`
+  `SCHOOLCAMP_013`(신규)
 
 ## 데이터 모델 변경
 신규 엔티티/마이그레이션 없음(기존 `SchoolCampApplication`/`SchoolCampMember`만 조회).
@@ -205,9 +246,11 @@ public record SchoolCampMyParticipationResponse(
 ```java
 public enum SchoolCampMyRole {
   APPLICANT,
-  MEMBER
+  MEMBER,
+  TEACHER
 }
 ```
+`TEACHER`는 설계 변경 3(선생님 조회 지원) 반영.
 
 ### `SchoolCampMemberRepository`에 추가할 조회 메서드
 ```java
@@ -229,24 +272,48 @@ List<SchoolCampMember> findMyParticipationsInMonth(
     @Param("monthStart") LocalDate monthStart,
     @Param("monthEnd") LocalDate monthEnd);
 ```
-1번 엔드포인트(목록)에서만 쓴다. 기존 `findParticipatedStudentIdsInMonth`(같은 파일, 이번
-달 중복 참여 검증용)와 같은 조인 모양(`SchoolCampMember` → `application` → `session`)을
-재사용하되, **의도적으로 `cancelledAt IS NULL` 조건을 넣지 않는다**(취소 이력도 포함하는
-이 이슈의 요구사항과 정반대이므로) — 검증용 쿼리와 조회용 쿼리가 같은 조인을 쓰지만
+1번 엔드포인트(목록)의 학생 쪽 이력 조회에서만 쓴다. 기존 `findParticipatedStudentIdsInMonth`
+(같은 파일, 이번 달 중복 참여 검증용)와 같은 조인 모양(`SchoolCampMember` → `application` →
+`session`)을 재사용하되, **의도적으로 `cancelledAt IS NULL` 조건을 넣지 않는다**(취소 이력도
+포함하는 이 이슈의 요구사항과 정반대이므로) — 검증용 쿼리와 조회용 쿼리가 같은 조인을 쓰지만
 필터는 다르다는 점을 명확히 하기 위해 기존 메서드를 고치지 않고 새 메서드 2개를 추가한다.
 2번 엔드포인트(상세)는 이 메서드들을 쓰지 않고, 기존 `findByApplicationId` +
 `applicationRepository.findById`(둘 다 이미 존재)만으로 충분하다.
 
+### `SchoolCampApplicationRepository`에 추가할 조회 메서드(설계 변경 3, 신규)
+```java
+@Query("select a from SchoolCampApplication a "
+    + "join fetch a.session s "
+    + "where a.teacherUser.id = :teacherUserId "
+    + "order by s.campDate desc")
+List<SchoolCampApplication> findByTeacherUserId(@Param("teacherUserId") Long teacherUserId);
+
+@Query("select a from SchoolCampApplication a "
+    + "join fetch a.session s "
+    + "where a.teacherUser.id = :teacherUserId "
+    + "and s.campDate between :monthStart and :monthEnd "
+    + "order by s.campDate desc")
+List<SchoolCampApplication> findByTeacherUserIdInMonth(
+    @Param("teacherUserId") Long teacherUserId,
+    @Param("monthStart") LocalDate monthStart,
+    @Param("monthEnd") LocalDate monthEnd);
+```
+1번 엔드포인트(목록)의 선생님 쪽 이력 조회에서만 쓴다. `SchoolCampMember`를 거치지 않고
+`SchoolCampApplication.teacherUser`를 직접 조회한다는 점만 다르고, 나머지(취소 포함,
+`campDate` 내림차순)는 학생 쪽 쿼리와 동일한 규칙이다.
+
 ## 영향 받는 기존 코드
 - 신규: `SchoolCampMyParticipationSummaryResponse`/`SchoolCampMyParticipationResponse`
-  (DTO), `SchoolCampMyRole`(enum)
+  (DTO), `SchoolCampMyRole`(enum, `TEACHER` 포함)
 - 수정: `SchoolCampErrorCode`(`INVALID_PAGE_PARAMS` = `SCHOOLCAMP_012`,
   `NOT_APPLICATION_PARTICIPANT` = `SCHOOLCAMP_013` 추가), `SchoolCampMemberRepository`
-  (`findMyParticipations`/`findMyParticipationsInMonth` 추가), `SchoolCampService`
+  (`findMyParticipations`/`findMyParticipationsInMonth` 추가), `SchoolCampApplicationRepository`
+  (`findByTeacherUserId`/`findByTeacherUserIdInMonth` 추가, 설계 변경 3), `SchoolCampService`
   (`getMyParticipations`/`getMyParticipationDetail` 추가 — `MIN_PAGE_SIZE`/
   `MAX_PAGE_SIZE` 상수와 `validatePageParams`도 `outing`과 동일하게 추가,
   `teacherDisplayName`/`toMemberResponse` 기존 private 메서드는 그대로 재사용),
-  `SchoolCampController`(`GET /me`, `GET /applications/{id}` 추가)
+  `SchoolCampController`(`GET /me`, `GET /applications/{id}` 추가, 둘 다
+  `@PreAuthorize("hasAnyRole('STUDENT','TEACHER')")`)
 - **마스터 기획서(`1_schoolcamp-domain.md`) 3번 절도 이번 검토 결과대로 갱신** — 이
   프로젝트는 보통 마스터 기획서를 매번 고치지 않고 이슈별 기획서만 최신으로 유지하는 게
   원칙([api-design.md](../../rules/api-design.md) "마스터 기획서 재검토" 참고)이지만,
@@ -276,16 +343,27 @@ List<SchoolCampMember> findMyParticipationsInMonth(
   이력을 포함한다. 취소 자체를 취소하거나 되돌리는 기능은 이 이슈 범위 밖이다.
 - **상세 조회 인가가 "대표 신청자만"이 아니라 "참여자 전체"** — `#70`의 취소/수정은 대표
   신청자만 할 수 있지만(팀원은 자기 참여를 취소/수정할 권한이 없음, 마스터 기획서가 이미
-  확정한 정책), 이 이슈의 "조회"는 읽기 전용이라 팀원도 자신이 속한 신청의 상세를 볼 수
-  있게 하는 것이 자연스럽다고 판단했다 — 취소/수정 가능 여부와 조회 가능 여부를 다른
-  기준으로 가져가는 것이다.
+  확정한 정책), 이 이슈의 "조회"는 읽기 전용이라 팀원도, 담당 선생님도 자신이 관련된
+  신청의 상세를 볼 수 있게 하는 것이 자연스럽다고 판단했다 — 취소/수정 가능 여부와 조회
+  가능 여부를 다른 기준으로 가져가는 것이다.
+- **선생님 조회는 가입된(`teacherUser`) 계정만 가능**(설계 변경 3) — 자유 입력
+  (`teacherName`)으로 지정된 담당 선생님은 로그인 계정 자체가 없어 이 API를 호출할 수
+  없다. 그 경우 학생 쪽에서는 여전히 목록/상세를 볼 수 있으니 정보 자체가 사라지는 건
+  아니고, "그 선생님 본인이 자기 목록에서 조회"만 안 되는 제약이다.
+- **한 사람이 학생/선생님 이력을 동시에 가지는 경우는 실질적으로 없다**(설계 변경 3) —
+  담당 선생님 지정은 `TEACHER` 역할 보유자만 가능(`findValidTeacher`가 이미 검증)하고,
+  이 학교 운영상 학생이면서 동시에 스쿨캠핑 담당 선생님인 계정은 나오지 않는다고 보고
+  별도 방어 로직 없이 단순 병합·정렬만 한다.
 
 ## 테스트
 - `SchoolCampService.getMyParticipations`(목록):
   - 참여 내역이 없음 → 빈 `content`
   - 대표로 참여한 신청이 있음 → `myRole: APPLICANT`
   - 팀원으로 초대받은 신청이 있음 → `myRole: MEMBER`
-  - **취소된 신청도 목록에 포함되고 `cancelledAt`이 채워지는지**(설계 변경 핵심 검증)
+  - **담당 선생님으로 지정된 신청이 있음 → `myRole: TEACHER`**(설계 변경 3 핵심 검증)
+  - **학생 이력 + 선생님 이력이 함께 있으면 `campDate` 기준으로 올바르게 병합·정렬되는지**
+    (설계 변경 3 핵심 검증)
+  - 취소된 신청도 목록에 포함되고 `cancelledAt`이 채워지는지(설계 변경 1 핵심 검증)
   - `month`를 지정하면 그 달만, 생략하면 전체 이력이 조회되는지
   - `campDate` 내림차순으로 정렬되는지
   - 페이지네이션(`page`/`size`)이 올바르게 적용되는지
@@ -293,9 +371,10 @@ List<SchoolCampMember> findMyParticipationsInMonth(
 - `SchoolCampService.getMyParticipationDetail`(상세):
   - 대표로 참여한 신청 조회 → `myRole: APPLICANT`, `members`에 전체 팀원 포함
   - 팀원으로 참여한 신청 조회 → `myRole: MEMBER`
-  - **취소된 신청도 상세 조회가 되는지**(설계 변경 핵심 검증)
+  - **담당 선생님으로 지정된 신청 조회 → `myRole: TEACHER`**(설계 변경 3 핵심 검증)
+  - 취소된 신청도 상세 조회가 되는지(설계 변경 1 핵심 검증)
   - 존재하지 않는 신청 → `404`
-  - 본인이 참여자가 아닌(대표도 팀원도 아닌) 신청 조회 → `403` `SCHOOLCAMP_013`
-- `SchoolCampController`/인가: 두 엔드포인트 모두 `STUDENT`가 아닌 역할(예: `TEACHER`)로
-  호출 시 `403`(`SchoolCampAuthorizationTest`에 이미 있는 패턴 확장), 인증 토큰 없이
-  호출 시 `401`
+  - 본인이 참여자(대표/팀원/담당 선생님 어느 쪽도)가 아닌 신청 조회 → `403` `SCHOOLCAMP_013`
+- `SchoolCampController`/인가: 두 엔드포인트 모두 `STUDENT`/`TEACHER` 둘 다 아닌 역할(예:
+  `ADMIN` 단독)로 호출 시 `403`(`SchoolCampAuthorizationTest`에 이미 있는 패턴 확장), 인증
+  토큰 없이 호출 시 `401`
