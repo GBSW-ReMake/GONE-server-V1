@@ -141,6 +141,8 @@ not-found를 세션 대상 not-found와 분리했다 — API 설계 원칙 4(의
 - 형식 오류/8명 초과/유효하지 않은 `teacherUserId` → `400` `SCHOOLCAMP_004`
 - 존재하지 않는 `studentUserId`/중복 → `400` `SCHOOLCAMP_008`
 - 새로 추가한 팀원 중 이번 달 이미 참여한 사람 있음 → `409` `SCHOOLCAMP_003`
+- 같은 신청에 대한 동시 수정 요청이 충돌(코드 리뷰 대응, 아래 "동시 수정 레이스" 참고) →
+  `409` `SCHOOLCAMP_011`
 
 > 💡 이 엔드포인트는 세션의 `taken_at`에 영향을 주지 않는다 — 그 날짜는 이미 이 신청 하나가
 > 차지한 상태이므로, 팀원을 추가/제거해도(최대 8명 제한 안에서) 다른 신청과 경합할 여지가
@@ -149,18 +151,21 @@ not-found를 세션 대상 not-found와 분리했다 — API 설계 원칙 4(의
 ## 영향 받는 기존 코드
 - 신규: `SchoolCampErrorCode.APPLICATION_NOT_FOUND`(`SCHOOLCAMP_010`),
   `.NOT_APPLICATION_OWNER`(`SCHOOLCAMP_007`), `.CANCEL_NOT_ALLOWED_ON_CAMP_DAY`
-  (`SCHOOLCAMP_009`)
+  (`SCHOOLCAMP_009`), `.CONCURRENT_UPDATE_CONFLICT`(`SCHOOLCAMP_011`, 코드 리뷰 대응 —
+  아래 "동시 수정 레이스" 참고)
 - 수정: `SchoolCampApplicationRepository`(`findByIdAndCancelledAtIsNull` 추가),
-  `SchoolCampMemberRepository`(`findByApplicationId`를 이 이슈에서 신규 추가, 추가로
-  `deleteAllByIdIn` 또는 개별 `delete` 필요), `SchoolCampService`(`cancelApplication`/
-  `updateApplication` 추가 — `#68`의 `validateApplicationFormat`/`findValidTeacher`/
-  `findExistingStudents`는 그대로 재사용하되, `validateNoDuplicateThisMonth`는 호출 시
-  대표 신청자를 후보 집합에 자동으로 넣는 현재 시그니처가 "새로 추가되는 학생만" 검사하는
-  이 이슈의 요구와 맞지 않아 그대로 재사용할 수 없다 — 구현 시 후보 집합을 호출부에서 직접
-  구성해 넘기도록 시그니처를 조정해야 한다), `SchoolCampController`(`DELETE`/`PATCH`
-  `/applications/{id}` 추가)
+  `SchoolCampMemberRepository`(`findByApplicationId`를 이 이슈에서 신규 추가, 삭제는
+  `JpaRepository` 기본 제공 `deleteAllById`를 그대로 사용해 별도 메서드 불필요),
+  `SchoolCampService`(`cancelApplication`/`updateApplication` 추가 — `#68`의
+  `validateApplicationFormat`/`findValidTeacher`/`findExistingStudents`는 그대로
+  재사용하되, `validateNoDuplicateThisMonth`는 호출 시 대표 신청자를 후보 집합에 자동으로
+  넣는 기존 시그니처가 "새로 추가되는 학생만" 검사하는 이 이슈의 요구와 맞지 않아 후보
+  집합을 호출부가 직접 구성해 넘기도록 시그니처를 조정했다), `SchoolCampController`
+  (`DELETE`/`PATCH` `/applications/{id}` 추가)
 - `SchoolCampSessionRepository.release`는 이미 `#68`에 있어 그대로 재사용한다(수정 없음)
-- 신규 마이그레이션 없음(기존 테이블만 사용)
+- **신규 마이그레이션 `V13__add_schoolcamp_member_unique_constraint.sql`**(코드 리뷰 대응)
+  — `school_camp_member`에 `(application_id, student_user_id)` 유니크 제약 추가. 아래
+  "동시 수정 레이스" 참고
 - `SecurityConfig`(수정 없음): `/api/v1/school-camps/**`가 이미 인증 요구로 등록됨
 
 ## 리스크 및 고려사항
@@ -182,6 +187,19 @@ not-found를 세션 대상 not-found와 분리했다 — API 설계 원칙 4(의
   들어오면, 취소가 먼저 커밋되면 이후 수정은 `findByIdAndCancelledAtIsNull`에서 이미
   걸러져 `404`로 자연스럽게 처리된다 — 별도 락 없이 "취소 여부" 컬럼 자체가 가드 역할을
   한다.
+- **동시 수정(수정-수정) 레이스(코드 리뷰 발견, 확정)**: 위 "취소와 수정" 항목과 달리,
+  같은 신청에 대한 동시 PATCH 두 건(더블 클릭, 네트워크 재시도 등)은 `cancelled_at` 같은
+  가드가 없다 — 두 트랜잭션이 같은 기존 팀원 목록을 읽어 같은 `addedStudentIds`를 계산하고
+  각자 그 학생에 대한 새 `SchoolCampMember` 행을 삽입하면, 애플리케이션 레벨 검증만으로는
+  중복 삽입을 막지 못한다. `school_camp_member`에 `(application_id, student_user_id)`
+  유니크 제약(`V13`)을 추가해 DB를 최종 방어선으로 삼았다 — 진 쪽 트랜잭션의 삽입은
+  `DataIntegrityViolationException`으로 실패하고, `updateApplication`이 이를 잡아
+  `409` `SCHOOLCAMP_011`로 변환해 클라이언트가 "충돌, 재시도 가능"임을 명확히 알 수 있게
+  한다(그대로 두면 범용 `500`/`COMMON_006`으로 응답돼 원인이 불분명해진다 — `registerCampDates`
+  가 같은 이유로 사전 중복 검증을 하는 것과 같은 문제의식). 비관적 락(`SELECT ... FOR
+  UPDATE`)으로 애초에 두 트랜잭션을 직렬화하는 대안도 검토했으나, 이 프로젝트에 비관적 락
+  선례가 없어 새 패턴을 들이는 비용이 크고 트리거 조건(같은 사용자의 거의 동시 중복 제출)이
+  좁아 DB 제약만으로 충분하다고 판단했다.
 - **diff 삭제/삽입이 하나의 트랜잭션**: 6~7번 전체가 `@Transactional`로 묶여, 삭제는 됐는데
   삽입만 실패하는 식의 부분 반영이 나지 않는다.
 - **"전체 교체" 계약이 프론트에 실수 여지를 준다** — 바뀌지 않은 기존 팀원을 실수로
@@ -200,6 +218,13 @@ not-found를 세션 대상 not-found와 분리했다 — API 설계 원칙 4(의
   - 담당 선생님만 변경(팀원 그대로)
   - 팀원 추가(가입 학생 + "기타" 혼합), 팀원 제거, 팀원 유지 — 세 경우 모두 diff가 올바르게
     적용되는지(삭제/유지/신규삽입 각각)
+  - **한 요청 안에서 유지+추가+제거가 섞인 조합** — 각 diff 집합 연산이 서로 간섭하지
+    않는지(코드 리뷰 대응)
+  - **추가하는 팀원이 전부 "기타"(게스트)뿐인 경우** — 이번 달 중복 참여 확인 자체가
+    호출되지 않는지(코드 리뷰 대응)
+  - **동시 수정 충돌**: 팀원 삽입이 `(application_id, student_user_id)` 유니크 제약
+    위반(`DataIntegrityViolationException`)으로 실패하면 `409` `SCHOOLCAMP_011`로
+    변환되는지(코드 리뷰 대응)
   - 기존에 있던 팀원은 이번 달 중복 검사에서 제외되고, 새로 추가된 팀원만 검사되는지
   - 새로 추가한 팀원이 이번 달 이미 다른 세션에 참여 중 → `409`
   - 소유권 없음 → `403`
