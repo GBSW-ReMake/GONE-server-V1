@@ -78,8 +78,8 @@ public class SchoolCampController {
   }
 
   /**
-   * 본인(대표든 팀원이든)이 참여한 스쿨캠핑 이력을 목록으로 조회합니다(#69). 취소된
-   * 신청도 포함하며(응답의 {@code cancelledAt}으로 구분), 팀원 전체는 담지 않는다 —
+   * 본인(대표/팀원/담당 선생님 중 하나)이 관련된 스쿨캠핑 이력을 목록으로 조회합니다(#69).
+   * 취소된 신청도 포함하며(응답의 {@code cancelledAt}으로 구분), 팀원 전체는 담지 않는다 —
    * 상세는 {@link #getMyParticipationDetail}로 따로 조회한다.
    *
    * @param principal 인증 필터가 Access Token에서 추출한 현재 사용자
@@ -89,7 +89,7 @@ public class SchoolCampController {
    * @return 페이지네이션된 참여 내역 요약 목록
    */
   @GetMapping("/me")
-  @PreAuthorize("hasRole('STUDENT')")
+  @PreAuthorize("hasAnyRole('STUDENT', 'TEACHER')")
   public ApiResponse<PageResponse<SchoolCampMyParticipationSummaryResponse>> getMyParticipations(
       @AuthenticationPrincipal UserPrincipal principal,
       @RequestParam(required = false) @DateTimeFormat(pattern = "yyyyMM") YearMonth month,
@@ -103,14 +103,15 @@ public class SchoolCampController {
 
   /**
    * 본인이 참여한 신청 1건의 상세(담당 선생님/팀원 전체)를 조회합니다(#69). 취소된
-   * 신청도 조회할 수 있다. 본인이 그 신청의 참여자(대표 또는 팀원)가 아니면 거부한다.
+   * 신청도 조회할 수 있다. 본인이 그 신청의 참여자(대표, 팀원, 또는 담당 선생님)가
+   * 아니면 거부한다.
    *
    * @param principal     인증 필터가 Access Token에서 추출한 현재 사용자
    * @param applicationId 조회할 신청의 PK
    * @return 팀원 전체를 포함한 참여 내역 상세
    */
   @GetMapping("/applications/{applicationId}")
-  @PreAuthorize("hasRole('STUDENT')")
+  @PreAuthorize("hasAnyRole('STUDENT', 'TEACHER')")
   public ApiResponse<SchoolCampMyParticipationResponse> getMyParticipationDetail(
       @AuthenticationPrincipal UserPrincipal principal,
       @PathVariable Long applicationId
