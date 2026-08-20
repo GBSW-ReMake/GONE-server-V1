@@ -320,54 +320,91 @@
 
 ---
 
-### 3. `GET /api/v1/school-camps/me?month=yyyyMM` — 본인 참여 내역
+### 3. 본인 참여 내역 — 목록 + 상세 (엔드포인트 2개)
+**수정 반영, 2026-08-20, `#69` 검토**: 초안은 `month`를 필수로 받아 그 달의 유효한(취소
+안 된) 신청만 보여주는 엔드포인트 1개였고, 항목마다 팀원 전체(`members`)를 그대로
+중첩했다. 검토 결과 (1) `month`를 선택 파라미터로 바꿔 전체 이력 조회를 지원하고 취소
+이력도 포함하기로 했고, (2) 그 결과 목록 항목마다 팀원 전체를 중첩하는 게 "컬렉션 안에
+컬렉션을 중첩하지 않는다"는 [api-design.md](../../rules/api-design.md) 원칙 5에 어긋나게
+되어 목록(요약)과 상세를 엔드포인트 2개로 분리했다 — 상세 근거는
+[69-schoolcamp-my-participation.md](./69-schoolcamp-my-participation.md) 참고.
+
+#### 3-1. `GET /api/v1/school-camps/me` — 참여 내역 목록(요약)
 **권한**: `STUDENT`(본인 것만)
 
-**응답** — 대표로 신청했든 팀원으로 초대받았든 **본인이 참여한 모든 스쿨캠핑**을 보여준다
-(수정 반영, 2026-08-18). 각 항목은 2번 엔드포인트 응답과 같은 형태 + 이 조회를 요청한
-본인의 역할을 나타내는 `myRole` 필드를 추가한다 — 상세(날짜/선생님/전체 팀원)를 항목마다
-그대로 포함시켜서, 프론트가 목록에서 바로 상세를 그릴 수 있게 한다(별도 상세 조회
-엔드포인트를 따로 만들지 않는다).
+**요청** — 쿼리 파라미터 `month`(`yyyyMM`, 선택 — 생략하면 전체 이력), `page`/`size`
+(페이지네이션, `outing`의 `GET /api/v1/outings/me/requests`와 동일한 파라미터/응답 포맷)
+
+**응답** — 대표로 신청했든 팀원으로 초대받았든 **본인이 참여한 모든 스쿨캠핑**(취소한
+이력 포함, `cancelledAt`으로 구분)을 `campDate` 내림차순으로 보여준다. 목록 항목은
+팀원 전체를 담지 않는 요약 형태다 — 상세는 3-2번 엔드포인트로 따로 조회한다.
 ```json
 {
   "success": true,
-  "data": [
-    {
-      "id": 301,
-      "campDate": "20260403",
-      "teacherDisplayName": "박선생",
-      "myRole": "APPLICANT",
-      "members": [
-        { "studentRealName": "홍길동", "studentGrade": 3, "studentClassNo": 4, "isApplicant": true },
-        { "studentRealName": "이영희", "studentGrade": 3, "studentClassNo": 2, "isApplicant": false }
-      ],
-      "appliedAt": "2026-03-20T09:12:00"
-    },
-    {
-      "id": 305,
-      "campDate": "20260417",
-      "teacherDisplayName": "김선생",
-      "myRole": "MEMBER",
-      "members": [
-        { "studentRealName": "최민수", "studentGrade": 2, "studentClassNo": 1, "isApplicant": true },
-        { "studentRealName": "홍길동", "studentGrade": 3, "studentClassNo": 4, "isApplicant": false }
-      ],
-      "appliedAt": "2026-04-10T08:03:00"
-    }
-  ],
+  "data": {
+    "content": [
+      {
+        "id": 301,
+        "campDate": "20260403",
+        "teacherDisplayName": "박선생",
+        "myRole": "APPLICANT",
+        "appliedAt": "2026-03-20T09:12:00",
+        "cancelledAt": null
+      }
+    ],
+    "page": 0,
+    "size": 20,
+    "totalElements": 1,
+    "totalPages": 1,
+    "hasNext": false
+  },
   "message": "스쿨캠핑 참여 내역을 조회했습니다.",
   "code": null
 }
 ```
 
 **구현 로직**
-1. `principal.userId()`와 `month`로 그 달에 본인이 **대표로 신청했거나 팀원으로 속한** 유효한
-   (`cancelled_at IS NULL`) `SchoolCampApplication`을 전부 조회 — `SchoolCampMember`를
-   `SchoolCampApplication`과 조인해 `applicant_user_id = principal.userId()` **또는**
-   (`student_user_id = principal.userId()` AND `is_applicant = false`)인 신청을 모은다
-2. 각 신청마다 `SchoolCampMember` 전체를 같이 조회해 `members` 배열 구성(2번과 동일 로직
-   재사용), 본인이 대표인지 팀원인지에 따라 `myRole`을 `APPLICANT`/`MEMBER`로 채운다
-3. DTO 변환 반환
+1. `principal.userId()`(+ `month`가 있으면 그 달로 범위 한정)로 본인이 **대표로 신청했거나
+   팀원으로 속한** `SchoolCampApplication`을 전부 조회한다 — 취소 여부와 무관하게
+   전부 포함한다(`SchoolCampMember`를 `SchoolCampApplication`과 조인해
+   `applicant_user_id = principal.userId()` **또는** (`student_user_id = principal.userId()`
+   AND `is_applicant = false`)인 신청을 모은다)
+2. `campDate` 내림차순 정렬 후 `page`/`size`로 자른다
+3. 잘린 페이지 안의 신청마다 요약 DTO로 변환한다(본인이 대표인지 팀원인지에 따라
+   `myRole`을 `APPLICANT`/`MEMBER`로 채운다) — 팀원 전체 조회는 하지 않는다
+
+#### 3-2. `GET /api/v1/school-camps/applications/{id}` — 참여 신청 상세
+**권한**: `STUDENT` + 본인이 그 신청의 참여자(대표 또는 팀원)여야 함
+
+**요청**: 경로 변수 `id`(`SchoolCampApplication.id`)
+
+**응답** — 3-1번 항목 하나를 골랐을 때의 상세. 팀원 전체(`members`)를 포함한다.
+```json
+{
+  "success": true,
+  "data": {
+    "id": 301,
+    "campDate": "20260403",
+    "teacherDisplayName": "박선생",
+    "myRole": "APPLICANT",
+    "members": [
+      { "studentRealName": "홍길동", "studentGrade": 3, "studentClassNo": 4, "isApplicant": true },
+      { "studentRealName": "이영희", "studentGrade": 3, "studentClassNo": 2, "isApplicant": false }
+    ],
+    "appliedAt": "2026-03-20T09:12:00",
+    "cancelledAt": null
+  },
+  "message": "스쿨캠핑 참여 상세를 조회했습니다.",
+  "code": null
+}
+```
+
+**구현 로직**
+1. `id`로 `SchoolCampApplication`을 조회한다 — 취소 여부와 무관하게(취소된 신청도 상세를
+   볼 수 있어야 함) 조회한다. 없으면 `404`
+2. `SchoolCampMember` 전체를 조회해 그중 요청자 본인 행을 찾는다. 없으면(참여자가 아님)
+   `403`. 찾았으면 그 행의 대표 여부로 `myRole`을 정한다
+3. DTO 변환 반환(팀원 전체 포함)
 
 ---
 
