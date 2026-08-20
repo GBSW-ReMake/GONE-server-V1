@@ -22,6 +22,15 @@ public interface SchoolCampApplicationRepository
   Optional<SchoolCampApplication> findBySessionIdAndCancelledAtIsNull(Long sessionId);
 
   /**
+   * 활성(취소되지 않은) 신청을 PK로 조회합니다({@code #70} 취소/수정에서 사용). 이미 취소된
+   * 신청은 없는 것처럼 취급한다 — 재취소·재수정 시도를 조회 단계에서부터 걸러낸다.
+   *
+   * @param id 조회할 신청의 PK
+   * @return 활성 신청(있다면)
+   */
+  Optional<SchoolCampApplication> findByIdAndCancelledAtIsNull(Long id);
+
+  /**
    * 여러 세션의 활성(취소되지 않은) 신청을 한 번에 조회합니다. 캘린더 응답
    * ({@code SchoolCampService.getCalendar})이 점유된 세션 수만큼 개별 조회하는 N+1을
    * 피하려고 배치로 묶어 쓴다.

@@ -37,4 +37,13 @@ public interface SchoolCampMemberRepository extends JpaRepository<SchoolCampMemb
       @Param("candidateIds") Collection<Long> candidateIds,
       @Param("monthStart") LocalDate monthStart,
       @Param("monthEnd") LocalDate monthEnd);
+
+  /**
+   * 한 신청(팀)에 속한 팀원 전체를 조회합니다({@code #70} 수정에서 기존 팀원과의 diff
+   * 계산에 사용). 대표 신청자 행({@code applicant=true})도 포함된다.
+   *
+   * @param applicationId 조회할 신청의 PK
+   * @return 그 신청에 속한 팀원 전체
+   */
+  List<SchoolCampMember> findByApplicationId(Long applicationId);
 }

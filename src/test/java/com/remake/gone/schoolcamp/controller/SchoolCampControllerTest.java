@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -176,6 +177,59 @@ class SchoolCampControllerTest {
 
       ApiResponse<SchoolCampApplicationResponse> response =
           controller.applyToCamp(principal, 5L, request);
+
+      assertThat(response.success()).isTrue();
+      assertThat(response.data()).isEqualTo(expected);
+    }
+  }
+
+  @Nested
+  @DisplayName("DELETE /api/v1/school-camps/applications/{id}")
+  class CancelApplication {
+
+    @Test
+    @DisplayName("principal의 userId와 신청 id를 그대로 서비스에 전달한다")
+    void callsServiceWithPrincipalAndApplicationId() {
+      SchoolCampController controller = new SchoolCampController(schoolCampService);
+      UserPrincipal principal = new UserPrincipal(101L);
+
+      ApiResponse<Void> response = controller.cancelApplication(principal, 301L);
+
+      assertThat(response.success()).isTrue();
+      assertThat(response.data()).isNull();
+      verify(schoolCampService).cancelApplication(eq(101L), eq(301L), any(LocalDateTime.class));
+    }
+  }
+
+  @Nested
+  @DisplayName("PATCH /api/v1/school-camps/applications/{id}")
+  class UpdateApplication {
+
+    @Test
+    @DisplayName("팀원 자유 입력 이름이 50자를 초과하면 400을 반환한다")
+    void returns400WhenGuestNameTooLong() throws Exception {
+      String tooLongName = "가".repeat(51);
+      mockMvc.perform(patch("/api/v1/school-camps/applications/301")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content("{\"teacherUserId\": 42, \"additionalMembers\": "
+                  + "[{\"guestName\": \"" + tooLongName + "\"}]}"))
+          .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("principal의 userId와 신청 id, 요청을 그대로 서비스에 전달한다")
+    void callsServiceWithPrincipalAndRequest() {
+      SchoolCampController controller = new SchoolCampController(schoolCampService);
+      UserPrincipal principal = new UserPrincipal(101L);
+      SchoolCampApplyRequest request = new SchoolCampApplyRequest(42L, null, List.of());
+      SchoolCampApplicationResponse expected = new SchoolCampApplicationResponse(
+          301L, "20260403", "박선생",
+          List.of(new SchoolCampMemberResponse("홍길동", 3, 4, null, true)),
+          "2026-03-20T09:12:00");
+      given(schoolCampService.updateApplication(101L, 301L, request)).willReturn(expected);
+
+      ApiResponse<SchoolCampApplicationResponse> response =
+          controller.updateApplication(principal, 301L, request);
 
       assertThat(response.success()).isTrue();
       assertThat(response.data()).isEqualTo(expected);

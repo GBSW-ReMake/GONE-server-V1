@@ -18,7 +18,9 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -28,7 +30,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 스쿨캠핑(SchoolCamp) 세션 등록/캘린더 조회/신청 API.
+ * 스쿨캠핑(SchoolCamp) 세션 등록/캘린더 조회/신청/취소/수정 API.
  */
 @RestController
 @RequestMapping("/api/v1/school-camps")
@@ -92,5 +94,45 @@ public class SchoolCampController {
     SchoolCampApplicationResponse response = schoolCampService.applyToCamp(
         principal.userId(), sessionId, request, LocalDateTime.now(KST));
     return ApiResponse.success(response, "스쿨캠핑 신청이 완료되었습니다.");
+  }
+
+  /**
+   * 본인 신청을 취소합니다. 소유권 확인과 당일 취소 금지는 서비스에서 처리합니다.
+   *
+   * @param principal     인증 필터가 Access Token에서 추출한 현재 사용자
+   * @param applicationId 취소할 신청의 PK
+   * @return 데이터 없는 성공 응답
+   */
+  @DeleteMapping("/applications/{applicationId}")
+  @PreAuthorize("isAuthenticated()")
+  public ApiResponse<Void> cancelApplication(
+      @AuthenticationPrincipal UserPrincipal principal,
+      @PathVariable Long applicationId
+  ) {
+    schoolCampService.cancelApplication(
+        principal.userId(), applicationId, LocalDateTime.now(KST));
+    return ApiResponse.success(null, "신청이 취소되었습니다.");
+  }
+
+  /**
+   * 본인 신청의 담당 선생님/팀원 정보를 수정합니다. 전체 교체 방식이라, 바뀌지 않은 기존
+   * 팀원도 포함해 원하는 최종 팀원 목록 전체를 보내야 합니다. 소유권 확인은 서비스에서
+   * 처리합니다.
+   *
+   * @param principal     인증 필터가 Access Token에서 추출한 현재 사용자
+   * @param applicationId 수정할 신청의 PK
+   * @param request       새 담당 선생님/팀원 스냅샷
+   * @return 갱신된 신청 정보
+   */
+  @PatchMapping("/applications/{applicationId}")
+  @PreAuthorize("isAuthenticated()")
+  public ApiResponse<SchoolCampApplicationResponse> updateApplication(
+      @AuthenticationPrincipal UserPrincipal principal,
+      @PathVariable Long applicationId,
+      @Valid @RequestBody SchoolCampApplyRequest request
+  ) {
+    SchoolCampApplicationResponse response =
+        schoolCampService.updateApplication(principal.userId(), applicationId, request);
+    return ApiResponse.success(response, "신청 정보가 수정되었습니다.");
   }
 }
