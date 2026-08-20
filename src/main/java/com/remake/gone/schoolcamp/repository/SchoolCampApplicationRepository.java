@@ -1,6 +1,7 @@
 package com.remake.gone.schoolcamp.repository;
 
 import com.remake.gone.schoolcamp.entity.SchoolCampApplication;
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -39,4 +40,14 @@ public interface SchoolCampApplicationRepository
    * @return 그 세션들의 활성 신청 목록(세션당 0건 또는 1건)
    */
   List<SchoolCampApplication> findBySessionIdInAndCancelledAtIsNull(Collection<Long> sessionIds);
+
+  /**
+   * 특정 날짜에 열리는 세션의 활성(취소되지 않은) 신청을 조회합니다({@code #71} 외출 연동
+   * 리마인더 스케줄러가 오늘 참여하는 신청을 찾을 때 사용). 한 세션에 성사되는 신청은
+   * 정확히 1건뿐이라 항상 0개 또는 1개가 조회된다.
+   *
+   * @param campDate 조회할 캠핑 날짜
+   * @return 그 날짜 세션의 활성 신청(있다면)
+   */
+  List<SchoolCampApplication> findBySessionCampDateAndCancelledAtIsNull(LocalDate campDate);
 }
