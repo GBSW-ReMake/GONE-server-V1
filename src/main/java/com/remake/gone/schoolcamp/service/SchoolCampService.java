@@ -6,6 +6,10 @@ import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.utils.GbswUtils;
 import com.remake.gone.notification.enums.NotificationType;
 import com.remake.gone.notification.service.NotificationService;
+import com.remake.gone.outing.entity.Outing;
+import com.remake.gone.outing.enums.OutingStatus;
+import com.remake.gone.outing.enums.OutingTimeSlot;
+import com.remake.gone.outing.repository.OutingRepository;
 import com.remake.gone.role.repository.UserRoleRepository;
 import com.remake.gone.schoolcamp.dto.SchoolCampApplicationResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampApplyRequest;
@@ -68,6 +72,7 @@ public class SchoolCampService {
   private final UserRepository userRepository;
   private final UserRoleRepository userRoleRepository;
   private final NotificationService notificationService;
+  private final OutingRepository outingRepository;
 
   /**
    * 다음 달 스쿨캠핑 가능 날짜를 일괄 등록합니다. 요일 검증/중복 검증 중 하나라도 위반하는
@@ -335,6 +340,59 @@ public class SchoolCampService {
     finalMembers.addAll(newMembers);
 
     return toApplicationResponse(application, teacher, application.getSession(), finalMembers);
+  }
+
+  /**
+   * 오늘 스쿨캠핑에 참여하는 학생 중, 아직 점심({@link OutingTimeSlot#LUNCH}) 시간대를
+   * 포함하는 외출증을 신청하지 않은 사람에게 리마인더 알림을 저장합니다(#71).
+   *
+   * <p>대상은 대표 신청자뿐 아니라 {@link SchoolCampMember} 전체다 — 누가 실제로 장을 보러
+   * 가는지 구분하는 데이터가 없어 과다 알림 쪽으로 판단했다. 계정이 없는 "기타"(자유 입력)
+   * 팀원은 보낼 곳이 없어 대상에서 제외한다. 외출증 신청 여부는 {@link OutingStatus
+   * #ACTIVE_STATUSES}(승인 여부가 아니라 신청 여부)로 판단한다 — {@code REJECTED}는 다시
+   * 알림 대상이 되어 재신청을 유도한다.
+   *
+   * <p>대상 인원이 하루 최대 8명으로 상한이 명확해, {@code outing}(#42)처럼 건별 독립
+   * 트랜잭션으로 쪼개지 않고 하나의 트랜잭션으로 처리한다 — 이 메서드는 기존 데이터를
+   * 수정하지 않고 새 {@code Notification} 행을 추가만 하므로 경합할 다른 트랜잭션이 없고,
+   * 오히려 하나로 묶어야 실패 시 "일부만 알림 받음" 같은 불완전한 상태를 피할 수 있다.
+   *
+   * @param today 리마인더를 보낼 기준 날짜(KST) — 스케줄러가 "지금"을 전달한다
+   */
+  @Transactional
+  public void sendOutingReminders(LocalDate today) {
+    applicationRepository.findBySessionCampDateAndCancelledAtIsNull(today)
+        .forEach(application -> remindMembers(application, today));
+  }
+
+  private void remindMembers(SchoolCampApplication application, LocalDate today) {
+    memberRepository.findByApplicationId(application.getId()).stream()
+        .filter(member -> member.getStudentUser() != null)
+        .forEach(member -> remindIfNoLunchOuting(member.getStudentUser().getId(), today));
+  }
+
+  /**
+   * 시간대 이름({@code timeSlot} 컬럼)이 아니라 실제 시작/종료 시각으로 점심시간 포함
+   * 여부를 판단한다(코드 리뷰 #71 대응) — {@code CUSTOM} 외출증은 {@code LUNCH} 프리셋
+   * 범위(12:30~13:40)를 포함하는 더 넓은 시간대(08:40~20:30)를 자유롭게 신청할 수 있어,
+   * {@code timeSlot == LUNCH}로만 판단하면 점심시간을 실제로 포함하는 {@code CUSTOM}
+   * 외출증을 놓치고 리마인더를 잘못 보낸다.
+   */
+  private void remindIfNoLunchOuting(Long studentId, LocalDate today) {
+    boolean hasLunchOuting = outingRepository
+        .findByStudentIdAndOutingDateAndStatusIn(studentId, today, OutingStatus.ACTIVE_STATUSES)
+        .stream()
+        .anyMatch(SchoolCampService::overlapsLunch);
+    if (!hasLunchOuting) {
+      notificationService.send(studentId, "오늘 스쿨캠핑이 있어요!",
+          "장 보러 갈 외출증은 받으셨나요? 점심시간에 미리 신청해보세요.",
+          NotificationType.SCHOOLCAMP);
+    }
+  }
+
+  private static boolean overlapsLunch(Outing outing) {
+    return !outing.getStartTime().isAfter(OutingTimeSlot.LUNCH.getEndTime())
+        && !outing.getEndTime().isBefore(OutingTimeSlot.LUNCH.getStartTime());
   }
 
   /**
