@@ -9,7 +9,7 @@ import org.springframework.http.HttpStatus;
  * <p>코드 네이밍 규칙: {@code SCHOOLCAMP_NNN} (NNN은 3자리 순번). 번호는 마스터 기획서
  * (`docs/domain/schoolcamp/1_schoolcamp-domain.md`)의 전체 목록 중 실제로 구현되는 순서대로
  * 채운다 — #67에서는 005/006만 쓰였고, #68은 001/002/003/004/008을, #70은
- * 007/009/010/011을 쓴다.
+ * 007/009/010/011을, #69는 012/013을 쓴다.
  *
  * @see ErrorCode
  */
@@ -101,7 +101,22 @@ public enum SchoolCampErrorCode implements ErrorCode {
    * 않고, 재시도하면 해결될 수 있는 충돌임을 명시적으로 알린다.
    */
   CONCURRENT_UPDATE_CONFLICT(
-      HttpStatus.CONFLICT, "SCHOOLCAMP_011", "다른 요청과 동시에 처리되어 반영하지 못했습니다. 다시 시도해주세요.");
+      HttpStatus.CONFLICT, "SCHOOLCAMP_011", "다른 요청과 동시에 처리되어 반영하지 못했습니다. 다시 시도해주세요."),
+
+  /** {@code page}가 음수이거나 {@code size}가 1~100 범위 밖입니다({@code #69}). */
+  INVALID_PAGE_PARAMS(
+      HttpStatus.BAD_REQUEST, "SCHOOLCAMP_012",
+      "페이지 파라미터가 올바르지 않습니다(page>=0, 1<=size<=100)."),
+
+  /**
+   * 본인이 참여자(대표 또는 팀원)가 아닌 {@code SchoolCampApplication}의 상세를
+   * 조회하려고 시도했습니다({@code #69}).
+   *
+   * <p>{@link #NOT_APPLICATION_OWNER}(취소/수정 인가, 대표 신청자 전용)와 원인이 다르다 —
+   * 이 코드는 읽기 전용 상세 조회에서, 대표든 팀원이든 참여자가 아니면 쓴다.
+   */
+  NOT_APPLICATION_PARTICIPANT(
+      HttpStatus.FORBIDDEN, "SCHOOLCAMP_013", "본인이 참여한 신청만 조회할 수 있습니다.");
 
   private final HttpStatus httpStatus;
   private final String code;
