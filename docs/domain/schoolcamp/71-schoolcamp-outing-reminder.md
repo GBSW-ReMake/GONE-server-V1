@@ -65,7 +65,7 @@ public class SchoolCampReminderScheduler {
 ```java
 @Transactional
 public void sendOutingReminders(LocalDate today) {
-  applicationRepository.findBySession_CampDateAndCancelledAtIsNull(today)
+  applicationRepository.findBySessionCampDateAndCancelledAtIsNull(today)
       .forEach(application -> remindMembers(application, today));
 }
 
@@ -76,13 +76,20 @@ private void remindMembers(SchoolCampApplication application, LocalDate today) {
 }
 
 private void remindIfNoLunchOuting(Long studentId, LocalDate today) {
-  boolean hasLunchOuting = outingRepository.existsByStudentIdAndOutingDateAndTimeSlotAndStatusIn(
-      studentId, today, OutingTimeSlot.LUNCH, OutingStatus.ACTIVE_STATUSES);
+  boolean hasLunchOuting = outingRepository
+      .findByStudentIdAndOutingDateAndStatusIn(studentId, today, OutingStatus.ACTIVE_STATUSES)
+      .stream()
+      .anyMatch(SchoolCampService::overlapsLunch);
   if (!hasLunchOuting) {
     notificationService.send(studentId, "오늘 스쿨캠핑이 있어요!",
         "장 보러 갈 외출증은 받으셨나요? 점심시간에 미리 신청해보세요.",
         NotificationType.SCHOOLCAMP);
   }
+}
+
+private static boolean overlapsLunch(Outing outing) {
+  return !outing.getStartTime().isAfter(OutingTimeSlot.LUNCH.getEndTime())
+      && !outing.getEndTime().isBefore(OutingTimeSlot.LUNCH.getStartTime());
 }
 ```
 - **알림 대상은 "그날 참여하는 전원"**이다(대표 신청자만이 아니라 `SchoolCampMember`
@@ -96,6 +103,13 @@ private void remindIfNoLunchOuting(Long studentId, LocalDate today) {
   됐어도(`PENDING`) 이미 신청은 한 상태이므로 리마인더 대상에서 제외한다(승인 여부가 아니라
   "신청 여부"가 이 알림의 목적). `REJECTED`는 포함하지 않아 다시 알림 대상이 된다(재신청을
   유도하는 게 자연스럽다는 판단).
+- **`timeSlot` 값이 아니라 실제 시작/종료 시각으로 점심시간 포함 여부를 판단한다**(코드
+  리뷰 반영 — [71-schoolcamp-outing-reminder-code-review.md](./71-schoolcamp-outing-reminder-code-review.md)
+  High 1번 대응, 아래 "리스크 및 고려사항" 참고). 초안은 `timeSlot == LUNCH`만 확인했는데,
+  `CUSTOM` 외출증(08:40~20:30 범위 자유 신청)이 점심시간(12:30~13:40)을 포함해도 놓치는
+  결함이 있어, 기존 `OutingRepository.findByStudentIdAndOutingDateAndStatusIn`(신규 메서드
+  추가 없이 재사용)으로 그날의 활성 외출증을 가져온 뒤 서비스 레이어에서 실제 시간 겹침으로
+  다시 판단하도록 바꿨다.
 - **왜 `outing`(#42)처럼 건별 독립 트랜잭션으로 안 쪼개는지**: #42는 스케줄러의 낡은
   스냅샷이 승인/거절과 동시에 커밋되며 서로 덮어쓸 위험이 있어 건별 트랜잭션 + 낙관적 락으로
   분리했다. 이 스케줄러는 기존 데이터를 수정하지 않고 **읽기만 하고 새 `Notification` 행을
@@ -103,23 +117,22 @@ private void remindIfNoLunchOuting(Long studentId, LocalDate today) {
   인원도 하루 최대 8명으로 상한이 명확해, 하나의 트랜잭션으로 처리해도 실패 시 함께 롤백되는
   게 오히려 "일부만 알림 받음" 같은 불완전한 상태를 피할 수 있어 낫다.
 
-### `OutingRepository`에 추가할 조회 메서드
-```java
-/**
- * 특정 학생이 특정 날짜의 특정 시간대에, 주어진 상태들에 해당하는 외출증을 신청했는지
- * 확인합니다(#71 스쿨캠핑 리마인더 — 이미 신청했으면 리마인더 대상에서 제외).
- */
-boolean existsByStudentIdAndOutingDateAndTimeSlotAndStatusIn(
-    Long studentId, LocalDate outingDate, OutingTimeSlot timeSlot,
-    Collection<OutingStatus> statuses);
-```
+### `OutingRepository`
+새 조회 메서드를 추가하지 않는다 — 기존 `findByStudentIdAndOutingDateAndStatusIn(Long
+studentId, LocalDate outingDate, Collection<OutingStatus> statuses)`(중복 신청 검사용으로
+이미 존재)를 그대로 재사용하고, `timeSlot` 필터링은 서비스 레이어(`overlapsLunch`)에서
+한다(위 "코드 리뷰 반영" 참고 — 초안은 `existsByStudentIdAndOutingDateAndTimeSlotAndStatusIn`
+신규 메서드를 제안했으나 코드 리뷰 결과 삭제했다).
 
 ### `SchoolCampApplicationRepository`에 추가할 조회 메서드
 (엔티티 자체는 #68에서 생겼지만, 아래 메서드는 이 이슈에서 처음 필요해져 추가한다)
 ```java
 // SchoolCampApplicationRepository
-List<SchoolCampApplication> findBySession_CampDateAndCancelledAtIsNull(LocalDate campDate);
+List<SchoolCampApplication> findBySessionCampDateAndCancelledAtIsNull(LocalDate campDate);
 ```
+(코드 리뷰 반영 — 밑줄 없는 `SessionCampDate` 표기로 정정, 기존 `findBySessionIdAndCancelledAtIsNull`과
+네이밍이 더 일관된다)
+
 `SchoolCampMemberRepository.findByApplicationId(Long applicationId)`는 이미 #70에서
 추가돼 있어(팀원 목록 조회용, diff 계산에 사용) 새로 추가할 메서드 없이 그대로
 재사용한다.
@@ -128,7 +141,9 @@ List<SchoolCampApplication> findBySession_CampDateAndCancelledAtIsNull(LocalDate
 - 신규: `schoolcamp/scheduler/SchoolCampReminderScheduler`
 - 수정: `SchoolCampService`(`sendOutingReminders` 추가, `OutingRepository` 의존성 신규
   추가 — `NotificationService`는 #68부터 이미 주입돼 있어 추가할 게 없다),
-  `SchoolCampApplicationRepository`(조회 메서드 추가), `OutingRepository`(조회 메서드 추가)
+  `SchoolCampApplicationRepository`(조회 메서드 추가)
+- `OutingRepository`는 수정 없음(코드 리뷰 반영 — 초안이 제안한 신규 메서드를 추가하지 않고
+  기존 `findByStudentIdAndOutingDateAndStatusIn`을 그대로 재사용한다, 위 참고)
 - `SchoolCampMemberRepository`는 수정 없음(`findByApplicationId`를 #70에서 추가된 그대로
   재사용)
 - 신규 마이그레이션 없음(기존 테이블만 조회)
@@ -151,16 +166,26 @@ List<SchoolCampApplication> findBySession_CampDateAndCancelledAtIsNull(LocalDate
   다음 날 08:30에나 다시 도니 재시도가 없다는 뜻이지만, 발생 확률(DB 저장 실패)이 낮고
   발생하면 어차피 로그로 드러나 수동 대응이 가능하다고 보고 이 이슈에서 재시도 로직을 넣지
   않는다.
+- **`REJECTED`/`MISSED` 상태 필터링은 서비스 단위 테스트로 검증되지 않는다**(코드 리뷰
+  Medium 대응) — `ACTIVE_STATUSES`를 리포지토리 쿼리 파라미터로 넘기기만 하고 실제 필터링은
+  Spring Data가 생성한 쿼리(DB)가 수행하므로, Mockito로 리포지토리를 스텁하는 서비스
+  테스트로는 "REJECTED가 정말 제외되는가"를 확인할 수 없다(스텁이 항상 옳다고 가정할 뿐).
+  이 프로젝트에 `@DataJpaTest` 같은 리포지토리 레벨 테스트 선례가 없어(기존
+  `OutingRepository`/`SchoolCampApplicationRepository` 모두 테스트 파일 없음), 이 이슈에서
+  새 테스트 패턴을 들이지 않고 기존 컨벤션을 따른다 — `findByStudentIdAndOutingDateAndStatusIn`
+  자체는 이미 다른 도메인(외출 중복 신청 검사)에서 실사용 중인 검증된 메서드라는 점으로
+  리스크를 낮게 본다.
 
 ## 테스트
 - `SchoolCampService.sendOutingReminders`:
   - 오늘 세션 없음 → 아무 알림도 발송하지 않음
-  - 오늘 세션은 있지만 신청(취소 안 된 `SchoolCampApplication`)이 없음 → 발송 없음
   - 팀원 중 이미 `LUNCH` 외출증(`PENDING`/`APPROVED`/`DEPARTED`)이 있는 학생 → 그 학생에게는
     발송 안 함
-  - 팀원 중 `LUNCH` 외출증이 없는 학생 → 발송함(`NotificationService.send` 호출 검증)
-  - `REJECTED`/`MISSED` 상태의 `LUNCH` 외출증만 있는 학생 → 다시 발송 대상(제외되지 않음)
+  - **점심시간을 포함하는 `CUSTOM` 외출증(예: 11:00~15:00)이 있는 학생 → 발송 안 함**(코드
+    리뷰 High 대응 — `timeSlot` 이름이 아니라 실제 시간 겹침으로 판단하는지 확인)
+  - **점심시간을 포함하지 않는 `CUSTOM` 외출증(예: 08:40~10:00)만 있는 학생 → 발송함**(겹침
+    판단이 과도하게 넓지 않은지 확인)
+  - 외출증이 없는 학생 → 발송함(`NotificationService.send` 호출 검증)
   - "기타"(자유 입력, `studentUser == null`) 팀원 → 발송 대상에서 제외
-  - 취소된 신청(`cancelledAt` 있음)은 조회 자체에서 제외되는지
 - `SchoolCampReminderScheduler`: `LocalDate.now(KST)`를 구해 `sendOutingReminders`에 그대로
   위임하는지만 확인(`OutingMissedScheduler` 테스트와 동일한 얇은 검증 수준)
