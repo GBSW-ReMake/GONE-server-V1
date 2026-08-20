@@ -58,3 +58,30 @@ Critical/High/Medium/Low 모두 새로 발견된 것은 없다. 코드 리뷰 Me
 아님 403 경로, 취소 이력 포함 요구사항(설계 변경의 핵심)이 전부 실제 HTTP 요청으로
 확인됐다. `#70` 취소 엔드포인트와의 상호작용(세션 반환)도 회귀 없이 동작한다. 이 이슈의
 완료 조건(로컬 빌드/테스트 통과)을 충족하며, CI 통과 여부는 PR 생성(16단계) 후 확인한다.
+
+## 추가 QA — 선생님 조회 확장(설계 변경 3, 2026-08-20)
+
+머지 전 추가된 선생님 참여 내역 조회를 위 방식과 동일하게 실서버로 검증했다(관련 코드
+리뷰: `69-schoolcamp-my-participation-code-review.md`의 "추가 리뷰" 절, 신규 이슈 0건).
+
+### 검증 방법
+`testuser01`에 ADMIN(세션 등록용)에 더해 TEACHER 역할을 임시로 추가 부여했다 —
+검증 후 두 역할 모두 원복. 세션(20260901, 9월)을 등록하고, `testuser02`가 `testuser01`을
+담당 선생님(`teacherUserId`)으로 지정해 신청했다.
+
+### 실제 HTTP E2E 검증
+1. `testuser01`(담당 선생님)이 `GET /me?month=202609` 조회 → `200`, `content`에 1건,
+   `myRole: TEACHER`, `teacherDisplayName`이 본인 실명("정문경")과 일치
+2. `testuser01`이 `GET /applications/{id}` 상세 조회 → `200`, `myRole: TEACHER`,
+   `members`에 대표 신청자(`testuser02`)가 정상적으로 포함됨
+3. `testuser02`(대표 신청자)가 같은 신청을 `GET /me?month=202609`로 재조회(회귀 확인)
+   → `200`, `myRole: APPLICANT`로 그대로 유지 — 선생님 조회 경로 추가가 기존 학생 조회
+   경로에 영향을 주지 않음을 확인
+
+## 발견 사항(추가)
+새로 발견된 결함 없음. `resolveTeacherRole`/`collectMyParticipationSources`가 실제 DB
+데이터에 대해서도 코드 리뷰·단위 테스트와 일치하게 동작함을 확인했다.
+
+## 결론(갱신)
+선생님 조회(설계 변경 3)까지 포함해 기획서에 정의된 모든 시나리오가 실제 HTTP 요청으로
+검증됐다. 추가로 발견된 문제는 없어 16단계(PR)로 그대로 진행 가능하다고 판단한다.
