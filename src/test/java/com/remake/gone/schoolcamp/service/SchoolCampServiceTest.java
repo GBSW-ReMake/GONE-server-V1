@@ -48,6 +48,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 
 /**
  * {@link SchoolCampService}에 대한 단위 테스트.
@@ -726,6 +727,84 @@ class SchoolCampServiceTest {
 
       assertThat(response.members()).hasSize(1);
       verify(memberRepository).deleteAllById(List.of(2L));
+    }
+
+    @Test
+    @DisplayName("한 요청 안에서 유지/추가/제거가 섞여도 diff가 올바르게 적용된다")
+    void keepsAddsAndRemovesMembersInSameRequest() {
+      newApplication();
+      User keptStudent = studentUser(55L, studentGbsw(3, 2, 9, "이영희"), "영희");
+      User removedStudent = studentUser(66L, studentGbsw(2, 3, 4, "박서준"), "서준");
+      SchoolCampMember keptMember = SchoolCampMember.builder()
+          .id(2L).application(application).studentUser(keptStudent).applicant(false).build();
+      SchoolCampMember removedMember = SchoolCampMember.builder()
+          .id(3L).application(application).studentUser(removedStudent).applicant(false).build();
+      stubApplicationWithMembers(keptMember, removedMember);
+      given(applicationRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
+      given(memberRepository.saveAll(anyList())).willAnswer(inv -> inv.getArgument(0));
+
+      User newStudent = studentUser(77L, studentGbsw(2, 1, 3, "최민수"), "민수");
+      given(userRepository.findAllById(List.of(55L, 77L)))
+          .willReturn(List.of(keptStudent, newStudent));
+      given(memberRepository.findParticipatedStudentIdsInMonth(anyCollection(), any(), any()))
+          .willReturn(List.of());
+
+      SchoolCampApplyRequest request = new SchoolCampApplyRequest(null, "박선생", List.of(
+          new SchoolCampMemberRequest(55L, null),
+          new SchoolCampMemberRequest(77L, null),
+          new SchoolCampMemberRequest(null, "새게스트")));
+
+      SchoolCampApplicationResponse response =
+          schoolCampService.updateApplication(APPLICANT_ID, APPLICATION_ID, request);
+
+      assertThat(response.members()).hasSize(4);
+      assertThat(response.members())
+          .extracting(m -> m.studentRealName() != null ? m.studentRealName() : m.guestName())
+          .containsExactlyInAnyOrder("홍길동", "이영희", "최민수", "새게스트");
+      verify(memberRepository).deleteAllById(List.of(3L));
+      verify(memberRepository).saveAll(anyList());
+    }
+
+    @Test
+    @DisplayName("추가하는 팀원이 전부 기타(게스트)면 이번 달 중복 참여 확인을 건너뛴다")
+    void addsOnlyGuestMembersSkipsMonthlyDuplicateCheck() {
+      stubApplicationWithMembers();
+      given(applicationRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
+      given(memberRepository.saveAll(anyList())).willAnswer(inv -> inv.getArgument(0));
+
+      SchoolCampApplyRequest request = new SchoolCampApplyRequest(null, "박선생", List.of(
+          new SchoolCampMemberRequest(null, "게스트1"),
+          new SchoolCampMemberRequest(null, "게스트2")));
+
+      SchoolCampApplicationResponse response =
+          schoolCampService.updateApplication(APPLICANT_ID, APPLICATION_ID, request);
+
+      assertThat(response.members()).hasSize(3);
+      verify(memberRepository, never()).findParticipatedStudentIdsInMonth(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("팀원 저장 중 동시 수정 충돌(유니크 제약 위반)이 발생하면 409로 변환한다")
+    void throwsConflictWhenConcurrentInsertViolatesUniqueConstraint() {
+      stubApplicationWithMembers();
+
+      User newStudent = studentUser(77L, studentGbsw(2, 1, 3, "최민수"), "민수");
+      given(userRepository.findAllById(List.of(77L))).willReturn(List.of(newStudent));
+      given(memberRepository.findParticipatedStudentIdsInMonth(anyCollection(), any(), any()))
+          .willReturn(List.of());
+      given(memberRepository.saveAll(anyList()))
+          .willThrow(new DataIntegrityViolationException("duplicate"));
+
+      SchoolCampApplyRequest request = new SchoolCampApplyRequest(
+          null, "박선생", List.of(new SchoolCampMemberRequest(77L, null)));
+
+      assertThatThrownBy(
+          () -> schoolCampService.updateApplication(APPLICANT_ID, APPLICATION_ID, request))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(SchoolCampErrorCode.CONCURRENT_UPDATE_CONFLICT);
+
+      verify(applicationRepository, never()).save(any());
     }
 
     @Test
