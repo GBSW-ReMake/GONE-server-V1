@@ -69,3 +69,69 @@ Critical/High 없음. Medium 1건(테스트 커버리지 갭). Low 없음.
 `teacherDisplayName`/`toMemberResponse` 기존 private 메서드, 기존 `findParticipatedStudentIdsInMonth`
 쿼리)까지 대조 확인했다. 마스터 기획서(`1_schoolcamp-domain.md`) diff도 확인해 실제
 구현과의 정합성 및 범위 이탈 여부를 점검했다.
+
+## 추가 리뷰 — 선생님 조회 확장(2026-08-20)
+
+리뷰 대상: 위 최초 리뷰(9단계) 이후, 머지 전에 "선생님도 참여 내역을 조회할 수 있게
+하자"는 추가 요구사항으로 같은 브랜치에 이어서 커밋된 아래 5개(기획서 갱신 커밋
+`be3a68a` 포함, 문서만이라도 "설계 변경 3"의 최종 확정 내용을 담고 있어 리뷰 범위에
+포함).
+- `4cb801f` feat(schoolcamp): #69 선생님 참여 내역 조회를 위한 enum/리포지토리 확장
+- `b7a98f9` feat(schoolcamp): #69 참여 내역 목록/상세에 선생님 이력 병합
+- `b9376c2` feat(schoolcamp): #69 참여 내역 목록/상세 API에 TEACHER 역할 허용
+- `3c2652d` test(schoolcamp): #69 선생님 참여 내역 조회 단위·인가 테스트 추가
+- `be3a68a` docs(schoolcamp): #69 기획서에 선생님 참여 내역 조회(설계 변경 3) 반영
+
+리뷰 방식: 최초 리뷰와 동일(구현 대화 맥락 없이 diff + 기획서만 보고 독립적으로 점검).
+리뷰 레벨: medium.
+
+### 요약
+Critical/High/Medium/Low 없음. 기획서 "설계 변경 3" 절과 구현이 정확히 일치한다.
+
+- `SchoolCampService.collectMyParticipationSources`
+  (`src/main/java/com/remake/gone/schoolcamp/service/SchoolCampService.java:444-464`)가
+  학생 쪽(`memberRepository.findMyParticipations(InMonth)`)과 선생님 쪽
+  (`applicationRepository.findByTeacherUserId(InMonth)`)을 각각 조회해
+  `ParticipationSource` 레코드로 통일한 뒤 `campDate` 내림차순으로 병합·정렬한다 — 기획서
+  4번 구현 로직 문단과 일치. `PageResponse.of(sources, page, size)`로 병합된 목록을 먼저
+  자르고 그 페이지 항목만 DTO로 변환하는 순서(N+1 회피)도 최초 리뷰 때 확인한 패턴 그대로
+  유지된다.
+- `getMyParticipationDetail`의 `resolveTeacherRole`
+  (`SchoolCampService.java:518-525`)이 팀원 행에서 못 찾은 경우에만 호출되어
+  `application.getTeacherUser()`가 본인인지 null-safe하게 확인하고, 아니면 그대로
+  `403 SCHOOLCAMP_013`(`NOT_APPLICATION_PARTICIPANT`, 신규 코드 추가 없이 기존 코드 재사용)을
+  던진다 — 기획서 2번 구현 로직의 "찾았으면.../못 찾았으면.../어느 쪽도 아니면..." 3단
+  분기와 정확히 일치.
+- 컨트롤러(`SchoolCampController.java:92`, `:114`) `@PreAuthorize`가 `GET /me`,
+  `GET /applications/{id}` 둘 다 `hasAnyRole('STUDENT', 'TEACHER')`로 바뀌었고, Javadoc도
+  "참여자(대표, 팀원, 또는 담당 선생님)"로 갱신되어 코드와 문서가 어긋나지 않는다.
+- `SchoolCampApplicationRepository.findByTeacherUserId`/`findByTeacherUserIdInMonth`
+  (`SchoolCampApplicationRepository.java:63-87`)의 JPQL이 `a.teacherUser.id = :teacherUserId`
+  조건, `join fetch a.session s`, `order by s.campDate desc`까지 기획서에 명시된 쿼리
+  그대로다. 의도적으로 `cancelledAt` 필터를 넣지 않은 것도 "취소 여부와 무관하게 조회"라는
+  기획서 요구와 맞다.
+- 신규 단위 테스트가 가짜 통과가 아님을 직접 확인했다:
+  `teacherRoleForOwnAssignedApplication`은 `myRole == TEACHER`와 반환된 `id`를 함께
+  검증하고, `mergesStudentAndTeacherHistoriesSortedByCampDate`
+  (`SchoolCampServiceTest.java:1150-1165`)는 학생 이력(`campDate` 2026-03-01)과 선생님
+  이력(2026-05-01)을 섞어 스텁한 뒤 `content()`의 `id` 순서가 `[2L, 1L]`(선생님 쪽이 먼저)임을
+  직접 단언해 병합·정렬 로직을 실제로 행사한다. 상세 쪽 `throwsWhenNotParticipant`
+  (`SchoolCampServiceTest.java:1312-1326`)도 `teacherUser`가 아예 `null`인(자유 입력
+  `teacherName`) 신청으로 스텁되어 있어, 이번에 추가된 `resolveTeacherRole`의
+  `teacherUser == null` 분기까지 실제로 거쳐 403을 검증한다 — 회귀(선생님 분기 추가 후에도
+  "참여자 아님" 판정이 깨지지 않는지)를 잡아낼 수 있는 유효한 테스트다.
+- `SchoolCampAuthorizationTest`의 두 테스트는 `TEACHER` 단독 403 검증에서
+  `STUDENT`/`TEACHER` 모두 아닌 역할(`ADMIN`) 403 검증으로 정확히 갱신되어, 역할 확장과
+  모순되지 않는다. (`TEACHER`가 실제로 통과하는 200 경로에 대한 컨트롤러 통합 테스트는 없지만,
+  이 파일은 원래 역할 기반 403/401만 다루는 컨벤션이라 — 최초 리뷰 Medium #1이 지적한
+  소유권 기반 403의 엔드투엔드 미검증 갭과 동일 계열이며 이번 커밋이 그 갭을 새로 넓히지는
+  않는다. 별도 항목으로 추가하지 않음.)
+
+### 확인 범위
+`git diff 4cb801f^..be3a68a`(위 5개 커밋)의 프로덕션 코드 전체
+(`SchoolCampController`/`SchoolCampService`/`SchoolCampMyRole`/
+`SchoolCampApplicationRepository`)와 테스트 코드 전체(`SchoolCampAuthorizationTest`/
+`SchoolCampServiceTest`)를 읽고, 기획서 "설계 변경 3" 절 및 두 엔드포인트 절 전체, 마스터
+기획서(`1_schoolcamp-domain.md`) 3-1/3-2번 절 diff와 대조 확인했다. `findValidTeacher`
+(기존 메서드, 담당 선생님 지정 시 `TEACHER` 역할 검증용)와 신규 `resolveTeacherRole`이
+서로 다른 목적임을 확인해 중복/재사용 누락 여부도 점검했다.
