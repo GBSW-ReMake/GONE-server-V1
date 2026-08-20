@@ -38,6 +38,9 @@ public enum SchoolCampErrorCode implements ErrorCode {
   /**
    * 대표 신청자 본인 또는 팀원 중 이번 달에 이미 참여(대표/팀원 구분 없이)한 사람이
    * 포함되어 있습니다.
+   *
+   * <p>응답의 {@code data}에 걸린 학생을 특정한
+   * {@code SchoolCampParticipationConflictResponse}가 실린다({@code #81}).
    */
   ALREADY_PARTICIPATED_THIS_MONTH(
       HttpStatus.CONFLICT, "SCHOOLCAMP_003", "이번 달에 이미 참여한 사용자가 포함되어 있습니다."),

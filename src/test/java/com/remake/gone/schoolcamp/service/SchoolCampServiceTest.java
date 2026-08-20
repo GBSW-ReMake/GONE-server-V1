@@ -28,9 +28,11 @@ import com.remake.gone.role.repository.UserRoleRepository;
 import com.remake.gone.schoolcamp.dto.SchoolCampApplicationResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampApplyRequest;
 import com.remake.gone.schoolcamp.dto.SchoolCampCalendarResponse;
+import com.remake.gone.schoolcamp.dto.SchoolCampConflictingMemberResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampMemberRequest;
 import com.remake.gone.schoolcamp.dto.SchoolCampMyParticipationResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampMyParticipationSummaryResponse;
+import com.remake.gone.schoolcamp.dto.SchoolCampParticipationConflictResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampSessionResponse;
 import com.remake.gone.schoolcamp.entity.SchoolCampApplication;
 import com.remake.gone.schoolcamp.entity.SchoolCampMember;
@@ -477,12 +479,48 @@ class SchoolCampServiceTest {
       assertThatThrownBy(
           () -> schoolCampService.applyToCamp(APPLICANT_ID, SESSION_ID, request, NOW))
           .isInstanceOf(CustomException.class)
-          .extracting(e -> ((CustomException) e).getErrorCode())
-          .isEqualTo(SchoolCampErrorCode.ALREADY_PARTICIPATED_THIS_MONTH);
+          .satisfies(e -> {
+            CustomException exception = (CustomException) e;
+            assertThat(exception.getErrorCode())
+                .isEqualTo(SchoolCampErrorCode.ALREADY_PARTICIPATED_THIS_MONTH);
+            SchoolCampParticipationConflictResponse data =
+                (SchoolCampParticipationConflictResponse) exception.getData();
+            assertThat(data.conflictingMembers())
+                .extracting(SchoolCampConflictingMemberResponse::studentUserId)
+                .containsExactly(APPLICANT_ID);
+            assertThat(data.conflictingMembers().get(0).studentRealName()).isEqualTo("홍길동");
+          });
 
       verify(sessionClaimService).release(SESSION_ID);
       verifyNoInteractions(applicationRepository);
       verify(memberRepository, never()).saveAll(anyList());
+    }
+
+    @Test
+    @DisplayName("대표 신청자 + 팀원이 동시에 이번 달 참여자면 둘 다 data에 담긴다(#81)")
+    void includesAllConflictingMembersWhenMultipleParticipatedThisMonth() {
+      given(sessionRepository.findById(SESSION_ID)).willReturn(Optional.of(session()));
+      given(sessionClaimService.claim(SESSION_ID, NOW)).willReturn(true);
+      given(userRepository.findById(APPLICANT_ID))
+          .willReturn(Optional.of(studentUser(APPLICANT_ID, studentGbsw(3, 4, 1, "홍길동"), "길동")));
+      User memberStudent = studentUser(55L, studentGbsw(3, 2, 9, "이영희"), "영희");
+      given(userRepository.findAllById(List.of(55L))).willReturn(List.of(memberStudent));
+      given(memberRepository.findParticipatedStudentIdsInMonth(
+          anyCollection(), eq(LocalDate.of(2026, 4, 1)), eq(LocalDate.of(2026, 4, 30))))
+          .willReturn(List.of(APPLICANT_ID, 55L));
+      SchoolCampApplyRequest request = new SchoolCampApplyRequest(
+          null, "박선생", List.of(new SchoolCampMemberRequest(55L, null)));
+
+      assertThatThrownBy(
+          () -> schoolCampService.applyToCamp(APPLICANT_ID, SESSION_ID, request, NOW))
+          .isInstanceOf(CustomException.class)
+          .satisfies(e -> {
+            SchoolCampParticipationConflictResponse data =
+                (SchoolCampParticipationConflictResponse) ((CustomException) e).getData();
+            assertThat(data.conflictingMembers())
+                .extracting(SchoolCampConflictingMemberResponse::studentUserId)
+                .containsExactlyInAnyOrder(APPLICANT_ID, 55L);
+          });
     }
 
     @Test
@@ -835,8 +873,17 @@ class SchoolCampServiceTest {
       assertThatThrownBy(
           () -> schoolCampService.updateApplication(APPLICANT_ID, APPLICATION_ID, request))
           .isInstanceOf(CustomException.class)
-          .extracting(e -> ((CustomException) e).getErrorCode())
-          .isEqualTo(SchoolCampErrorCode.ALREADY_PARTICIPATED_THIS_MONTH);
+          .satisfies(e -> {
+            CustomException exception = (CustomException) e;
+            assertThat(exception.getErrorCode())
+                .isEqualTo(SchoolCampErrorCode.ALREADY_PARTICIPATED_THIS_MONTH);
+            SchoolCampParticipationConflictResponse data =
+                (SchoolCampParticipationConflictResponse) exception.getData();
+            assertThat(data.conflictingMembers())
+                .extracting(SchoolCampConflictingMemberResponse::studentUserId)
+                .containsExactly(88L);
+            assertThat(data.conflictingMembers().get(0).studentRealName()).isEqualTo("박지민");
+          });
 
       verify(memberRepository, never()).deleteAllById(anyList());
       verify(memberRepository, never()).saveAll(anyList());

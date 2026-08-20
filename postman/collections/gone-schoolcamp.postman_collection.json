@@ -2445,6 +2445,15 @@
                   "pm.test(\"409 Conflict, SCHOOLCAMP_003\", function () {",
                   "    pm.response.to.have.status(409);",
                   "    pm.expect(pm.response.json().code).to.eql(\"SCHOOLCAMP_003\");",
+                  "});",
+                  "",
+                  "pm.test(\"data.conflictingMembers에 중복 참여자 정보가 담긴다(#81)\", function () {",
+                  "    const conflictingMembers = pm.response.json().data.conflictingMembers;",
+                  "    const conflictingIds = conflictingMembers.map((m) => m.studentUserId);",
+                  "    pm.expect(conflictingIds).to.include(Number(pm.environment.get(\"memberUserId\")));",
+                  "    conflictingMembers.forEach((m) => {",
+                  "        pm.expect(m).to.have.all.keys(\"studentUserId\", \"studentRealName\", \"studentGrade\", \"studentClassNo\");",
+                  "    });",
                   "});"
                 ]
               }
@@ -3602,6 +3611,15 @@
                   "pm.test(\"409 Conflict, SCHOOLCAMP_003\", function () {",
                   "    pm.response.to.have.status(409);",
                   "    pm.expect(pm.response.json().code).to.eql(\"SCHOOLCAMP_003\");",
+                  "});",
+                  "",
+                  "pm.test(\"data.conflictingMembers에 중복 참여자 정보가 담긴다(#81)\", function () {",
+                  "    const conflictingMembers = pm.response.json().data.conflictingMembers;",
+                  "    const conflictingIds = conflictingMembers.map((m) => m.studentUserId);",
+                  "    pm.expect(conflictingIds).to.include(Number(pm.environment.get(\"member2UserId\")));",
+                  "    conflictingMembers.forEach((m) => {",
+                  "        pm.expect(m).to.have.all.keys(\"studentUserId\", \"studentRealName\", \"studentGrade\", \"studentClassNo\");",
+                  "    });",
                   "});"
                 ]
               }
