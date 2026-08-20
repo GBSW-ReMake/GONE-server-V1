@@ -8,8 +8,8 @@ import org.springframework.http.HttpStatus;
  *
  * <p>코드 네이밍 규칙: {@code SCHOOLCAMP_NNN} (NNN은 3자리 순번). 번호는 마스터 기획서
  * (`docs/domain/schoolcamp/1_schoolcamp-domain.md`)의 전체 목록 중 실제로 구현되는 순서대로
- * 채운다 — #67에서는 005/006만 쓰였고, #68은 001/002/003/004/008을, #70은 007/009/010을
- * 쓴다.
+ * 채운다 — #67에서는 005/006만 쓰였고, #68은 001/002/003/004/008을, #70은
+ * 007/009/010/011을 쓴다.
  *
  * @see ErrorCode
  */
@@ -89,7 +89,19 @@ public enum SchoolCampErrorCode implements ErrorCode {
    * ("해당 날짜에 스쿨캠핑 일정이 없습니다")가 신청 조회 실패 상황과 맞지 않아 별도 코드로
    * 분리했다.
    */
-  APPLICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "SCHOOLCAMP_010", "해당 신청을 찾을 수 없습니다.");
+  APPLICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "SCHOOLCAMP_010", "해당 신청을 찾을 수 없습니다."),
+
+  /**
+   * 같은 신청에 대한 동시 수정 요청이 충돌했습니다({@code #70} 코드 리뷰 대응).
+   *
+   * <p>{@code updateApplication}이 새 팀원을 삽입하는 순간, 동시에 처리된 다른 수정 요청이
+   * 이미 같은 학생을 같은 신청에 팀원으로 추가해
+   * {@code (application_id, student_user_id)} 유니크 제약(V13 마이그레이션)을 위반했을 때
+   * 쓴다 — {@code DataIntegrityViolationException}을 그대로 COMMON_006/500으로 흘려보내지
+   * 않고, 재시도하면 해결될 수 있는 충돌임을 명시적으로 알린다.
+   */
+  CONCURRENT_UPDATE_CONFLICT(
+      HttpStatus.CONFLICT, "SCHOOLCAMP_011", "다른 요청과 동시에 처리되어 반영하지 못했습니다. 다시 시도해주세요.");
 
   private final HttpStatus httpStatus;
   private final String code;

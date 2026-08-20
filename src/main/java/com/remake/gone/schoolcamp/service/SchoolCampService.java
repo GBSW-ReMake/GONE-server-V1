@@ -38,6 +38,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -312,7 +313,14 @@ public class SchoolCampService {
     List<SchoolCampMember> newMembers =
         buildNewMembers(application, additionalMembers, studentsById, diff.addedStudentIds());
     if (!newMembers.isEmpty()) {
-      memberRepository.saveAll(newMembers);
+      // 동시에 처리된 다른 PATCH가 같은 학생을 이미 팀원으로 추가해 (application_id,
+      // student_user_id) 유니크 제약(V13)을 위반하면, 범용 500(COMMON_006) 대신 재시도
+      // 가능한 충돌임을 명시적으로 알린다(코드 리뷰 #70 1번 대응).
+      try {
+        memberRepository.saveAll(newMembers);
+      } catch (DataIntegrityViolationException e) {
+        throw new CustomException(SchoolCampErrorCode.CONCURRENT_UPDATE_CONFLICT);
+      }
     }
 
     application.setTeacherUser(teacher);
