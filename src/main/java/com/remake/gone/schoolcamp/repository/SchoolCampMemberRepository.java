@@ -46,4 +46,46 @@ public interface SchoolCampMemberRepository extends JpaRepository<SchoolCampMemb
    * @return 그 신청에 속한 팀원 전체
    */
   List<SchoolCampMember> findByApplicationId(Long applicationId);
+
+  /**
+   * 본인(대표든 팀원이든)이 참여한 신청 전체를, 취소 여부와 무관하게 최신 순으로
+   * 조회합니다({@code #69} 참여 내역 목록). 반환되는 각 행은 "본인"의
+   * {@link SchoolCampMember} 행이라 {@link SchoolCampMember#isApplicant()}가 곧 조회를
+   * 요청한 본인의 역할이다.
+   *
+   * <p>{@link #findParticipatedStudentIdsInMonth}(이번 달 중복 참여 검증용)와 같은 조인
+   * 모양을 재사용하되, 그 메서드와 달리 {@code cancelledAt IS NULL} 조건을 의도적으로
+   * 넣지 않는다 — 취소 이력도 "참여 내역"에 포함해야 하는 이 이슈의 요구사항과
+   * 정반대이기 때문이다.
+   *
+   * @param userId 조회할 학생 사용자 ID
+   * @return 본인이 참여한 신청의 본인 팀원 행 목록, {@code campDate} 내림차순
+   */
+  @Query("select m from SchoolCampMember m "
+      + "join fetch m.application a "
+      + "join fetch a.session s "
+      + "where m.studentUser.id = :userId "
+      + "order by s.campDate desc")
+  List<SchoolCampMember> findMyParticipations(@Param("userId") Long userId);
+
+  /**
+   * {@link #findMyParticipations}와 동일하되, 특정 달({@code monthStart}~{@code monthEnd},
+   * 양 끝 포함)로 범위를 한정합니다({@code #69} 참여 내역 목록의 {@code month} 파라미터
+   * 지정 시 사용).
+   *
+   * @param userId     조회할 학생 사용자 ID
+   * @param monthStart 조회할 달의 첫날
+   * @param monthEnd   조회할 달의 마지막날
+   * @return 본인이 그 달에 참여한 신청의 본인 팀원 행 목록, {@code campDate} 내림차순
+   */
+  @Query("select m from SchoolCampMember m "
+      + "join fetch m.application a "
+      + "join fetch a.session s "
+      + "where m.studentUser.id = :userId "
+      + "and s.campDate between :monthStart and :monthEnd "
+      + "order by s.campDate desc")
+  List<SchoolCampMember> findMyParticipationsInMonth(
+      @Param("userId") Long userId,
+      @Param("monthStart") LocalDate monthStart,
+      @Param("monthEnd") LocalDate monthEnd);
 }
