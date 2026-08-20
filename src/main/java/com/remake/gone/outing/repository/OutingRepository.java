@@ -2,7 +2,6 @@ package com.remake.gone.outing.repository;
 
 import com.remake.gone.outing.entity.Outing;
 import com.remake.gone.outing.enums.OutingStatus;
-import com.remake.gone.outing.enums.OutingTimeSlot;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
@@ -64,18 +63,4 @@ public interface OutingRepository extends JpaRepository<Outing, Long> {
    * @return 조건에 맞는 외출증 목록
    */
   List<Outing> findByStatus(OutingStatus status);
-
-  /**
-   * 특정 학생이 특정 날짜의 특정 시간대에, 주어진 상태들에 해당하는 외출증을 신청했는지
-   * 확인합니다({@code #71} 스쿨캠핑 리마인더 — 이미 신청했으면 리마인더 대상에서 제외).
-   *
-   * @param studentId  학생 사용자 ID
-   * @param outingDate 외출 날짜
-   * @param timeSlot   확인할 시간대
-   * @param statuses   조회할 상태 목록
-   * @return 조건에 맞는 외출증이 하나라도 있으면 {@code true}
-   */
-  boolean existsByStudentIdAndOutingDateAndTimeSlotAndStatusIn(
-      Long studentId, LocalDate outingDate, OutingTimeSlot timeSlot,
-      Collection<OutingStatus> statuses);
 }

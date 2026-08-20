@@ -6,6 +6,7 @@ import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.utils.GbswUtils;
 import com.remake.gone.notification.enums.NotificationType;
 import com.remake.gone.notification.service.NotificationService;
+import com.remake.gone.outing.entity.Outing;
 import com.remake.gone.outing.enums.OutingStatus;
 import com.remake.gone.outing.enums.OutingTimeSlot;
 import com.remake.gone.outing.repository.OutingRepository;
@@ -342,8 +343,8 @@ public class SchoolCampService {
   }
 
   /**
-   * 오늘 스쿨캠핑에 참여하는 학생 중, 아직 점심({@link OutingTimeSlot#LUNCH}) 시간대
-   * 외출증을 신청하지 않은 사람에게 리마인더 알림을 저장합니다({@code #71}).
+   * 오늘 스쿨캠핑에 참여하는 학생 중, 아직 점심({@link OutingTimeSlot#LUNCH}) 시간대를
+   * 포함하는 외출증을 신청하지 않은 사람에게 리마인더 알림을 저장합니다(#71).
    *
    * <p>대상은 대표 신청자뿐 아니라 {@link SchoolCampMember} 전체다 — 누가 실제로 장을 보러
    * 가는지 구분하는 데이터가 없어 과다 알림 쪽으로 판단했다. 계정이 없는 "기타"(자유 입력)
@@ -370,14 +371,28 @@ public class SchoolCampService {
         .forEach(member -> remindIfNoLunchOuting(member.getStudentUser().getId(), today));
   }
 
+  /**
+   * 시간대 이름({@code timeSlot} 컬럼)이 아니라 실제 시작/종료 시각으로 점심시간 포함
+   * 여부를 판단한다(코드 리뷰 #71 대응) — {@code CUSTOM} 외출증은 {@code LUNCH} 프리셋
+   * 범위(12:30~13:40)를 포함하는 더 넓은 시간대(08:40~20:30)를 자유롭게 신청할 수 있어,
+   * {@code timeSlot == LUNCH}로만 판단하면 점심시간을 실제로 포함하는 {@code CUSTOM}
+   * 외출증을 놓치고 리마인더를 잘못 보낸다.
+   */
   private void remindIfNoLunchOuting(Long studentId, LocalDate today) {
-    boolean hasLunchOuting = outingRepository.existsByStudentIdAndOutingDateAndTimeSlotAndStatusIn(
-        studentId, today, OutingTimeSlot.LUNCH, OutingStatus.ACTIVE_STATUSES);
+    boolean hasLunchOuting = outingRepository
+        .findByStudentIdAndOutingDateAndStatusIn(studentId, today, OutingStatus.ACTIVE_STATUSES)
+        .stream()
+        .anyMatch(SchoolCampService::overlapsLunch);
     if (!hasLunchOuting) {
       notificationService.send(studentId, "오늘 스쿨캠핑이 있어요!",
           "장 보러 갈 외출증은 받으셨나요? 점심시간에 미리 신청해보세요.",
           NotificationType.SCHOOLCAMP);
     }
+  }
+
+  private static boolean overlapsLunch(Outing outing) {
+    return !outing.getStartTime().isAfter(OutingTimeSlot.LUNCH.getEndTime())
+        && !outing.getEndTime().isBefore(OutingTimeSlot.LUNCH.getStartTime());
   }
 
   /**
