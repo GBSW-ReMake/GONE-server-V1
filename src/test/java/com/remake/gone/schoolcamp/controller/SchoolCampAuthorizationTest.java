@@ -101,9 +101,9 @@ class SchoolCampAuthorizationTest {
   }
 
   @Test
-  @DisplayName("참여 내역 목록 엔드포인트는 TEACHER 역할로 요청하면 403을 반환한다(#69, STUDENT 전용)")
-  void myParticipationsReturns403ForTeacherRole() throws Exception {
-    String token = jwtProvider.createAccessToken(1L, Set.of("TEACHER"));
+  @DisplayName("참여 내역 목록 엔드포인트는 STUDENT/TEACHER 둘 다 아닌 역할로 요청하면 403을 반환한다(#69)")
+  void myParticipationsReturns403ForOtherRole() throws Exception {
+    String token = jwtProvider.createAccessToken(1L, Set.of("ADMIN"));
 
     mockMvc.perform(get("/api/v1/school-camps/me")
             .header("Authorization", "Bearer " + token))
@@ -118,9 +118,9 @@ class SchoolCampAuthorizationTest {
   }
 
   @Test
-  @DisplayName("참여 신청 상세 엔드포인트는 TEACHER 역할로 요청하면 403을 반환한다(#69, STUDENT 전용)")
-  void myParticipationDetailReturns403ForTeacherRole() throws Exception {
-    String token = jwtProvider.createAccessToken(1L, Set.of("TEACHER"));
+  @DisplayName("참여 신청 상세 엔드포인트는 STUDENT/TEACHER 둘 다 아닌 역할로 요청하면 403을 반환한다(#69)")
+  void myParticipationDetailReturns403ForOtherRole() throws Exception {
+    String token = jwtProvider.createAccessToken(1L, Set.of("ADMIN"));
 
     mockMvc.perform(get("/api/v1/school-camps/applications/1")
             .header("Authorization", "Bearer " + token))

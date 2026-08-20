@@ -1046,10 +1046,27 @@ class SchoolCampServiceTest {
           .application(application).studentUser(me()).applicant(isApplicant).build();
     }
 
+    /** 본인이 담당 선생님으로 지정된 신청(설계 변경 3, 선생님 이력). */
+    private SchoolCampApplication teacherApplication(
+        Long applicationId, LocalDate campDate, LocalDateTime cancelledAt) {
+      SchoolCampSession session =
+          SchoolCampSession.builder().id(51L).campDate(campDate).build();
+      User someApplicant = studentUser(202L, studentGbsw(2, 1, 3, "최민수"), "민수");
+      return SchoolCampApplication.builder()
+          .id(applicationId).session(session).applicant(someApplicant).teacherUser(me())
+          .appliedAt(LocalDateTime.of(2026, 3, 20, 9, 12)).cancelledAt(cancelledAt).build();
+    }
+
+    /** month=null 경로에서 선생님 쪽 이력이 없다고 스텁한다(학생 전용 테스트용). */
+    private void stubNoTeacherHistory() {
+      given(applicationRepository.findByTeacherUserId(MY_ID)).willReturn(List.of());
+    }
+
     @Test
-    @DisplayName("month를 생략하면 findMyParticipations로 전체 이력을 조회한다")
+    @DisplayName("month를 생략하면 findMyParticipations/findByTeacherUserId로 전체 이력을 조회한다")
     void queriesAllHistoryWhenMonthOmitted() {
       given(memberRepository.findMyParticipations(MY_ID)).willReturn(List.of());
+      stubNoTeacherHistory();
 
       PageResponse<SchoolCampMyParticipationSummaryResponse> result =
           schoolCampService.getMyParticipations(MY_ID, null, 0, 20);
@@ -1057,19 +1074,25 @@ class SchoolCampServiceTest {
       assertThat(result.content()).isEmpty();
       verify(memberRepository, never())
           .findMyParticipationsInMonth(any(), any(), any());
+      verify(applicationRepository, never())
+          .findByTeacherUserIdInMonth(any(), any(), any());
     }
 
     @Test
-    @DisplayName("month를 지정하면 findMyParticipationsInMonth로 그 달만 조회한다")
+    @DisplayName("month를 지정하면 findMyParticipationsInMonth/findByTeacherUserIdInMonth로 그 달만 조회한다")
     void queriesSingleMonthWhenMonthGiven() {
       YearMonth month = YearMonth.of(2026, 4);
       given(memberRepository.findMyParticipationsInMonth(
+          MY_ID, LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 30)))
+          .willReturn(List.of());
+      given(applicationRepository.findByTeacherUserIdInMonth(
           MY_ID, LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 30)))
           .willReturn(List.of());
 
       schoolCampService.getMyParticipations(MY_ID, month, 0, 20);
 
       verify(memberRepository, never()).findMyParticipations(any());
+      verify(applicationRepository, never()).findByTeacherUserId(any());
     }
 
     @Test
@@ -1079,6 +1102,7 @@ class SchoolCampServiceTest {
           application(301L, LocalDate.of(2026, 4, 3), me(), null);
       given(memberRepository.findMyParticipations(MY_ID))
           .willReturn(List.of(myRow(application, true)));
+      stubNoTeacherHistory();
 
       PageResponse<SchoolCampMyParticipationSummaryResponse> result =
           schoolCampService.getMyParticipations(MY_ID, null, 0, 20);
@@ -1097,11 +1121,48 @@ class SchoolCampServiceTest {
           application(305L, LocalDate.of(2026, 4, 17), otherApplicant, null);
       given(memberRepository.findMyParticipations(MY_ID))
           .willReturn(List.of(myRow(application, false)));
+      stubNoTeacherHistory();
 
       PageResponse<SchoolCampMyParticipationSummaryResponse> result =
           schoolCampService.getMyParticipations(MY_ID, null, 0, 20);
 
       assertThat(result.content().get(0).myRole()).isEqualTo(SchoolCampMyRole.MEMBER);
+    }
+
+    @Test
+    @DisplayName("담당 선생님으로 지정된 신청은 myRole이 TEACHER다(설계 변경 3)")
+    void teacherRoleForOwnAssignedApplication() {
+      SchoolCampApplication application =
+          teacherApplication(401L, LocalDate.of(2026, 4, 10), null);
+      given(memberRepository.findMyParticipations(MY_ID)).willReturn(List.of());
+      given(applicationRepository.findByTeacherUserId(MY_ID)).willReturn(List.of(application));
+
+      PageResponse<SchoolCampMyParticipationSummaryResponse> result =
+          schoolCampService.getMyParticipations(MY_ID, null, 0, 20);
+
+      assertThat(result.content()).hasSize(1);
+      assertThat(result.content().get(0).myRole()).isEqualTo(SchoolCampMyRole.TEACHER);
+      assertThat(result.content().get(0).id()).isEqualTo(401L);
+    }
+
+    @Test
+    @DisplayName("학생 이력과 선생님 이력이 campDate 내림차순으로 병합된다(설계 변경 3)")
+    void mergesStudentAndTeacherHistoriesSortedByCampDate() {
+      SchoolCampApplication studentApplication =
+          application(1L, LocalDate.of(2026, 3, 1), me(), null);
+      SchoolCampApplication teachingApplication =
+          teacherApplication(2L, LocalDate.of(2026, 5, 1), null);
+      given(memberRepository.findMyParticipations(MY_ID))
+          .willReturn(List.of(myRow(studentApplication, true)));
+      given(applicationRepository.findByTeacherUserId(MY_ID))
+          .willReturn(List.of(teachingApplication));
+
+      PageResponse<SchoolCampMyParticipationSummaryResponse> result =
+          schoolCampService.getMyParticipations(MY_ID, null, 0, 20);
+
+      assertThat(result.content())
+          .extracting(SchoolCampMyParticipationSummaryResponse::id)
+          .containsExactly(2L, 1L);
     }
 
     @Test
@@ -1112,6 +1173,7 @@ class SchoolCampServiceTest {
           application(288L, LocalDate.of(2026, 3, 6), me(), cancelledAt);
       given(memberRepository.findMyParticipations(MY_ID))
           .willReturn(List.of(myRow(application, true)));
+      stubNoTeacherHistory();
 
       PageResponse<SchoolCampMyParticipationSummaryResponse> result =
           schoolCampService.getMyParticipations(MY_ID, null, 0, 20);
@@ -1128,6 +1190,7 @@ class SchoolCampServiceTest {
           myRow(application(2L, LocalDate.of(2026, 2, 1), me(), null), true),
           myRow(application(3L, LocalDate.of(2026, 3, 1), me(), null), true));
       given(memberRepository.findMyParticipations(MY_ID)).willReturn(rows);
+      stubNoTeacherHistory();
 
       PageResponse<SchoolCampMyParticipationSummaryResponse> result =
           schoolCampService.getMyParticipations(MY_ID, null, 0, 2);
@@ -1193,6 +1256,27 @@ class SchoolCampServiceTest {
 
       assertThat(response.myRole()).isEqualTo(SchoolCampMyRole.APPLICANT);
       assertThat(response.members()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("담당 선생님이 상세를 조회하면 myRole이 TEACHER다(설계 변경 3)")
+    void returnsDetailForTeacher() {
+      SchoolCampSession session =
+          SchoolCampSession.builder().id(50L).campDate(LocalDate.of(2026, 4, 3)).build();
+      User applicant = studentUser(202L, studentGbsw(2, 1, 3, "최민수"), "민수");
+      SchoolCampApplication application = SchoolCampApplication.builder()
+          .id(APPLICATION_ID).session(session).applicant(applicant).teacherUser(me())
+          .appliedAt(LocalDateTime.of(2026, 3, 20, 9, 12)).build();
+      SchoolCampMember applicantMember = SchoolCampMember.builder()
+          .application(application).studentUser(applicant).applicant(true).build();
+      given(applicationRepository.findById(APPLICATION_ID)).willReturn(Optional.of(application));
+      given(memberRepository.findByApplicationId(APPLICATION_ID))
+          .willReturn(List.of(applicantMember));
+
+      SchoolCampMyParticipationResponse response =
+          schoolCampService.getMyParticipationDetail(MY_ID, APPLICATION_ID);
+
+      assertThat(response.myRole()).isEqualTo(SchoolCampMyRole.TEACHER);
     }
 
     @Test
