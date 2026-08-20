@@ -15,6 +15,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.remake.gone.common.exception.CustomException;
+import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.enums.GbswType;
 import com.remake.gone.notification.enums.NotificationType;
@@ -28,10 +29,13 @@ import com.remake.gone.schoolcamp.dto.SchoolCampApplicationResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampApplyRequest;
 import com.remake.gone.schoolcamp.dto.SchoolCampCalendarResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampMemberRequest;
+import com.remake.gone.schoolcamp.dto.SchoolCampMyParticipationResponse;
+import com.remake.gone.schoolcamp.dto.SchoolCampMyParticipationSummaryResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampSessionResponse;
 import com.remake.gone.schoolcamp.entity.SchoolCampApplication;
 import com.remake.gone.schoolcamp.entity.SchoolCampMember;
 import com.remake.gone.schoolcamp.entity.SchoolCampSession;
+import com.remake.gone.schoolcamp.enums.SchoolCampMyRole;
 import com.remake.gone.schoolcamp.enums.SchoolCampStatus;
 import com.remake.gone.schoolcamp.exception.SchoolCampErrorCode;
 import com.remake.gone.schoolcamp.repository.SchoolCampApplicationRepository;
@@ -1015,6 +1019,310 @@ class SchoolCampServiceTest {
       schoolCampService.sendOutingReminders(TODAY);
 
       verifyNoInteractions(outingRepository, notificationService);
+    }
+  }
+
+  @Nested
+  @DisplayName("getMyParticipations")
+  class GetMyParticipations {
+
+    private static final Long MY_ID = 101L;
+
+    private User me() {
+      return studentUser(MY_ID, studentGbsw(3, 4, 1, "홍길동"), "길동");
+    }
+
+    private SchoolCampApplication application(
+        Long applicationId, LocalDate campDate, User applicant, LocalDateTime cancelledAt) {
+      SchoolCampSession session =
+          SchoolCampSession.builder().id(50L).campDate(campDate).build();
+      return SchoolCampApplication.builder()
+          .id(applicationId).session(session).applicant(applicant).teacherName("박선생")
+          .appliedAt(LocalDateTime.of(2026, 3, 20, 9, 12)).cancelledAt(cancelledAt).build();
+    }
+
+    private SchoolCampMember myRow(SchoolCampApplication application, boolean isApplicant) {
+      return SchoolCampMember.builder()
+          .application(application).studentUser(me()).applicant(isApplicant).build();
+    }
+
+    /** 본인이 담당 선생님으로 지정된 신청(설계 변경 3, 선생님 이력). */
+    private SchoolCampApplication teacherApplication(
+        Long applicationId, LocalDate campDate, LocalDateTime cancelledAt) {
+      SchoolCampSession session =
+          SchoolCampSession.builder().id(51L).campDate(campDate).build();
+      User someApplicant = studentUser(202L, studentGbsw(2, 1, 3, "최민수"), "민수");
+      return SchoolCampApplication.builder()
+          .id(applicationId).session(session).applicant(someApplicant).teacherUser(me())
+          .appliedAt(LocalDateTime.of(2026, 3, 20, 9, 12)).cancelledAt(cancelledAt).build();
+    }
+
+    /** month=null 경로에서 선생님 쪽 이력이 없다고 스텁한다(학생 전용 테스트용). */
+    private void stubNoTeacherHistory() {
+      given(applicationRepository.findByTeacherUserId(MY_ID)).willReturn(List.of());
+    }
+
+    @Test
+    @DisplayName("month를 생략하면 findMyParticipations/findByTeacherUserId로 전체 이력을 조회한다")
+    void queriesAllHistoryWhenMonthOmitted() {
+      given(memberRepository.findMyParticipations(MY_ID)).willReturn(List.of());
+      stubNoTeacherHistory();
+
+      PageResponse<SchoolCampMyParticipationSummaryResponse> result =
+          schoolCampService.getMyParticipations(MY_ID, null, 0, 20);
+
+      assertThat(result.content()).isEmpty();
+      verify(memberRepository, never())
+          .findMyParticipationsInMonth(any(), any(), any());
+      verify(applicationRepository, never())
+          .findByTeacherUserIdInMonth(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("month를 지정하면 findMyParticipationsInMonth/findByTeacherUserIdInMonth로 그 달만 조회한다")
+    void queriesSingleMonthWhenMonthGiven() {
+      YearMonth month = YearMonth.of(2026, 4);
+      given(memberRepository.findMyParticipationsInMonth(
+          MY_ID, LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 30)))
+          .willReturn(List.of());
+      given(applicationRepository.findByTeacherUserIdInMonth(
+          MY_ID, LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 30)))
+          .willReturn(List.of());
+
+      schoolCampService.getMyParticipations(MY_ID, month, 0, 20);
+
+      verify(memberRepository, never()).findMyParticipations(any());
+      verify(applicationRepository, never()).findByTeacherUserId(any());
+    }
+
+    @Test
+    @DisplayName("대표로 참여한 신청은 myRole이 APPLICANT다")
+    void applicantRoleForOwnApplication() {
+      SchoolCampApplication application =
+          application(301L, LocalDate.of(2026, 4, 3), me(), null);
+      given(memberRepository.findMyParticipations(MY_ID))
+          .willReturn(List.of(myRow(application, true)));
+      stubNoTeacherHistory();
+
+      PageResponse<SchoolCampMyParticipationSummaryResponse> result =
+          schoolCampService.getMyParticipations(MY_ID, null, 0, 20);
+
+      assertThat(result.content()).hasSize(1);
+      assertThat(result.content().get(0).myRole()).isEqualTo(SchoolCampMyRole.APPLICANT);
+      assertThat(result.content().get(0).id()).isEqualTo(301L);
+      assertThat(result.content().get(0).teacherDisplayName()).isEqualTo("박선생");
+    }
+
+    @Test
+    @DisplayName("팀원으로 참여한 신청은 myRole이 MEMBER다")
+    void memberRoleForInvitedApplication() {
+      User otherApplicant = studentUser(202L, studentGbsw(2, 1, 3, "최민수"), "민수");
+      SchoolCampApplication application =
+          application(305L, LocalDate.of(2026, 4, 17), otherApplicant, null);
+      given(memberRepository.findMyParticipations(MY_ID))
+          .willReturn(List.of(myRow(application, false)));
+      stubNoTeacherHistory();
+
+      PageResponse<SchoolCampMyParticipationSummaryResponse> result =
+          schoolCampService.getMyParticipations(MY_ID, null, 0, 20);
+
+      assertThat(result.content().get(0).myRole()).isEqualTo(SchoolCampMyRole.MEMBER);
+    }
+
+    @Test
+    @DisplayName("담당 선생님으로 지정된 신청은 myRole이 TEACHER다(설계 변경 3)")
+    void teacherRoleForOwnAssignedApplication() {
+      SchoolCampApplication application =
+          teacherApplication(401L, LocalDate.of(2026, 4, 10), null);
+      given(memberRepository.findMyParticipations(MY_ID)).willReturn(List.of());
+      given(applicationRepository.findByTeacherUserId(MY_ID)).willReturn(List.of(application));
+
+      PageResponse<SchoolCampMyParticipationSummaryResponse> result =
+          schoolCampService.getMyParticipations(MY_ID, null, 0, 20);
+
+      assertThat(result.content()).hasSize(1);
+      assertThat(result.content().get(0).myRole()).isEqualTo(SchoolCampMyRole.TEACHER);
+      assertThat(result.content().get(0).id()).isEqualTo(401L);
+    }
+
+    @Test
+    @DisplayName("학생 이력과 선생님 이력이 campDate 내림차순으로 병합된다(설계 변경 3)")
+    void mergesStudentAndTeacherHistoriesSortedByCampDate() {
+      SchoolCampApplication studentApplication =
+          application(1L, LocalDate.of(2026, 3, 1), me(), null);
+      SchoolCampApplication teachingApplication =
+          teacherApplication(2L, LocalDate.of(2026, 5, 1), null);
+      given(memberRepository.findMyParticipations(MY_ID))
+          .willReturn(List.of(myRow(studentApplication, true)));
+      given(applicationRepository.findByTeacherUserId(MY_ID))
+          .willReturn(List.of(teachingApplication));
+
+      PageResponse<SchoolCampMyParticipationSummaryResponse> result =
+          schoolCampService.getMyParticipations(MY_ID, null, 0, 20);
+
+      assertThat(result.content())
+          .extracting(SchoolCampMyParticipationSummaryResponse::id)
+          .containsExactly(2L, 1L);
+    }
+
+    @Test
+    @DisplayName("취소된 신청도 목록에 포함되고 cancelledAt이 채워진다")
+    void includesCancelledApplicationWithCancelledAt() {
+      LocalDateTime cancelledAt = LocalDateTime.of(2026, 2, 25, 10, 0);
+      SchoolCampApplication application =
+          application(288L, LocalDate.of(2026, 3, 6), me(), cancelledAt);
+      given(memberRepository.findMyParticipations(MY_ID))
+          .willReturn(List.of(myRow(application, true)));
+      stubNoTeacherHistory();
+
+      PageResponse<SchoolCampMyParticipationSummaryResponse> result =
+          schoolCampService.getMyParticipations(MY_ID, null, 0, 20);
+
+      assertThat(result.content().get(0).cancelledAt())
+          .isEqualTo(cancelledAt.toString());
+    }
+
+    @Test
+    @DisplayName("페이지네이션이 적용된다")
+    void appliesPagination() {
+      List<SchoolCampMember> rows = List.of(
+          myRow(application(1L, LocalDate.of(2026, 1, 1), me(), null), true),
+          myRow(application(2L, LocalDate.of(2026, 2, 1), me(), null), true),
+          myRow(application(3L, LocalDate.of(2026, 3, 1), me(), null), true));
+      given(memberRepository.findMyParticipations(MY_ID)).willReturn(rows);
+      stubNoTeacherHistory();
+
+      PageResponse<SchoolCampMyParticipationSummaryResponse> result =
+          schoolCampService.getMyParticipations(MY_ID, null, 0, 2);
+
+      assertThat(result.content()).hasSize(2);
+      assertThat(result.totalElements()).isEqualTo(3);
+      assertThat(result.hasNext()).isTrue();
+    }
+
+    @Test
+    @DisplayName("page가 음수면 400을 던진다")
+    void throwsWhenPageNegative() {
+      assertThatThrownBy(() -> schoolCampService.getMyParticipations(MY_ID, null, -1, 20))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(SchoolCampErrorCode.INVALID_PAGE_PARAMS);
+    }
+
+    @Test
+    @DisplayName("size가 범위 밖이면 400을 던진다")
+    void throwsWhenSizeOutOfRange() {
+      assertThatThrownBy(() -> schoolCampService.getMyParticipations(MY_ID, null, 0, 101))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(SchoolCampErrorCode.INVALID_PAGE_PARAMS);
+    }
+  }
+
+  @Nested
+  @DisplayName("getMyParticipationDetail")
+  class GetMyParticipationDetail {
+
+    private static final Long MY_ID = 101L;
+    private static final Long APPLICATION_ID = 301L;
+
+    private User me() {
+      return studentUser(MY_ID, studentGbsw(3, 4, 1, "홍길동"), "길동");
+    }
+
+    private SchoolCampApplication application(LocalDateTime cancelledAt) {
+      SchoolCampSession session =
+          SchoolCampSession.builder().id(50L).campDate(LocalDate.of(2026, 4, 3)).build();
+      return SchoolCampApplication.builder()
+          .id(APPLICATION_ID).session(session).applicant(me()).teacherName("박선생")
+          .appliedAt(LocalDateTime.of(2026, 3, 20, 9, 12)).cancelledAt(cancelledAt).build();
+    }
+
+    @Test
+    @DisplayName("대표로 참여한 신청 상세를 조회하면 myRole이 APPLICANT이고 팀원 전체를 포함한다")
+    void returnsDetailForApplicant() {
+      SchoolCampApplication application = application(null);
+      SchoolCampMember myMember = SchoolCampMember.builder()
+          .application(application).studentUser(me()).applicant(true).build();
+      User otherStudent = studentUser(55L, studentGbsw(3, 2, 9, "이영희"), "영희");
+      SchoolCampMember otherMember = SchoolCampMember.builder()
+          .application(application).studentUser(otherStudent).applicant(false).build();
+      given(applicationRepository.findById(APPLICATION_ID)).willReturn(Optional.of(application));
+      given(memberRepository.findByApplicationId(APPLICATION_ID))
+          .willReturn(List.of(myMember, otherMember));
+
+      SchoolCampMyParticipationResponse response =
+          schoolCampService.getMyParticipationDetail(MY_ID, APPLICATION_ID);
+
+      assertThat(response.myRole()).isEqualTo(SchoolCampMyRole.APPLICANT);
+      assertThat(response.members()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("담당 선생님이 상세를 조회하면 myRole이 TEACHER다(설계 변경 3)")
+    void returnsDetailForTeacher() {
+      SchoolCampSession session =
+          SchoolCampSession.builder().id(50L).campDate(LocalDate.of(2026, 4, 3)).build();
+      User applicant = studentUser(202L, studentGbsw(2, 1, 3, "최민수"), "민수");
+      SchoolCampApplication application = SchoolCampApplication.builder()
+          .id(APPLICATION_ID).session(session).applicant(applicant).teacherUser(me())
+          .appliedAt(LocalDateTime.of(2026, 3, 20, 9, 12)).build();
+      SchoolCampMember applicantMember = SchoolCampMember.builder()
+          .application(application).studentUser(applicant).applicant(true).build();
+      given(applicationRepository.findById(APPLICATION_ID)).willReturn(Optional.of(application));
+      given(memberRepository.findByApplicationId(APPLICATION_ID))
+          .willReturn(List.of(applicantMember));
+
+      SchoolCampMyParticipationResponse response =
+          schoolCampService.getMyParticipationDetail(MY_ID, APPLICATION_ID);
+
+      assertThat(response.myRole()).isEqualTo(SchoolCampMyRole.TEACHER);
+    }
+
+    @Test
+    @DisplayName("취소된 신청도 상세 조회가 된다")
+    void returnsDetailForCancelledApplication() {
+      LocalDateTime cancelledAt = LocalDateTime.of(2026, 3, 25, 10, 0);
+      SchoolCampApplication application = application(cancelledAt);
+      SchoolCampMember myMember = SchoolCampMember.builder()
+          .application(application).studentUser(me()).applicant(true).build();
+      given(applicationRepository.findById(APPLICATION_ID)).willReturn(Optional.of(application));
+      given(memberRepository.findByApplicationId(APPLICATION_ID)).willReturn(List.of(myMember));
+
+      SchoolCampMyParticipationResponse response =
+          schoolCampService.getMyParticipationDetail(MY_ID, APPLICATION_ID);
+
+      assertThat(response.cancelledAt()).isEqualTo(cancelledAt.toString());
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 신청이면 404를 던진다")
+    void throwsWhenApplicationNotFound() {
+      given(applicationRepository.findById(APPLICATION_ID)).willReturn(Optional.empty());
+
+      assertThatThrownBy(
+          () -> schoolCampService.getMyParticipationDetail(MY_ID, APPLICATION_ID))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(SchoolCampErrorCode.APPLICATION_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("본인이 참여자가 아니면 403을 던진다")
+    void throwsWhenNotParticipant() {
+      SchoolCampApplication application = application(null);
+      User otherStudent = studentUser(55L, studentGbsw(3, 2, 9, "이영희"), "영희");
+      SchoolCampMember otherMember = SchoolCampMember.builder()
+          .application(application).studentUser(otherStudent).applicant(true).build();
+      given(applicationRepository.findById(APPLICATION_ID)).willReturn(Optional.of(application));
+      given(memberRepository.findByApplicationId(APPLICATION_ID))
+          .willReturn(List.of(otherMember));
+
+      assertThatThrownBy(
+          () -> schoolCampService.getMyParticipationDetail(MY_ID, APPLICATION_ID))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(SchoolCampErrorCode.NOT_APPLICATION_PARTICIPANT);
     }
   }
 }

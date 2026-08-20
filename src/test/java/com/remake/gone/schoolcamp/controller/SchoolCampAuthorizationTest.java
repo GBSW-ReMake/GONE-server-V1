@@ -1,6 +1,7 @@
 package com.remake.gone.schoolcamp.controller;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -90,5 +91,39 @@ class SchoolCampAuthorizationTest {
             .contentType(MediaType.APPLICATION_JSON)
             .content("{\"teacherUserId\": 42}"))
         .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  @DisplayName("참여 내역 목록 엔드포인트는 인증 없이 요청하면 401을 반환한다(#69)")
+  void myParticipationsReturns401WithoutToken() throws Exception {
+    mockMvc.perform(get("/api/v1/school-camps/me"))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  @DisplayName("참여 내역 목록 엔드포인트는 STUDENT/TEACHER 둘 다 아닌 역할로 요청하면 403을 반환한다(#69)")
+  void myParticipationsReturns403ForOtherRole() throws Exception {
+    String token = jwtProvider.createAccessToken(1L, Set.of("ADMIN"));
+
+    mockMvc.perform(get("/api/v1/school-camps/me")
+            .header("Authorization", "Bearer " + token))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  @DisplayName("참여 신청 상세 엔드포인트는 인증 없이 요청하면 401을 반환한다(#69)")
+  void myParticipationDetailReturns401WithoutToken() throws Exception {
+    mockMvc.perform(get("/api/v1/school-camps/applications/1"))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  @DisplayName("참여 신청 상세 엔드포인트는 STUDENT/TEACHER 둘 다 아닌 역할로 요청하면 403을 반환한다(#69)")
+  void myParticipationDetailReturns403ForOtherRole() throws Exception {
+    String token = jwtProvider.createAccessToken(1L, Set.of("ADMIN"));
+
+    mockMvc.perform(get("/api/v1/school-camps/applications/1")
+            .header("Authorization", "Bearer " + token))
+        .andExpect(status().isForbidden());
   }
 }

@@ -6,6 +6,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 /**
  * {@link SchoolCampApplication} 리포지토리.
@@ -50,4 +52,37 @@ public interface SchoolCampApplicationRepository
    * @return 그 날짜 세션의 활성 신청(있다면)
    */
   List<SchoolCampApplication> findBySessionCampDateAndCancelledAtIsNull(LocalDate campDate);
+
+  /**
+   * 본인이 담당 선생님으로 지정된 신청 전체를, 취소 여부와 무관하게 최신 순으로
+   * 조회합니다(#69 참여 내역 목록의 선생님 쪽 이력).
+   *
+   * @param teacherUserId 조회할 선생님 사용자 ID
+   * @return 그 선생님이 담당인 신청 목록, {@code campDate} 내림차순
+   */
+  @Query("select a from SchoolCampApplication a "
+      + "join fetch a.session s "
+      + "where a.teacherUser.id = :teacherUserId "
+      + "order by s.campDate desc")
+  List<SchoolCampApplication> findByTeacherUserId(@Param("teacherUserId") Long teacherUserId);
+
+  /**
+   * {@link #findByTeacherUserId}와 동일하되, 특정 달({@code monthStart}~{@code monthEnd},
+   * 양 끝 포함)로 범위를 한정합니다(#69 참여 내역 목록의 {@code month} 파라미터 지정 시
+   * 사용).
+   *
+   * @param teacherUserId 조회할 선생님 사용자 ID
+   * @param monthStart    조회할 달의 첫날
+   * @param monthEnd      조회할 달의 마지막날
+   * @return 그 선생님이 그 달에 담당인 신청 목록, {@code campDate} 내림차순
+   */
+  @Query("select a from SchoolCampApplication a "
+      + "join fetch a.session s "
+      + "where a.teacherUser.id = :teacherUserId "
+      + "and s.campDate between :monthStart and :monthEnd "
+      + "order by s.campDate desc")
+  List<SchoolCampApplication> findByTeacherUserIdInMonth(
+      @Param("teacherUserId") Long teacherUserId,
+      @Param("monthStart") LocalDate monthStart,
+      @Param("monthEnd") LocalDate monthEnd);
 }

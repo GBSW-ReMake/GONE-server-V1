@@ -1,11 +1,14 @@
 package com.remake.gone.schoolcamp.controller;
 
 import com.remake.gone.common.response.ApiResponse;
+import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.common.security.UserPrincipal;
 import com.remake.gone.schoolcamp.dto.RegisterSchoolCampDatesRequest;
 import com.remake.gone.schoolcamp.dto.SchoolCampApplicationResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampApplyRequest;
 import com.remake.gone.schoolcamp.dto.SchoolCampCalendarResponse;
+import com.remake.gone.schoolcamp.dto.SchoolCampMyParticipationResponse;
+import com.remake.gone.schoolcamp.dto.SchoolCampMyParticipationSummaryResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampSessionResponse;
 import com.remake.gone.schoolcamp.service.SchoolCampService;
 import jakarta.validation.Valid;
@@ -72,6 +75,50 @@ public class SchoolCampController {
   ) {
     List<SchoolCampCalendarResponse> response = schoolCampService.getCalendar(month);
     return ApiResponse.success(response, "스쿨캠핑 일정을 조회했습니다.");
+  }
+
+  /**
+   * 본인(대표/팀원/담당 선생님 중 하나)이 관련된 스쿨캠핑 이력을 목록으로 조회합니다(#69).
+   * 취소된 신청도 포함하며(응답의 {@code cancelledAt}으로 구분), 팀원 전체는 담지 않는다 —
+   * 상세는 {@link #getMyParticipationDetail}로 따로 조회한다.
+   *
+   * @param principal 인증 필터가 Access Token에서 추출한 현재 사용자
+   * @param month     범위를 한정할 달({@code yyyyMM}). 생략하면 전체 이력
+   * @param page      페이지 번호(0부터 시작, 생략 시 0)
+   * @param size      페이지 크기(1~100, 생략 시 20)
+   * @return 페이지네이션된 참여 내역 요약 목록
+   */
+  @GetMapping("/me")
+  @PreAuthorize("hasAnyRole('STUDENT', 'TEACHER')")
+  public ApiResponse<PageResponse<SchoolCampMyParticipationSummaryResponse>> getMyParticipations(
+      @AuthenticationPrincipal UserPrincipal principal,
+      @RequestParam(required = false) @DateTimeFormat(pattern = "yyyyMM") YearMonth month,
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "20") int size
+  ) {
+    PageResponse<SchoolCampMyParticipationSummaryResponse> response =
+        schoolCampService.getMyParticipations(principal.userId(), month, page, size);
+    return ApiResponse.success(response, "스쿨캠핑 참여 내역을 조회했습니다.");
+  }
+
+  /**
+   * 본인이 참여한 신청 1건의 상세(담당 선생님/팀원 전체)를 조회합니다(#69). 취소된
+   * 신청도 조회할 수 있다. 본인이 그 신청의 참여자(대표, 팀원, 또는 담당 선생님)가
+   * 아니면 거부한다.
+   *
+   * @param principal     인증 필터가 Access Token에서 추출한 현재 사용자
+   * @param applicationId 조회할 신청의 PK
+   * @return 팀원 전체를 포함한 참여 내역 상세
+   */
+  @GetMapping("/applications/{applicationId}")
+  @PreAuthorize("hasAnyRole('STUDENT', 'TEACHER')")
+  public ApiResponse<SchoolCampMyParticipationResponse> getMyParticipationDetail(
+      @AuthenticationPrincipal UserPrincipal principal,
+      @PathVariable Long applicationId
+  ) {
+    SchoolCampMyParticipationResponse response =
+        schoolCampService.getMyParticipationDetail(principal.userId(), applicationId);
+    return ApiResponse.success(response, "스쿨캠핑 참여 상세를 조회했습니다.");
   }
 
   /**
