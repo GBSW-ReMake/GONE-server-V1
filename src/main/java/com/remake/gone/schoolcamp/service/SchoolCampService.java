@@ -38,12 +38,14 @@ import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -404,13 +406,13 @@ public class SchoolCampService {
   }
 
   /**
-   * 본인(대표든 팀원이든)이 참여한 스쿨캠핑 이력을 목록으로 조회합니다(#69). 취소된 신청도
-   * 포함한다 — 유효 여부는 응답의 {@code cancelledAt}으로 구분한다.
+   * 본인(대표/팀원/담당 선생님 중 하나)이 관련된 스쿨캠핑 이력을 목록으로 조회합니다(#69).
+   * 취소된 신청도 포함한다 — 유효 여부는 응답의 {@code cancelledAt}으로 구분한다.
    *
    * <p>팀원 전체는 담지 않는 요약 응답이다 — 상세는 {@link #getMyParticipationDetail}로
    * 따로 조회한다(컬렉션 안에 컬렉션을 중첩하지 않는다는 API 설계 원칙 대응).
    *
-   * @param userId 조회하는 학생 사용자 ID(Access Token에서 추출됨)
+   * @param userId 조회하는 사용자 ID(Access Token에서 추출됨, 학생 또는 선생님)
    * @param month  범위를 한정할 달. {@code null}이면 전체 이력
    * @param page   페이지 번호(0부터 시작)
    * @param size   페이지 크기(1~100)
@@ -421,12 +423,9 @@ public class SchoolCampService {
       Long userId, YearMonth month, int page, int size) {
     validatePageParams(page, size);
 
-    List<SchoolCampMember> myRows = month != null
-        ? memberRepository.findMyParticipationsInMonth(
-            userId, month.atDay(1), month.atEndOfMonth())
-        : memberRepository.findMyParticipations(userId);
+    List<ParticipationSource> sources = collectMyParticipationSources(userId, month);
 
-    PageResponse<SchoolCampMember> paged = PageResponse.of(myRows, page, size);
+    PageResponse<ParticipationSource> paged = PageResponse.of(sources, page, size);
     List<SchoolCampMyParticipationSummaryResponse> content = paged.content().stream()
         .map(this::toMyParticipationSummary)
         .toList();
@@ -435,6 +434,38 @@ public class SchoolCampService {
         paged.hasNext());
   }
 
+  /**
+   * 본인이 학생(대표/팀원)으로 참여한 신청과 담당 선생님으로 지정된 신청을 각각 조회해
+   * {@code campDate} 내림차순 하나로 합친다(#69, 설계 변경 3). 같은 사람이 두 역할을
+   * 동시에 가지는 경우는 실질적으로 없지만(담당 선생님 지정은 {@code TEACHER} 역할
+   * 보유자만 가능), 있더라도 시간순으로 자연스럽게 섞이도록 별도 방어 없이 병합·정렬만
+   * 한다.
+   */
+  private List<ParticipationSource> collectMyParticipationSources(Long userId, YearMonth month) {
+    List<SchoolCampMember> myMemberRows = month != null
+        ? memberRepository.findMyParticipationsInMonth(
+            userId, month.atDay(1), month.atEndOfMonth())
+        : memberRepository.findMyParticipations(userId);
+    List<SchoolCampApplication> myTeacherApplications = month != null
+        ? applicationRepository.findByTeacherUserIdInMonth(
+            userId, month.atDay(1), month.atEndOfMonth())
+        : applicationRepository.findByTeacherUserId(userId);
+
+    Stream<ParticipationSource> studentSources = myMemberRows.stream()
+        .map(row -> new ParticipationSource(row.getApplication(), toMyRole(row)));
+    Stream<ParticipationSource> teacherSources = myTeacherApplications.stream()
+        .map(application -> new ParticipationSource(application, SchoolCampMyRole.TEACHER));
+
+    return Stream.concat(studentSources, teacherSources)
+        .sorted(Comparator.comparing(
+                (ParticipationSource source) -> source.application().getSession().getCampDate())
+            .reversed())
+        .toList();
+  }
+
+  /** {@link #collectMyParticipationSources}가 만드는, 참여 신청 1건 + 그 안에서의 내 역할. */
+  private record ParticipationSource(SchoolCampApplication application, SchoolCampMyRole role) {}
+
   private void validatePageParams(int page, int size) {
     if (page < 0 || size < MIN_PAGE_SIZE || size > MAX_PAGE_SIZE) {
       throw new CustomException(SchoolCampErrorCode.INVALID_PAGE_PARAMS);
@@ -442,13 +473,13 @@ public class SchoolCampService {
   }
 
   private SchoolCampMyParticipationSummaryResponse toMyParticipationSummary(
-      SchoolCampMember myRow) {
-    SchoolCampApplication application = myRow.getApplication();
+      ParticipationSource source) {
+    SchoolCampApplication application = source.application();
     return new SchoolCampMyParticipationSummaryResponse(
         application.getId(),
         application.getSession().getCampDate().format(YMD_FORMATTER),
         teacherDisplayName(application),
-        toMyRole(myRow),
+        source.role(),
         application.getAppliedAt().toString(),
         application.getCancelledAt() != null ? application.getCancelledAt().toString() : null);
   }
@@ -456,7 +487,7 @@ public class SchoolCampService {
   /**
    * 본인이 참여한 신청 1건의 상세를 조회합니다(#69). 취소된 신청도 조회할 수 있다.
    *
-   * @param userId        조회하는 학생 사용자 ID(Access Token에서 추출됨)
+   * @param userId        조회하는 사용자 ID(Access Token에서 추출됨, 학생 또는 선생님)
    * @param applicationId 조회할 신청의 PK
    * @return 팀원 전체를 포함한 참여 내역 상세
    */
@@ -467,20 +498,30 @@ public class SchoolCampService {
         .orElseThrow(() -> new CustomException(SchoolCampErrorCode.APPLICATION_NOT_FOUND));
 
     List<SchoolCampMember> members = memberRepository.findByApplicationId(applicationId);
-    SchoolCampMember myRow = members.stream()
+    SchoolCampMyRole myRole = members.stream()
         .filter(member -> member.getStudentUser() != null
             && member.getStudentUser().getId().equals(userId))
         .findFirst()
-        .orElseThrow(() -> new CustomException(SchoolCampErrorCode.NOT_APPLICATION_PARTICIPANT));
+        .map(this::toMyRole)
+        .orElseGet(() -> resolveTeacherRole(application, userId));
 
     return new SchoolCampMyParticipationResponse(
         application.getId(),
         application.getSession().getCampDate().format(YMD_FORMATTER),
         teacherDisplayName(application),
-        toMyRole(myRow),
+        myRole,
         members.stream().map(this::toMemberResponse).toList(),
         application.getAppliedAt().toString(),
         application.getCancelledAt() != null ? application.getCancelledAt().toString() : null);
+  }
+
+  private SchoolCampMyRole resolveTeacherRole(SchoolCampApplication application, Long userId) {
+    boolean isTeacher = application.getTeacherUser() != null
+        && application.getTeacherUser().getId().equals(userId);
+    if (!isTeacher) {
+      throw new CustomException(SchoolCampErrorCode.NOT_APPLICATION_PARTICIPANT);
+    }
+    return SchoolCampMyRole.TEACHER;
   }
 
   private SchoolCampMyRole toMyRole(SchoolCampMember myRow) {
