@@ -19,6 +19,7 @@ import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.enums.GbswType;
 import com.remake.gone.notification.enums.NotificationType;
 import com.remake.gone.notification.service.NotificationService;
+import com.remake.gone.outing.entity.Outing;
 import com.remake.gone.outing.enums.OutingStatus;
 import com.remake.gone.outing.enums.OutingTimeSlot;
 import com.remake.gone.outing.repository.OutingRepository;
@@ -40,6 +41,7 @@ import com.remake.gone.user.entity.User;
 import com.remake.gone.user.repository.UserRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
@@ -918,6 +920,17 @@ class SchoolCampServiceTest {
       return SchoolCampMember.builder().studentUser(student).applicant(false).build();
     }
 
+    private Outing outing(LocalTime startTime, LocalTime endTime) {
+      return Outing.builder().startTime(startTime).endTime(endTime).build();
+    }
+
+    /** {@code studentId}의 오늘 활성 외출증 목록을 스텁한다. */
+    private void stubOutings(Long studentId, List<Outing> outings) {
+      given(outingRepository.findByStudentIdAndOutingDateAndStatusIn(
+          eq(studentId), eq(TODAY), eq(OutingStatus.ACTIVE_STATUSES)))
+          .willReturn(outings);
+    }
+
     @Test
     @DisplayName("오늘 활성 신청이 없으면 아무 알림도 발송하지 않는다")
     void sendsNothingWhenNoApplicationToday() {
@@ -934,11 +947,10 @@ class SchoolCampServiceTest {
     void skipsMemberWithExistingLunchOuting() {
       given(applicationRepository.findBySessionCampDateAndCancelledAtIsNull(TODAY))
           .willReturn(List.of(application()));
-      SchoolCampMember member = memberOf(55L, "이영희");
-      given(memberRepository.findByApplicationId(APPLICATION_ID)).willReturn(List.of(member));
-      given(outingRepository.existsByStudentIdAndOutingDateAndTimeSlotAndStatusIn(
-          eq(55L), eq(TODAY), eq(OutingTimeSlot.LUNCH), eq(OutingStatus.ACTIVE_STATUSES)))
-          .willReturn(true);
+      given(memberRepository.findByApplicationId(APPLICATION_ID))
+          .willReturn(List.of(memberOf(55L, "이영희")));
+      stubOutings(55L, List.of(outing(OutingTimeSlot.LUNCH.getStartTime(),
+          OutingTimeSlot.LUNCH.getEndTime())));
 
       schoolCampService.sendOutingReminders(TODAY);
 
@@ -946,15 +958,29 @@ class SchoolCampServiceTest {
     }
 
     @Test
-    @DisplayName("LUNCH 외출증이 없는 학생에게는 리마인더 알림을 보낸다")
-    void remindsMemberWithoutLunchOuting() {
+    @DisplayName("점심시간을 포함하는 CUSTOM 외출증이 있으면 알림을 보내지 않는다(코드 리뷰 #71 대응)")
+    void skipsMemberWithCustomOutingOverlappingLunch() {
+      // timeSlot 이름이 아니라 실제 시작/종료 시각으로 겹침을 판단해야 하는 케이스 —
+      // 11:00~15:00 CUSTOM 외출증은 LUNCH(12:30~13:40)를 완전히 포함한다.
       given(applicationRepository.findBySessionCampDateAndCancelledAtIsNull(TODAY))
           .willReturn(List.of(application()));
-      SchoolCampMember member = memberOf(55L, "이영희");
-      given(memberRepository.findByApplicationId(APPLICATION_ID)).willReturn(List.of(member));
-      given(outingRepository.existsByStudentIdAndOutingDateAndTimeSlotAndStatusIn(
-          eq(55L), eq(TODAY), eq(OutingTimeSlot.LUNCH), eq(OutingStatus.ACTIVE_STATUSES)))
-          .willReturn(false);
+      given(memberRepository.findByApplicationId(APPLICATION_ID))
+          .willReturn(List.of(memberOf(55L, "이영희")));
+      stubOutings(55L, List.of(outing(LocalTime.of(11, 0), LocalTime.of(15, 0))));
+
+      schoolCampService.sendOutingReminders(TODAY);
+
+      verifyNoInteractions(notificationService);
+    }
+
+    @Test
+    @DisplayName("점심시간을 포함하지 않는 CUSTOM 외출증만 있으면 여전히 리마인더 대상이다")
+    void remindsMemberWithCustomOutingNotOverlappingLunch() {
+      given(applicationRepository.findBySessionCampDateAndCancelledAtIsNull(TODAY))
+          .willReturn(List.of(application()));
+      given(memberRepository.findByApplicationId(APPLICATION_ID))
+          .willReturn(List.of(memberOf(55L, "이영희")));
+      stubOutings(55L, List.of(outing(LocalTime.of(8, 40), LocalTime.of(10, 0))));
 
       schoolCampService.sendOutingReminders(TODAY);
 
@@ -963,17 +989,13 @@ class SchoolCampServiceTest {
     }
 
     @Test
-    @DisplayName("REJECTED/MISSED 상태의 외출증만 있는 학생도 다시 리마인더 대상이다")
-    void remindsMemberWhoseOnlyOutingIsInactive() {
-      // ACTIVE_STATUSES(PENDING/APPROVED/DEPARTED)만 조회 조건으로 넘기므로,
-      // REJECTED/MISSED만 있는 학생은 리포지토리 스텁이 자연히 false를 반환한다.
+    @DisplayName("외출증이 없는 학생에게는 리마인더 알림을 보낸다")
+    void remindsMemberWithoutAnyOuting() {
       given(applicationRepository.findBySessionCampDateAndCancelledAtIsNull(TODAY))
           .willReturn(List.of(application()));
-      SchoolCampMember member = memberOf(55L, "이영희");
-      given(memberRepository.findByApplicationId(APPLICATION_ID)).willReturn(List.of(member));
-      given(outingRepository.existsByStudentIdAndOutingDateAndTimeSlotAndStatusIn(
-          eq(55L), eq(TODAY), eq(OutingTimeSlot.LUNCH), eq(OutingStatus.ACTIVE_STATUSES)))
-          .willReturn(false);
+      given(memberRepository.findByApplicationId(APPLICATION_ID))
+          .willReturn(List.of(memberOf(55L, "이영희")));
+      stubOutings(55L, List.of());
 
       schoolCampService.sendOutingReminders(TODAY);
 
