@@ -15,10 +15,12 @@ import com.remake.gone.role.repository.UserRoleRepository;
 import com.remake.gone.schoolcamp.dto.SchoolCampApplicationResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampApplyRequest;
 import com.remake.gone.schoolcamp.dto.SchoolCampCalendarResponse;
+import com.remake.gone.schoolcamp.dto.SchoolCampConflictingMemberResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampMemberRequest;
 import com.remake.gone.schoolcamp.dto.SchoolCampMemberResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampMyParticipationResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampMyParticipationSummaryResponse;
+import com.remake.gone.schoolcamp.dto.SchoolCampParticipationConflictResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampSessionResponse;
 import com.remake.gone.schoolcamp.entity.SchoolCampApplication;
 import com.remake.gone.schoolcamp.entity.SchoolCampMember;
@@ -319,7 +321,8 @@ public class SchoolCampService {
     MemberDiff diff = computeMemberDiff(existingMembers, studentsById.keySet());
 
     if (!diff.addedStudentIds().isEmpty()) {
-      validateNoDuplicateThisMonth(diff.addedStudentIds(), application.getSession().getCampDate());
+      validateNoDuplicateThisMonth(
+          diff.addedStudentIds(), studentsById, application.getSession().getCampDate());
     }
     if (!diff.memberIdsToDelete().isEmpty()) {
       memberRepository.deleteAllById(diff.memberIdsToDelete());
@@ -631,10 +634,8 @@ public class SchoolCampService {
     User teacher =
         request.teacherUserId() != null ? findValidTeacher(request.teacherUserId()) : null;
 
-    Map<Long, User> studentsById = findExistingStudents(applicantUserId, additionalMembers);
-    Set<Long> candidateIds = new HashSet<>(studentsById.keySet());
-    candidateIds.add(applicantUserId);
-    validateNoDuplicateThisMonth(candidateIds, session.getCampDate());
+    Map<Long, User> studentsById =
+        validateAndCollectStudents(applicantUserId, applicant, additionalMembers, session);
 
     SchoolCampApplication application = SchoolCampApplication.builder()
         .session(session)
@@ -651,6 +652,23 @@ public class SchoolCampService {
     sendInviteNotifications(applicant, session, members);
 
     return toApplicationResponse(application, teacher, session, members);
+  }
+
+  /**
+   * {@link #completeApplication}(#68 신규 신청) 전용 — 팀원 존재 확인 후, 대표 신청자
+   * 본인까지 포함한 후보 전체로 이번 달 중복 참여를 검사한다. 반환하는 맵은
+   * {@link #buildMembers}가 팀원 엔티티를 만들 때 그대로 재사용한다.
+   */
+  private Map<Long, User> validateAndCollectStudents(
+      Long applicantUserId, User applicant, List<SchoolCampMemberRequest> additionalMembers,
+      SchoolCampSession session) {
+    Map<Long, User> studentsById = findExistingStudents(applicantUserId, additionalMembers);
+    Set<Long> candidateIds = new HashSet<>(studentsById.keySet());
+    candidateIds.add(applicantUserId);
+    Map<Long, User> usersById = new HashMap<>(studentsById);
+    usersById.put(applicantUserId, applicant);
+    validateNoDuplicateThisMonth(candidateIds, usersById, session.getCampDate());
+    return studentsById;
   }
 
   private User findValidTeacher(Long teacherUserId) {
@@ -696,14 +714,35 @@ public class SchoolCampService {
    * 본인을 항상 포함해야 하지만, {@link #updateApplication}(#70, 새로 추가되는 팀원만
    * 재검사)은 포함하면 안 된다(대표 신청자는 이미 이 신청으로 참여 중이라 넣으면 항상
    * 걸린다) — 그래서 이 메서드가 자동으로 넣지 않는다.
+   *
+   * <p>거부할 때는 어떤 학생 때문에 걸렸는지를 {@link CustomException#getData()}에 실어
+   * 던진다(#81) — {@code usersById}는 호출부가 이미 조회해둔 후보 학생의 {@link User}
+   * 맵이라, 이 정보를 채우려고 추가 쿼리를 하지 않는다.
+   *
+   * @param candidateIds 확인할 학생 ID 후보
+   * @param usersById    {@code candidateIds}에 대응하는 {@link User} 맵(걸렸을 때 실명/
+   *                     학년/반을 응답에 채우는 용도)
+   * @param campDate     확인할 세션의 캠핑 날짜(이 날짜가 속한 달을 기준으로 검사)
    */
-  private void validateNoDuplicateThisMonth(Set<Long> candidateIds, LocalDate campDate) {
+  private void validateNoDuplicateThisMonth(
+      Set<Long> candidateIds, Map<Long, User> usersById, LocalDate campDate) {
     YearMonth month = YearMonth.from(campDate);
     List<Long> participated = memberRepository.findParticipatedStudentIdsInMonth(
         candidateIds, month.atDay(1), month.atEndOfMonth());
     if (!participated.isEmpty()) {
-      throw new CustomException(SchoolCampErrorCode.ALREADY_PARTICIPATED_THIS_MONTH);
+      List<SchoolCampConflictingMemberResponse> conflictingMembers = participated.stream()
+          .map(studentId -> toConflictingMemberResponse(usersById.get(studentId)))
+          .toList();
+      throw new CustomException(
+          SchoolCampErrorCode.ALREADY_PARTICIPATED_THIS_MONTH,
+          new SchoolCampParticipationConflictResponse(conflictingMembers));
     }
+  }
+
+  private SchoolCampConflictingMemberResponse toConflictingMemberResponse(User user) {
+    Gbsw gbsw = user.getGbsw();
+    return new SchoolCampConflictingMemberResponse(
+        user.getId(), gbsw.getName(), gbsw.getGrade(), gbsw.getClassNo());
   }
 
   private List<SchoolCampMember> buildMembers(
