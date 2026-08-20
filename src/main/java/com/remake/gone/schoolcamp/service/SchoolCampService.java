@@ -2,6 +2,7 @@ package com.remake.gone.schoolcamp.service;
 
 import com.remake.gone.common.exception.CommonErrorCode;
 import com.remake.gone.common.exception.CustomException;
+import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.utils.GbswUtils;
 import com.remake.gone.notification.enums.NotificationType;
@@ -16,10 +17,13 @@ import com.remake.gone.schoolcamp.dto.SchoolCampApplyRequest;
 import com.remake.gone.schoolcamp.dto.SchoolCampCalendarResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampMemberRequest;
 import com.remake.gone.schoolcamp.dto.SchoolCampMemberResponse;
+import com.remake.gone.schoolcamp.dto.SchoolCampMyParticipationResponse;
+import com.remake.gone.schoolcamp.dto.SchoolCampMyParticipationSummaryResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampSessionResponse;
 import com.remake.gone.schoolcamp.entity.SchoolCampApplication;
 import com.remake.gone.schoolcamp.entity.SchoolCampMember;
 import com.remake.gone.schoolcamp.entity.SchoolCampSession;
+import com.remake.gone.schoolcamp.enums.SchoolCampMyRole;
 import com.remake.gone.schoolcamp.enums.SchoolCampStatus;
 import com.remake.gone.schoolcamp.exception.SchoolCampErrorCode;
 import com.remake.gone.schoolcamp.repository.SchoolCampApplicationRepository;
@@ -64,6 +68,10 @@ public class SchoolCampService {
   private static final int MAX_TEAM_SIZE = 8;
 
   private static final String TEACHER_ROLE_CODE = "TEACHER";
+
+  /** 참여 내역 조회(#69) 페이지 크기 하한/상한 — {@code outing.OutingService}와 동일 기준. */
+  private static final int MIN_PAGE_SIZE = 1;
+  private static final int MAX_PAGE_SIZE = 100;
 
   private final SchoolCampSessionRepository sessionRepository;
   private final SchoolCampApplicationRepository applicationRepository;
@@ -393,6 +401,90 @@ public class SchoolCampService {
   private static boolean overlapsLunch(Outing outing) {
     return !outing.getStartTime().isAfter(OutingTimeSlot.LUNCH.getEndTime())
         && !outing.getEndTime().isBefore(OutingTimeSlot.LUNCH.getStartTime());
+  }
+
+  /**
+   * 본인(대표든 팀원이든)이 참여한 스쿨캠핑 이력을 목록으로 조회합니다(#69). 취소된 신청도
+   * 포함한다 — 유효 여부는 응답의 {@code cancelledAt}으로 구분한다.
+   *
+   * <p>팀원 전체는 담지 않는 요약 응답이다 — 상세는 {@link #getMyParticipationDetail}로
+   * 따로 조회한다(컬렉션 안에 컬렉션을 중첩하지 않는다는 API 설계 원칙 대응).
+   *
+   * @param userId 조회하는 학생 사용자 ID(Access Token에서 추출됨)
+   * @param month  범위를 한정할 달. {@code null}이면 전체 이력
+   * @param page   페이지 번호(0부터 시작)
+   * @param size   페이지 크기(1~100)
+   * @return 페이지네이션된 참여 내역 요약 목록, {@code campDate} 내림차순
+   */
+  @Transactional(readOnly = true)
+  public PageResponse<SchoolCampMyParticipationSummaryResponse> getMyParticipations(
+      Long userId, YearMonth month, int page, int size) {
+    validatePageParams(page, size);
+
+    List<SchoolCampMember> myRows = month != null
+        ? memberRepository.findMyParticipationsInMonth(
+            userId, month.atDay(1), month.atEndOfMonth())
+        : memberRepository.findMyParticipations(userId);
+
+    PageResponse<SchoolCampMember> paged = PageResponse.of(myRows, page, size);
+    List<SchoolCampMyParticipationSummaryResponse> content = paged.content().stream()
+        .map(this::toMyParticipationSummary)
+        .toList();
+    return new PageResponse<>(
+        content, paged.page(), paged.size(), paged.totalElements(), paged.totalPages(),
+        paged.hasNext());
+  }
+
+  private void validatePageParams(int page, int size) {
+    if (page < 0 || size < MIN_PAGE_SIZE || size > MAX_PAGE_SIZE) {
+      throw new CustomException(SchoolCampErrorCode.INVALID_PAGE_PARAMS);
+    }
+  }
+
+  private SchoolCampMyParticipationSummaryResponse toMyParticipationSummary(
+      SchoolCampMember myRow) {
+    SchoolCampApplication application = myRow.getApplication();
+    return new SchoolCampMyParticipationSummaryResponse(
+        application.getId(),
+        application.getSession().getCampDate().format(YMD_FORMATTER),
+        teacherDisplayName(application),
+        toMyRole(myRow),
+        application.getAppliedAt().toString(),
+        application.getCancelledAt() != null ? application.getCancelledAt().toString() : null);
+  }
+
+  /**
+   * 본인이 참여한 신청 1건의 상세를 조회합니다(#69). 취소된 신청도 조회할 수 있다.
+   *
+   * @param userId        조회하는 학생 사용자 ID(Access Token에서 추출됨)
+   * @param applicationId 조회할 신청의 PK
+   * @return 팀원 전체를 포함한 참여 내역 상세
+   */
+  @Transactional(readOnly = true)
+  public SchoolCampMyParticipationResponse getMyParticipationDetail(
+      Long userId, Long applicationId) {
+    SchoolCampApplication application = applicationRepository.findById(applicationId)
+        .orElseThrow(() -> new CustomException(SchoolCampErrorCode.APPLICATION_NOT_FOUND));
+
+    List<SchoolCampMember> members = memberRepository.findByApplicationId(applicationId);
+    SchoolCampMember myRow = members.stream()
+        .filter(member -> member.getStudentUser() != null
+            && member.getStudentUser().getId().equals(userId))
+        .findFirst()
+        .orElseThrow(() -> new CustomException(SchoolCampErrorCode.NOT_APPLICATION_PARTICIPANT));
+
+    return new SchoolCampMyParticipationResponse(
+        application.getId(),
+        application.getSession().getCampDate().format(YMD_FORMATTER),
+        teacherDisplayName(application),
+        toMyRole(myRow),
+        members.stream().map(this::toMemberResponse).toList(),
+        application.getAppliedAt().toString(),
+        application.getCancelledAt() != null ? application.getCancelledAt().toString() : null);
+  }
+
+  private SchoolCampMyRole toMyRole(SchoolCampMember myRow) {
+    return myRow.isApplicant() ? SchoolCampMyRole.APPLICANT : SchoolCampMyRole.MEMBER;
   }
 
   /**
