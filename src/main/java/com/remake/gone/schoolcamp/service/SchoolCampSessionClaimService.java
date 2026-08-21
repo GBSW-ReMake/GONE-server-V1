@@ -1,6 +1,5 @@
 package com.remake.gone.schoolcamp.service;
 
-import com.remake.gone.schoolcamp.repository.SchoolCampApplicationRepository;
 import com.remake.gone.schoolcamp.repository.SchoolCampSessionRepository;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -46,6 +45,16 @@ import org.springframework.transaction.annotation.Transactional;
  * 활성 신청이 정말 없는 경우에 한해 자동으로 재점유를 시도한다. 별도 스케줄러 없이
  * 다음 claim 시도 시점에 즉시 회수하는 방식이다(상세 근거:
  * {@code docs/domain/schoolcamp/84-schoolcamp-ghost-claim-recovery.md}).
+ * "유예시간 지남"과 "활성 신청 없음"은 {@link SchoolCampSessionRepository#reclaimIfExpired}
+ * 안에서 하나의 원자적 {@code UPDATE}로 같이 평가된다(#84 코드 리뷰 대응) — 이 클래스는
+ * 별도 확인 쿼리를 먼저 실행하지 않는다.
+ *
+ * <p><b>{@link #release}의 CAS 가드(#84 코드 리뷰 High 1번 대응)</b>: claim에 성공했을
+ * 때 받은 시각을 그대로 넘겨야 한다. 그래야 이 반환 호출이 지연되는 사이 그 세션이 이미
+ * 다른 요청에 재점유됐다면, 남의 정상적인 새 점유를 실수로 되돌리지 않는다. 다만 이
+ * 가드는 "claim 이후 처리가 GRACE_PERIOD보다 오래 걸렸지만 결국 성공하는" 극히 드문
+ * 경로까지는 막지 못한다 — 그 경우 원래 점유자와 재점유자 양쪽 모두 활성 신청을 남길 수
+ * 있다는 잔여 리스크는 인지하고 수용한다(상세 근거는 위 문서의 "동시성 분석" 절 참고).
  */
 @Service
 @RequiredArgsConstructor
@@ -59,7 +68,6 @@ public class SchoolCampSessionClaimService {
   public static final Duration GRACE_PERIOD = Duration.ofMinutes(2);
 
   private final SchoolCampSessionRepository sessionRepository;
-  private final SchoolCampApplicationRepository applicationRepository;
 
   /**
    * 세션을 원자적으로 점유합니다.
@@ -92,22 +100,15 @@ public class SchoolCampSessionClaimService {
   }
 
   /**
-   * 유령 점유 후보를 재점유합니다(#84). 활성 신청이 정말 없는지 먼저 확인한 뒤에만
-   * 재점유를 시도한다 — 시간 경과만으로는 유령 점유와 오래전에 정상 성사된 예약을
-   * 구분할 수 없기 때문이다(상세 근거는
-   * {@code docs/domain/schoolcamp/84-schoolcamp-ghost-claim-recovery.md} "핵심 위험"
-   * 절 참고).
+   * 유령 점유 후보를 재점유합니다(#84). "활성 신청 없음"과 "유예시간 지남" 확인은
+   * {@link SchoolCampSessionRepository#reclaimIfExpired} 안에서 원자적으로 처리되므로
+   * 이 메서드는 그 결과만 그대로 반환한다.
    *
    * @param sessionId 재점유를 시도할 세션의 PK
    * @param now       재점유 시각으로 기록할 값(유예시간 기준 시각으로도 사용)
    * @return 재점유에 성공했으면 {@code true}
    */
   private boolean reclaimIfGhost(Long sessionId, LocalDateTime now) {
-    boolean hasActiveApplication =
-        applicationRepository.findBySessionIdAndCancelledAtIsNull(sessionId).isPresent();
-    if (hasActiveApplication) {
-      return false;
-    }
     LocalDateTime threshold = now.minus(GRACE_PERIOD);
     return sessionRepository.reclaimIfExpired(sessionId, threshold, now) == 1;
   }
@@ -115,17 +116,21 @@ public class SchoolCampSessionClaimService {
   /**
    * 세션 점유를 반환합니다.
    *
-   * <p>{@link #claim}으로 점유에 성공한 뒤, 호출한 쪽의 이후 로직(선생님 검증·팀원
-   * 조회·월 중복 확인 등)이 실패했을 때 호출한다. 이 메서드도
+   * <p>{@link #claim}(또는 재점유)으로 점유에 성공한 뒤, 호출한 쪽의 이후 로직(선생님
+   * 검증·팀원 조회·월 중복 확인 등)이 실패했을 때 호출한다. 이 메서드도
    * {@link Propagation#REQUIRES_NEW}라 호출한 쪽의 트랜잭션이 이미 롤백을 결정한
    * 상태여도 독립적으로 커밋된다 — 그래서 실패 처리 흐름에서 호출한 쪽이 예외를 다시
    * 던지기 전에 이 메서드를 먼저 호출해야, 세션이 실제로 다시 열린 뒤에 예외가
    * 전파된다.
    *
-   * @param sessionId 반환할 세션의 PK
+   * <p>{@code expectedTakenAt}으로 조건부(compare-and-swap) 실행한다(#84 코드 리뷰
+   * High 1번 대응) — 자세한 이유는 {@link SchoolCampSessionRepository#release} 참고.
+   *
+   * @param sessionId       반환할 세션의 PK
+   * @param expectedTakenAt 호출한 쪽이 claim(또는 재점유) 성공 시 받은 시각
    */
   @Transactional(propagation = Propagation.REQUIRES_NEW)
-  public void release(Long sessionId) {
-    sessionRepository.release(sessionId);
+  public void release(Long sessionId, LocalDateTime expectedTakenAt) {
+    sessionRepository.release(sessionId, expectedTakenAt);
   }
 }

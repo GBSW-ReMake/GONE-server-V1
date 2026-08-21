@@ -247,7 +247,7 @@ public class SchoolCampService {
     try {
       return completeApplication(applicantUserId, session, request, additionalMembers);
     } catch (RuntimeException e) {
-      releaseQuietly(sessionId, e);
+      releaseQuietly(sessionId, now, e);
       throw e;
     }
   }
@@ -258,9 +258,10 @@ public class SchoolCampService {
    * 않고 그대로 다시 던질 수 있도록, release 실패는 로그로만 남기고 삼킨다 — 코드
    * 리뷰(#68) 지적 사항.
    */
-  private void releaseQuietly(Long sessionId, RuntimeException originalFailure) {
+  private void releaseQuietly(
+      Long sessionId, LocalDateTime takenAt, RuntimeException originalFailure) {
     try {
-      sessionClaimService.release(sessionId);
+      sessionClaimService.release(sessionId, takenAt);
     } catch (RuntimeException releaseFailure) {
       log.error("claim 이후 실패 처리 중 release마저 실패했습니다: sessionId={}, "
           + "원래 실패 원인={}", sessionId, originalFailure.toString(), releaseFailure);
@@ -302,7 +303,8 @@ public class SchoolCampService {
 
     application.setCancelledAt(now);
     applicationRepository.save(application);
-    sessionRepository.release(application.getSession().getId());
+    sessionRepository.release(
+        application.getSession().getId(), application.getSession().getTakenAt());
     waitlistService.notifyForMonth(YearMonth.from(application.getSession().getCampDate()));
   }
 
