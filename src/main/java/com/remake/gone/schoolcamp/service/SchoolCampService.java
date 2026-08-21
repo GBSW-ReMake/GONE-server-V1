@@ -85,6 +85,7 @@ public class SchoolCampService {
   private final UserRoleRepository userRoleRepository;
   private final NotificationService notificationService;
   private final OutingRepository outingRepository;
+  private final SchoolCampWaitlistService waitlistService;
 
   /**
    * 다음 달 스쿨캠핑 가능 날짜를 일괄 등록합니다. 요일 검증/중복 검증 중 하나라도 위반하는
@@ -262,6 +263,10 @@ public class SchoolCampService {
    * 롤백돼 "신청은 취소됐는데 세션은 여전히 잠긴" 불일치가 생기지 않는다 — claim/release가
    * REQUIRES_NEW라서 안았던 "release 실패 시 유령 점유" 잔여 리스크가 이 메서드에는 없다.
    *
+   * <p>세션 반환 직후 그 세션이 속한 달의 대기자 전원에게 "자리가 났어요" 알림을
+   * 발송한다({@code SchoolCampWaitlistService#notifyForMonth}, #83). 같은 트랜잭션 안에서
+   * 실행되어, 취소 자체가 롤백되면 알림 저장도 함께 롤백된다.
+   *
    * @param applicantUserId 취소를 요청한 사용자 ID(Access Token에서 추출됨)
    * @param applicationId   취소할 신청의 PK
    * @param now             "지금"(KST) — 당일 취소 금지 판단과 {@code cancelledAt} 기록에 사용
@@ -282,6 +287,7 @@ public class SchoolCampService {
     application.setCancelledAt(now);
     applicationRepository.save(application);
     sessionRepository.release(application.getSession().getId());
+    waitlistService.notifyForMonth(YearMonth.from(application.getSession().getCampDate()));
   }
 
   /**
