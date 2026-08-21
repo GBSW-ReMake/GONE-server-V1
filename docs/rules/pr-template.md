@@ -2,10 +2,11 @@
 
 - `.github/PULL_REQUEST_TEMPLATE.md`를 사용하고, 항목을 임의로 삭제하지 않는다.
 - `관련 이슈`: `closes #{이슈번호}` 형식으로 명시한다.
-  - ⚠️ 이 저장소의 default 브랜치는 `main`이고 feature PR은 `dev`로 머지되므로, GitHub의
-    "closes #N" 자동 종료는 **이 시점에 발동하지 않는다** (자동 종료는 default 브랜치로
-    머지될 때만 동작). `dev → main` PR에서 다시 자동 종료되길 기대하지 말고, feature PR을
-    `dev`에 머지한 직후 관련 이슈를 `gh issue close {번호}`로 직접 닫는다.
+  - ⚠️ 이 저장소의 default 브랜치는 `main`이고 feature PR은 (로컬 통합 지점인) `dev`로
+    머지되므로, GitHub의 "closes #N" 자동 종료는 **이 시점에 발동하지 않는다** (자동
+    종료는 default 브랜치로 머지될 때만 동작). `dev → staging` 승격 PR이나 향후
+    `main` PR에서 다시 자동 종료되길 기대하지 말고, feature PR을 `dev`에 머지한 직후
+    관련 이슈를 `gh issue close {번호}`로 직접 닫는다.
 - `작업 내용` / `변경 사항 상세`: 기획서(`docs/domain/{도메인명}/{이슈번호}-{도메인명}-{간략한 제목}.md`)와 실제 구현이
   다른 부분이 있다면 반드시 명시한다.
 - PR 설명 문장은 [sentence-refinement.md](./sentence-refinement.md)의 원칙 1~5를 따른다.
