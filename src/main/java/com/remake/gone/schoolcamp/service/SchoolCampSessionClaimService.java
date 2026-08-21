@@ -1,6 +1,8 @@
 package com.remake.gone.schoolcamp.service;
 
+import com.remake.gone.schoolcamp.repository.SchoolCampApplicationRepository;
 import com.remake.gone.schoolcamp.repository.SchoolCampSessionRepository;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -37,14 +39,27 @@ import org.springframework.transaction.annotation.Transactional;
  * 설계(같은 트랜잭션에 claim을 두고 예외로 자동 롤백)가 갖고 있던 "자동 반환"의
  * 단순함을 잃는 대신 락 보유 시간을 최소화하는 쪽을 택한 것이다. {@link #release}
  * 호출 자체가 실패하면(DB 순단 등) 세션이 실제로는 비어있는데 점유된 채로 남는
- * "유령 점유" 상태가 될 수 있는데, 이 이슈 범위에서는 극히 드문 인프라 장애로 보고
- * 별도 재시도·보정 로직을 두지 않는다(수용된 잔여 리스크).
+ * "유령 점유" 상태가 될 수 있다.
+ *
+ * <p><b>유령 점유 즉시 회수(#84)</b>: {@link #claim}은 기존 경로가 실패하면(이미
+ * {@code taken_at}이 채워져 있으면), 그 점유가 {@link #GRACE_PERIOD}보다 오래됐고
+ * 활성 신청이 정말 없는 경우에 한해 자동으로 재점유를 시도한다. 별도 스케줄러 없이
+ * 다음 claim 시도 시점에 즉시 회수하는 방식이다(상세 근거:
+ * {@code docs/domain/schoolcamp/84-schoolcamp-ghost-claim-recovery.md}).
  */
 @Service
 @RequiredArgsConstructor
 public class SchoolCampSessionClaimService {
 
+  /**
+   * claim 이후 검증은 정상적으로 수 ms~수십 ms 수준이므로, 이 시간이 지난 점유는
+   * 유령 후보로 본다(#84). {@link SchoolCampService#getCalendar}도 같은 기준을
+   * 참조해 화면과 실제 재점유 가능 여부가 어긋나지 않게 한다.
+   */
+  public static final Duration GRACE_PERIOD = Duration.ofMinutes(2);
+
   private final SchoolCampSessionRepository sessionRepository;
+  private final SchoolCampApplicationRepository applicationRepository;
 
   /**
    * 세션을 원자적으로 점유합니다.
@@ -60,14 +75,41 @@ public class SchoolCampSessionClaimService {
    * 성공 이후 점유 여부를 다시 확인해야 하면 그 엔티티를 그대로 읽지 말고 반드시
    * 리포지토리로 재조회해야 한다.
    *
+   * <p>이 경로가 실패하면(이미 점유돼 있으면) {@link #reclaimIfGhost}로 유령 점유
+   * 재점유를 시도한다(#84).
+   *
    * @param sessionId 점유할 세션의 PK
    * @param takenAt   점유 시각으로 기록할 값
-   * @return 이번 호출로 점유에 성공했으면 {@code true}, 이미 다른 신청이 선점해
-   *     영향받은 행이 없으면 {@code false}
+   * @return 이번 호출로 점유(또는 유령 재점유)에 성공했으면 {@code true}, 이미 다른
+   *     신청이 유효하게 선점해 영향받은 행이 없으면 {@code false}
    */
   @Transactional(propagation = Propagation.REQUIRES_NEW)
   public boolean claim(Long sessionId, LocalDateTime takenAt) {
-    return sessionRepository.claim(sessionId, takenAt) == 1;
+    if (sessionRepository.claim(sessionId, takenAt) == 1) {
+      return true;
+    }
+    return reclaimIfGhost(sessionId, takenAt);
+  }
+
+  /**
+   * 유령 점유 후보를 재점유합니다(#84). 활성 신청이 정말 없는지 먼저 확인한 뒤에만
+   * 재점유를 시도한다 — 시간 경과만으로는 유령 점유와 오래전에 정상 성사된 예약을
+   * 구분할 수 없기 때문이다(상세 근거는
+   * {@code docs/domain/schoolcamp/84-schoolcamp-ghost-claim-recovery.md} "핵심 위험"
+   * 절 참고).
+   *
+   * @param sessionId 재점유를 시도할 세션의 PK
+   * @param now       재점유 시각으로 기록할 값(유예시간 기준 시각으로도 사용)
+   * @return 재점유에 성공했으면 {@code true}
+   */
+  private boolean reclaimIfGhost(Long sessionId, LocalDateTime now) {
+    boolean hasActiveApplication =
+        applicationRepository.findBySessionIdAndCancelledAtIsNull(sessionId).isPresent();
+    if (hasActiveApplication) {
+      return false;
+    }
+    LocalDateTime threshold = now.minus(GRACE_PERIOD);
+    return sessionRepository.reclaimIfExpired(sessionId, threshold, now) == 1;
   }
 
   /**

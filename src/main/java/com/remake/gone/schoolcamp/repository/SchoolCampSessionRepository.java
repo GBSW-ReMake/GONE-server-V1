@@ -70,4 +70,28 @@ public interface SchoolCampSessionRepository extends JpaRepository<SchoolCampSes
   @Modifying
   @Query("update SchoolCampSession s set s.takenAt = null where s.id = :id")
   int release(@Param("id") Long id);
+
+  /**
+   * "유령 점유" 후보 세션을 재점유합니다(#84). {@link #claim}과 동일한 InnoDB
+   * current-read 원자성을 갖는다 — 이미 다른 요청이 먼저 되찾아갔으면(taken_at이 더
+   * 최근 값으로 갱신됐으면) 영향받은 행이 0이 된다.
+   *
+   * <p>이 메서드는 호출 전 반드시 "활성 신청이 정말 없는지"를 확인해야 한다 — 시간
+   * 경과만으로는 유령 점유와 오래전에 정상 성사된 예약을 구분할 수 없다(상세 근거는
+   * {@code docs/domain/schoolcamp/84-schoolcamp-ghost-claim-recovery.md} "핵심 위험"
+   * 절 참고). {@link com.remake.gone.schoolcamp.service.SchoolCampSessionClaimService}
+   * 를 통해서만 호출한다.
+   *
+   * @param id        재점유할 세션의 PK
+   * @param threshold 이 시각보다 이전에 점유된 경우에만 재점유를 허용
+   * @param now       재점유 시각으로 기록할 값
+   * @return 영향받은 행 수(재점유 성공 시 {@code 1}, 이미 누가 먼저 가져갔으면 {@code 0})
+   */
+  @Modifying
+  @Query("update SchoolCampSession s set s.takenAt = :now "
+      + "where s.id = :id and s.takenAt < :threshold")
+  int reclaimIfExpired(
+      @Param("id") Long id,
+      @Param("threshold") LocalDateTime threshold,
+      @Param("now") LocalDateTime now);
 }
