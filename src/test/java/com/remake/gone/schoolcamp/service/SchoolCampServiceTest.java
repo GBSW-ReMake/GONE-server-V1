@@ -195,6 +195,8 @@ class SchoolCampServiceTest {
   @DisplayName("getCalendar")
   class GetCalendar {
 
+    private static final LocalDateTime NOW = LocalDateTime.of(2026, 4, 1, 0, 0);
+
     @Test
     @DisplayName("taken_at이 없는 세션은 OPEN이고 이름 필드가 null이다")
     void returnsOpenSessionWithNullNames() {
@@ -207,7 +209,7 @@ class SchoolCampServiceTest {
           .willReturn(List.of(openSession));
 
       List<SchoolCampCalendarResponse> result =
-          schoolCampService.getCalendar(YearMonth.of(2026, 4));
+          schoolCampService.getCalendar(YearMonth.of(2026, 4), NOW);
 
       assertThat(result).containsExactly(
           new SchoolCampCalendarResponse(1L, "20260406", SchoolCampStatus.OPEN, null, null));
@@ -234,7 +236,7 @@ class SchoolCampServiceTest {
           .willReturn(List.of(application));
 
       List<SchoolCampCalendarResponse> result =
-          schoolCampService.getCalendar(YearMonth.of(2026, 4));
+          schoolCampService.getCalendar(YearMonth.of(2026, 4), NOW);
 
       assertThat(result).containsExactly(new SchoolCampCalendarResponse(
           2L, "20260410", SchoolCampStatus.CLOSED, "박선생", "3218정문경"));
@@ -262,19 +264,19 @@ class SchoolCampServiceTest {
           .willReturn(List.of(application));
 
       List<SchoolCampCalendarResponse> result =
-          schoolCampService.getCalendar(YearMonth.of(2026, 4));
+          schoolCampService.getCalendar(YearMonth.of(2026, 4), NOW);
 
       assertThat(result).containsExactly(new SchoolCampCalendarResponse(
           2L, "20260410", SchoolCampStatus.CLOSED, "김선생", "3218정문경"));
     }
 
     @Test
-    @DisplayName("점유됐지만 활성 신청이 없는 세션(유령 점유)은 예외 없이 이름만 비운 CLOSED로 반환한다")
-    void returnsClosedSessionWithNullNamesWhenApplicationMissing() {
+    @DisplayName("점유됐지만 활성 신청이 없고 유예시간 내인 세션(유령 점유 의심)은 CLOSED로 방어적 반환한다")
+    void returnsClosedSessionWithNullNamesWhenApplicationMissingWithinGracePeriod() {
       SchoolCampSession ghostSession = SchoolCampSession.builder()
           .id(3L)
           .campDate(LocalDate.of(2026, 4, 13))
-          .takenAt(LocalDateTime.of(2026, 3, 20, 9, 12))
+          .takenAt(NOW.minusSeconds(30))
           .build();
       given(sessionRepository.findByCampDateBetween(
           LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 30)))
@@ -283,10 +285,31 @@ class SchoolCampServiceTest {
           .willReturn(List.of());
 
       List<SchoolCampCalendarResponse> result =
-          schoolCampService.getCalendar(YearMonth.of(2026, 4));
+          schoolCampService.getCalendar(YearMonth.of(2026, 4), NOW);
 
       assertThat(result).containsExactly(new SchoolCampCalendarResponse(
           3L, "20260413", SchoolCampStatus.CLOSED, null, null));
+    }
+
+    @Test
+    @DisplayName("점유됐지만 활성 신청이 없고 유예시간이 지난 세션(유령 점유)은 OPEN으로 반환한다(#84)")
+    void returnsOpenSessionWhenApplicationMissingAndGracePeriodExpired() {
+      SchoolCampSession ghostSession = SchoolCampSession.builder()
+          .id(3L)
+          .campDate(LocalDate.of(2026, 4, 13))
+          .takenAt(NOW.minus(SchoolCampSessionClaimService.GRACE_PERIOD).minusSeconds(1))
+          .build();
+      given(sessionRepository.findByCampDateBetween(
+          LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 30)))
+          .willReturn(List.of(ghostSession));
+      given(applicationRepository.findBySessionIdInAndCancelledAtIsNull(List.of(3L)))
+          .willReturn(List.of());
+
+      List<SchoolCampCalendarResponse> result =
+          schoolCampService.getCalendar(YearMonth.of(2026, 4), NOW);
+
+      assertThat(result).containsExactly(
+          new SchoolCampCalendarResponse(3L, "20260413", SchoolCampStatus.OPEN, null, null));
     }
 
     @Test
@@ -297,7 +320,7 @@ class SchoolCampServiceTest {
           .willReturn(List.of());
 
       List<SchoolCampCalendarResponse> result =
-          schoolCampService.getCalendar(YearMonth.of(2026, 5));
+          schoolCampService.getCalendar(YearMonth.of(2026, 5), NOW);
 
       assertThat(result).isEmpty();
     }

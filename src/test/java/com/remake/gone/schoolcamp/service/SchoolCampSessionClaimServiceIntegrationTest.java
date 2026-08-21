@@ -122,6 +122,52 @@ class SchoolCampSessionClaimServiceIntegrationTest {
   }
 
   @Nested
+  @DisplayName("claim - 유령 점유 재점유(#84)")
+  class ReclaimGhost {
+
+    @Test
+    @DisplayName("유예시간이 지난 유령 세션에 동시에 여러 번 재점유를 시도해도 정확히 하나만 성공한다")
+    void onlyOneReclaimSucceedsUnderConcurrency() throws Exception {
+      LocalDateTime expiredTakenAt = LocalDateTime.now()
+          .minus(SchoolCampSessionClaimService.GRACE_PERIOD).minusMinutes(1);
+      session = sessionRepository.save(
+          SchoolCampSession.builder().campDate(newSession().getCampDate())
+              .takenAt(expiredTakenAt).build());
+      // 이 세션에는 활성 신청이 없다(방금 저장만 했을 뿐) — 진짜 유령 시나리오와 동일.
+
+      int concurrentRequests = 20;
+      ExecutorService executor = Executors.newFixedThreadPool(concurrentRequests);
+      CountDownLatch readyLatch = new CountDownLatch(concurrentRequests);
+      CountDownLatch startLatch = new CountDownLatch(1);
+
+      List<Callable<Boolean>> tasks = IntStream.range(0, concurrentRequests)
+          .<Callable<Boolean>>mapToObj(i -> () -> {
+            readyLatch.countDown();
+            startLatch.await();
+            return claimService.claim(session.getId(), LocalDateTime.now());
+          })
+          .toList();
+
+      try {
+        List<Future<Boolean>> futures = tasks.stream().map(executor::submit).toList();
+        readyLatch.await(5, TimeUnit.SECONDS);
+        startLatch.countDown();
+
+        long successCount = 0;
+        for (Future<Boolean> future : futures) {
+          if (future.get(10, TimeUnit.SECONDS)) {
+            successCount++;
+          }
+        }
+
+        assertThat(successCount).isEqualTo(1);
+      } finally {
+        executor.shutdown();
+      }
+    }
+  }
+
+  @Nested
   @DisplayName("release")
   class Release {
 
