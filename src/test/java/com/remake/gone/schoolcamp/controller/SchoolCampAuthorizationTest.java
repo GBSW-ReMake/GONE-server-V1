@@ -126,4 +126,55 @@ class SchoolCampAuthorizationTest {
             .header("Authorization", "Bearer " + token))
         .andExpect(status().isForbidden());
   }
+
+  @Test
+  @DisplayName("대기 등록 엔드포인트는 인증 없이 요청하면 401을 반환한다(#83)")
+  void registerWaitlistReturns401WithoutToken() throws Exception {
+    mockMvc.perform(post("/api/v1/school-camps/waitlist"))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  @DisplayName("대기 등록 엔드포인트는 TEACHER 역할로 요청하면 403을 반환한다(STUDENT 전용, #83)")
+  void registerWaitlistReturns403ForTeacherRole() throws Exception {
+    String token = jwtProvider.createAccessToken(1L, Set.of("TEACHER"));
+
+    mockMvc.perform(post("/api/v1/school-camps/waitlist")
+            .header("Authorization", "Bearer " + token))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  @DisplayName("대기 취소 엔드포인트는 인증 없이 요청하면 401을 반환한다(#83)")
+  void cancelWaitlistReturns401WithoutToken() throws Exception {
+    mockMvc.perform(delete("/api/v1/school-camps/waitlist"))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  @DisplayName("대기 취소 엔드포인트는 TEACHER 역할로 요청하면 403을 반환한다(STUDENT 전용, #83)")
+  void cancelWaitlistReturns403ForTeacherRole() throws Exception {
+    String token = jwtProvider.createAccessToken(1L, Set.of("TEACHER"));
+
+    mockMvc.perform(delete("/api/v1/school-camps/waitlist")
+            .header("Authorization", "Bearer " + token))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  @DisplayName("대기 상태 조회 엔드포인트는 인증 없이 요청하면 401을 반환한다(#83)")
+  void getWaitlistStatusReturns401WithoutToken() throws Exception {
+    mockMvc.perform(get("/api/v1/school-camps/waitlist/me"))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  @DisplayName("대기 상태 조회 엔드포인트는 TEACHER 역할로 요청하면 403을 반환한다(STUDENT 전용, #83)")
+  void getWaitlistStatusReturns403ForTeacherRole() throws Exception {
+    String token = jwtProvider.createAccessToken(1L, Set.of("TEACHER"));
+
+    mockMvc.perform(get("/api/v1/school-camps/waitlist/me")
+            .header("Authorization", "Bearer " + token))
+        .andExpect(status().isForbidden());
+  }
 }

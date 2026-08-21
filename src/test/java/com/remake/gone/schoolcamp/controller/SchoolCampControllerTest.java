@@ -19,8 +19,11 @@ import com.remake.gone.schoolcamp.dto.SchoolCampCalendarResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampMemberRequest;
 import com.remake.gone.schoolcamp.dto.SchoolCampMemberResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampSessionResponse;
+import com.remake.gone.schoolcamp.dto.SchoolCampWaitlistResponse;
+import com.remake.gone.schoolcamp.dto.SchoolCampWaitlistStatusResponse;
 import com.remake.gone.schoolcamp.enums.SchoolCampStatus;
 import com.remake.gone.schoolcamp.service.SchoolCampService;
+import com.remake.gone.schoolcamp.service.SchoolCampWaitlistService;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.List;
@@ -52,6 +55,9 @@ class SchoolCampControllerTest {
 
   @MockitoBean
   private SchoolCampService schoolCampService;
+
+  @MockitoBean
+  private SchoolCampWaitlistService schoolCampWaitlistService;
 
   @Nested
   @DisplayName("POST /api/v1/school-camps")
@@ -90,7 +96,8 @@ class SchoolCampControllerTest {
     @Test
     @DisplayName("요청받은 날짜 목록으로 서비스를 호출하고 결과를 그대로 반환한다")
     void callsServiceWithRequestedDates() {
-      SchoolCampController controller = new SchoolCampController(schoolCampService);
+      SchoolCampController controller =
+          new SchoolCampController(schoolCampService, schoolCampWaitlistService);
       List<SchoolCampSessionResponse> expected = List.of(
           new SchoolCampSessionResponse(12L, "20260403"));
       given(schoolCampService.registerCampDates(List.of("20260403"))).willReturn(expected);
@@ -124,7 +131,8 @@ class SchoolCampControllerTest {
     @Test
     @DisplayName("파싱된 month로 서비스를 호출하고 결과를 그대로 반환한다")
     void callsServiceWithParsedMonth() {
-      SchoolCampController controller = new SchoolCampController(schoolCampService);
+      SchoolCampController controller =
+          new SchoolCampController(schoolCampService, schoolCampWaitlistService);
       List<SchoolCampCalendarResponse> expected = List.of(
           new SchoolCampCalendarResponse(12L, "20260403", SchoolCampStatus.OPEN, null, null));
       given(schoolCampService.getCalendar(YearMonth.of(2026, 4))).willReturn(expected);
@@ -165,7 +173,8 @@ class SchoolCampControllerTest {
     @Test
     @DisplayName("정상 요청이면 201과 서비스 응답을 그대로 반환한다")
     void returns201OnSuccess() {
-      SchoolCampController controller = new SchoolCampController(schoolCampService);
+      SchoolCampController controller =
+          new SchoolCampController(schoolCampService, schoolCampWaitlistService);
       UserPrincipal principal = new UserPrincipal(101L);
       SchoolCampApplyRequest request = new SchoolCampApplyRequest(42L, null, List.of());
       SchoolCampApplicationResponse expected = new SchoolCampApplicationResponse(
@@ -190,7 +199,8 @@ class SchoolCampControllerTest {
     @Test
     @DisplayName("principal의 userId와 신청 id를 그대로 서비스에 전달한다")
     void callsServiceWithPrincipalAndApplicationId() {
-      SchoolCampController controller = new SchoolCampController(schoolCampService);
+      SchoolCampController controller =
+          new SchoolCampController(schoolCampService, schoolCampWaitlistService);
       UserPrincipal principal = new UserPrincipal(101L);
 
       ApiResponse<Void> response = controller.cancelApplication(principal, 301L);
@@ -219,7 +229,8 @@ class SchoolCampControllerTest {
     @Test
     @DisplayName("principal의 userId와 신청 id, 요청을 그대로 서비스에 전달한다")
     void callsServiceWithPrincipalAndRequest() {
-      SchoolCampController controller = new SchoolCampController(schoolCampService);
+      SchoolCampController controller =
+          new SchoolCampController(schoolCampService, schoolCampWaitlistService);
       UserPrincipal principal = new UserPrincipal(101L);
       SchoolCampApplyRequest request = new SchoolCampApplyRequest(42L, null, List.of());
       SchoolCampApplicationResponse expected = new SchoolCampApplicationResponse(
@@ -230,6 +241,70 @@ class SchoolCampControllerTest {
 
       ApiResponse<SchoolCampApplicationResponse> response =
           controller.updateApplication(principal, 301L, request);
+
+      assertThat(response.success()).isTrue();
+      assertThat(response.data()).isEqualTo(expected);
+    }
+  }
+
+  @Nested
+  @DisplayName("POST /api/v1/school-camps/waitlist")
+  class RegisterWaitlist {
+
+    @Test
+    @DisplayName("principal의 userId로 등록을 요청하고 결과를 그대로 반환한다")
+    void callsServiceWithPrincipal() {
+      SchoolCampController controller =
+          new SchoolCampController(schoolCampService, schoolCampWaitlistService);
+      UserPrincipal principal = new UserPrincipal(101L);
+      SchoolCampWaitlistResponse expected =
+          new SchoolCampWaitlistResponse("202604", LocalDateTime.of(2026, 4, 10, 9, 0));
+      given(schoolCampWaitlistService.register(eq(101L), any(LocalDateTime.class)))
+          .willReturn(expected);
+
+      ApiResponse<SchoolCampWaitlistResponse> response = controller.registerWaitlist(principal);
+
+      assertThat(response.success()).isTrue();
+      assertThat(response.data()).isEqualTo(expected);
+    }
+  }
+
+  @Nested
+  @DisplayName("DELETE /api/v1/school-camps/waitlist")
+  class CancelWaitlist {
+
+    @Test
+    @DisplayName("principal의 userId로 취소를 요청한다")
+    void callsServiceWithPrincipal() {
+      SchoolCampController controller =
+          new SchoolCampController(schoolCampService, schoolCampWaitlistService);
+      UserPrincipal principal = new UserPrincipal(101L);
+
+      ApiResponse<Void> response = controller.cancelWaitlist(principal);
+
+      assertThat(response.success()).isTrue();
+      assertThat(response.data()).isNull();
+      verify(schoolCampWaitlistService).cancel(eq(101L), any(LocalDateTime.class));
+    }
+  }
+
+  @Nested
+  @DisplayName("GET /api/v1/school-camps/waitlist/me")
+  class GetWaitlistStatus {
+
+    @Test
+    @DisplayName("principal의 userId로 상태를 조회하고 결과를 그대로 반환한다")
+    void callsServiceWithPrincipal() {
+      SchoolCampController controller =
+          new SchoolCampController(schoolCampService, schoolCampWaitlistService);
+      UserPrincipal principal = new UserPrincipal(101L);
+      SchoolCampWaitlistStatusResponse expected =
+          new SchoolCampWaitlistStatusResponse(true, LocalDateTime.of(2026, 4, 10, 9, 0));
+      given(schoolCampWaitlistService.getStatus(eq(101L), any(LocalDateTime.class)))
+          .willReturn(expected);
+
+      ApiResponse<SchoolCampWaitlistStatusResponse> response =
+          controller.getWaitlistStatus(principal);
 
       assertThat(response.success()).isTrue();
       assertThat(response.data()).isEqualTo(expected);

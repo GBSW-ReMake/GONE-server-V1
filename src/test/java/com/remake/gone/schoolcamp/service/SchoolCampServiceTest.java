@@ -91,6 +91,9 @@ class SchoolCampServiceTest {
   @Mock
   private OutingRepository outingRepository;
 
+  @Mock
+  private SchoolCampWaitlistService waitlistService;
+
   @InjectMocks
   private SchoolCampService schoolCampService;
 
@@ -611,6 +614,8 @@ class SchoolCampServiceTest {
       assertThat(application.getCancelledAt()).isEqualTo(NOW);
       verify(applicationRepository).save(application);
       verify(sessionRepository).release(SESSION_ID);
+      verify(waitlistService)
+          .notifyForMonth(YearMonth.from(application.getSession().getCampDate()));
       verifyNoInteractions(sessionClaimService);
     }
 
@@ -628,6 +633,7 @@ class SchoolCampServiceTest {
 
       verify(applicationRepository, never()).save(any());
       verify(sessionRepository, never()).release(anyLong());
+      verifyNoInteractions(waitlistService);
     }
 
     @Test
@@ -658,6 +664,7 @@ class SchoolCampServiceTest {
 
       verify(applicationRepository, never()).save(any());
       verify(sessionRepository, never()).release(anyLong());
+      verifyNoInteractions(waitlistService);
     }
   }
 
