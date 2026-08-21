@@ -77,7 +77,8 @@ public class SchoolCampController {
   public ApiResponse<List<SchoolCampCalendarResponse>> getCalendar(
       @RequestParam @DateTimeFormat(pattern = "yyyyMM") YearMonth month
   ) {
-    List<SchoolCampCalendarResponse> response = schoolCampService.getCalendar(month);
+    List<SchoolCampCalendarResponse> response =
+        schoolCampService.getCalendar(month, LocalDateTime.now(KST));
     return ApiResponse.success(response, "스쿨캠핑 일정을 조회했습니다.");
   }
 
