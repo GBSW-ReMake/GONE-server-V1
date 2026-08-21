@@ -55,20 +55,24 @@ claim 쿼리에 "유예시간이 지나면 재점유 허용"만 넣으면, **정
 ## 구현
 
 ### 1. `SchoolCampSessionRepository`에 재점유 전용 쿼리 추가(기존 `claim`은 손대지 않음)
+**(코드 리뷰 반영, 갱신)** "유예시간 지남"과 "활성 신청 없음"을 별도 `SELECT` + `UPDATE`
+두 단계가 아니라 `NOT EXISTS` 서브쿼리를 포함한 하나의 원자적 `UPDATE`로 합쳤다(아래
+"동시성 분석" 절 참고). 벌크 `UPDATE`의 상관 서브쿼리를 JPQL이 그대로 지원하는지
+불확실해 네이티브 쿼리로 작성한다.
 ```java
 /**
- * "유령 점유" 후보 세션을 재점유합니다. {@code claim}과 동일한 InnoDB current-read
- * 원자성을 갖는다 — 이미 다른 요청이 먼저 되찾아갔으면(taken_at이 더 최근 값으로
- * 갱신됐으면) 영향받은 행이 0이 된다.
- *
- * @param id        재점유할 세션의 PK
- * @param threshold 이 시각보다 이전에 점유된 경우에만 재점유를 허용
- * @param now       재점유 시각으로 기록할 값
- * @return 영향받은 행 수(재점유 성공 시 1, 이미 누가 먼저 가져갔으면 0)
+ * "유령 점유" 후보 세션을 재점유합니다. "유예시간 지남"과 "활성 신청 없음"을 하나의
+ * 원자적 UPDATE로 같이 평가한다 — claim과 동일한 InnoDB current-read 원자성을 갖는다.
  */
 @Modifying
-@Query("update SchoolCampSession s set s.takenAt = :now "
-    + "where s.id = :id and s.takenAt < :threshold")
+@Query(value = "update school_camp_session s "
+    + "set s.taken_at = :now "
+    + "where s.id = :id and s.taken_at < :threshold "
+    + "and not exists ("
+    + "  select 1 from school_camp_application a "
+    + "  where a.session_id = s.id and a.cancelled_at is null"
+    + ")",
+    nativeQuery = true)
 int reclaimIfExpired(
     @Param("id") Long id,
     @Param("threshold") LocalDateTime threshold,
@@ -77,12 +81,19 @@ int reclaimIfExpired(
 기존 `claim`(`taken_at IS NULL`)은 그대로 둔다 — 이미 검증된 동시성 핵심 쿼리를 건드리지
 않아 리스크를 최소화한다.
 
+**`release`도 조건부(compare-and-swap)로 변경(코드 리뷰 반영, 추가)**:
+```java
+@Modifying
+@Query("update SchoolCampSession s set s.takenAt = null "
+    + "where s.id = :id and s.takenAt = :expectedTakenAt")
+int release(@Param("id") Long id, @Param("expectedTakenAt") LocalDateTime expectedTakenAt);
+```
+
 ### 2. `SchoolCampSessionClaimService.claim`에 재점유 폴백 추가
 ```java
 private static final Duration GRACE_PERIOD = Duration.ofMinutes(2); // public static final
 
-private final SchoolCampSessionRepository sessionRepository;
-private final SchoolCampApplicationRepository applicationRepository; // 신규 의존성
+private final SchoolCampSessionRepository sessionRepository; // 유일한 의존성, 변경 없음
 
 @Transactional(propagation = Propagation.REQUIRES_NEW)
 public boolean claim(Long sessionId, LocalDateTime now) {
@@ -93,26 +104,51 @@ public boolean claim(Long sessionId, LocalDateTime now) {
 }
 
 private boolean reclaimIfGhost(Long sessionId, LocalDateTime now) {
-  boolean hasActiveApplication =
-      applicationRepository.findBySessionIdAndCancelledAtIsNull(sessionId).isPresent();
-  if (hasActiveApplication) {
-    return false; // 진짜로 이미 신청된 세션 — 손대지 않는다
-  }
   LocalDateTime threshold = now.minus(GRACE_PERIOD);
   return sessionRepository.reclaimIfExpired(sessionId, threshold, now) == 1;
 }
+
+@Transactional(propagation = Propagation.REQUIRES_NEW)
+public void release(Long sessionId, LocalDateTime expectedTakenAt) {
+  sessionRepository.release(sessionId, expectedTakenAt);
+}
 ```
+**(코드 리뷰 반영)** 초안은 이 클래스가 `SchoolCampApplicationRepository`를 새로
+주입받아 "활성 신청 없음"을 먼저 확인했으나, 그 확인 로직이 리포지토리의 원자적
+`UPDATE` 안으로 옮겨가면서 이 의존성 자체가 필요 없어졌다 — 클래스가 기존처럼
+`SchoolCampSessionRepository` 하나에만 의존하는 형태로 되돌아갔다.
 `GRACE_PERIOD = 2분`: claim 이후 검증은 정상적으로 수 ms~수십 ms 수준이므로, 2분은 이미
 정상 처리 시간 대비 수천 배 마진이다. 스케줄러 방식과 달리 이 값을 줄여도 폴링 지연이
 안 붙으므로, 값 자체가 곧 "유령이 실제로 자리를 막는 최대 시간"이 된다.
 
-**동시성 분석**: 두 요청이 동시에 같은 유령 세션의 재점유를 시도해도, `reclaimIfExpired`가
-`claim`과 동일한 원자적 `UPDATE ... WHERE`이므로 정확히 하나만 성공한다(#68의 기존 근거와
-동일). "활성 신청 없음" 확인과 재점유 `UPDATE` 사이의 이론적 레이스(그 사이 원래 요청이
-뒤늦게 살아나 신청을 저장)는 #68/마스터 기획서가 이미 인정한 잔여 리스크와 같은 성격이며,
-`GRACE_PERIOD`를 정상 처리 시간보다 압도적으로 크게 잡아 발생 확률을 사실상 0에 가깝게
-낮춘다(스케줄러 방식이었어도 동일하게 안고 가야 했던 리스크로, 이번 재설계로 새로 생기는
-게 아니다).
+**동시성 분석(코드 리뷰 반영, 갱신)**: 초안은 "활성 신청 없음"을 별도 `SELECT`로 먼저
+확인한 뒤 `reclaimIfExpired` `UPDATE`를 실행했는데, 코드 리뷰(High 1번)가 이 두 단계
+사이의 갭을 정확히 지적했다 — 원래 점유자(A)가 **죽지 않고 살아서** `GRACE_PERIOD`보다
+오래 처리 중일 때, 그 갭 사이에 다른 요청(B)이 재점유해 정상적으로 신청을 완료할 수
+있다. 그 뒤 A가 뒤늦게 끝나면: (a) A가 성공하면 같은 세션에 A/B 활성 신청이 2건 남거나,
+(b) A가 실패해 무조건적인 `release`를 호출하면 B의 정상적인 새 점유를 되돌린다. 이는
+"일단 죽었다가 되살아나는" #68/마스터 기획서의 기존 잔여 리스크와는 다른 경로다(A가
+애초에 죽은 적이 없다).
+
+**반영한 수정**:
+1. **"활성 신청 없음" + "유예시간 지남"을 `reclaimIfExpired` 하나의 원자적 `UPDATE`로
+   합쳤다**(`NOT EXISTS` 서브쿼리, 아래 코드 참고) — 확인과 재점유 사이의 갭 자체가
+   사라져 B 쪽에서 발생하던 레이스는 닫힌다.
+2. **`release`를 조건부(compare-and-swap)로 바꿨다** — `release(sessionId,
+   expectedTakenAt)`처럼 claim 성공 시 받은 시각을 그대로 넘겨야만 실제로 반환된다.
+   A의 지연된 `release` 호출이 B의 새 점유를 실수로 되돌리는 (b) 경로를 막는다.
+
+**남은 잔여 리스크(인지, 수용)**: 위 두 수정을 적용해도 (a) — "A가 GRACE_PERIOD보다
+오래 걸렸지만 결국 성공해 신청을 커밋"하는 경로는 원자적 `UPDATE`로 막을 수 없다(claim
+자체는 이미 오래전에 성공했고, 그 이후의 검증·저장 로직은 재점유 여부를 모른 채 그대로
+진행되므로). 이 경우 세션 하나에 두 활성 신청이 남을 수 있다. `school_camp_application`
+테이블에 `session_id` 유니크 제약이 없어 이 저장 자체는 예외 없이 성공한다. 다만
+발생하려면 "claim 이후 검증이 정상적으로는 ms~수십 ms인데 `GRACE_PERIOD`(2분)를 넘기고도
+결국 성공"해야 하므로 여전히 극히 드물다 — 이 경로를 완전히 막으려면 `completeApplication`
+저장 직전에 "여전히 내가 이 세션을 점유하고 있는지" 재확인하는 로직이 추가로 필요한데,
+이는 #68의 핵심 로직(`applyToCamp`/`completeApplication`)에 새 분기를 넣는 것이라 이번
+이슈가 지키려던 "기존 로직 최소 변경" 원칙과 충돌한다. 지금은 코드 변경 없이 문서화만
+하고, 실제로 관측되면 별도 이슈로 대응한다.
 
 ### 3. `SchoolCampService.getCalendar`/`toCalendarResponse`에 유예시간 반영
 ```java
@@ -154,13 +190,15 @@ private SchoolCampCalendarResponse toCalendarResponse(
 없음.
 
 ## 영향 받는 기존 코드
-- 수정: `SchoolCampSessionRepository`(쿼리 메서드 추가, 기존 `claim`은 불변),
-  `SchoolCampSessionClaimService`(`SchoolCampApplicationRepository` 의존성 추가,
-  `claim`에 재점유 폴백 추가, `GRACE_PERIOD` 상수 추가), `SchoolCampService`
-  (`getCalendar`/`toCalendarResponse` 시그니처에 `now` 추가), `SchoolCampController`
-  (`getCalendar`가 `now`를 계산해 전달)
-- 변경 없음: `SchoolCampApplicationRepository`(기존 메서드 재사용), API 요청/응답 스키마,
-  데이터베이스 스키마
+- 수정: `SchoolCampSessionRepository`(`reclaimIfExpired` 추가 — 활성 신청 확인까지 포함한
+  네이티브 쿼리, 기존 `claim`은 불변, `release`를 조건부(CAS)로 변경), `SchoolCampSessionClaimService`
+  (`claim`에 재점유 폴백 추가, `release`가 `expectedTakenAt`을 받도록 변경, `GRACE_PERIOD`
+  상수 추가 — 의존성은 기존과 동일하게 `SchoolCampSessionRepository` 하나뿐), `SchoolCampService`
+  (`getCalendar`/`toCalendarResponse` 시그니처에 `now` 추가, `releaseQuietly`가 `takenAt`을
+  받도록 변경, `cancelApplication`의 `sessionRepository.release` 호출에 `takenAt` 인자 추가),
+  `SchoolCampController`(`getCalendar`가 `now`를 계산해 전달)
+- 변경 없음: `SchoolCampApplicationRepository`(기존 메서드 재사용, 새 의존 관계 없음),
+  API 요청/응답 스키마, 데이터베이스 스키마
 
 ## 리스크 및 고려사항
 - **API 설계 6원칙**: 요청/응답 스키마가 바뀌지 않아 해당 없음(내부 구현 변경).
@@ -168,8 +206,10 @@ private SchoolCampCalendarResponse toCalendarResponse(
   새 메서드(`reclaimIfExpired`)만 추가하는 방식으로 최소화했다 — #68이 이미 검증한
   동시성 보장(원자적 `UPDATE ... WHERE`)을 그대로 재사용하는 형태라 새로운 종류의
   동시성 버그를 들이지 않는다.
-- **잔여 레이스(이론상, 인지하되 수용)**: 위 "동시성 분석" 절 참고 — 마스터 기획서가
-  이미 인정한 리스크와 동일한 성격, 새로 생기는 리스크 아님.
+- **잔여 레이스(코드 리뷰로 재분석, 인지하되 수용)**: 위 "동시성 분석" 절 참고 —
+  원자적 쿼리 병합 + `release` CAS 가드로 대부분의 경합을 닫았지만, "claim 이후 처리가
+  `GRACE_PERIOD`를 넘기고도 결국 성공"하는 극히 드문 경로는 여전히 남아 있다(#68의
+  핵심 로직에 새 분기를 넣지 않기로 한 결정과 트레이드오프).
 - **DB 위생**: 캘린더/claim 양쪽 모두 유예시간 기준으로 판단하므로, 재신청 시도가
   단 한 번도 없는 유령 세션의 `taken_at`은 DB에 계속 stale 값으로 남을 수 있다.
   기능적 영향은 없다(claim/캘린더 둘 다 시간 계산으로 우회하므로) — 순수 데이터 정리는
@@ -180,12 +220,18 @@ private SchoolCampCalendarResponse toCalendarResponse(
 - **새 인프라 비용**: 없음(스케줄러 폐기로 이 항목 자체가 사라짐).
 
 ## 테스트
-- `SchoolCampSessionClaimServiceTest`(신규 파일 또는 관련 통합 테스트 확장):
-  - 유예시간 이전에 점유된 세션은 재점유되지 않는지(정상 예약 보호)
-  - 유예시간이 지났지만 활성 신청이 있으면 재점유되지 않는지
-  - 유예시간이 지났고 활성 신청이 없으면 재점유에 성공하는지
-  - 두 요청이 동시에 재점유를 시도하면 정확히 하나만 성공하는지(가능하면 검증, 어려우면
-    `reclaimIfExpired`가 영향받은 행 수로 결과를 정확히 반환하는지 단위 테스트로 대체)
+- `SchoolCampSessionClaimServiceTest`(신규, Mockito 단위 테스트): fast path 성공/실패 시
+  분기, `reclaimIfExpired` 성공/실패 결과가 그대로 반환되는지, `release`가 받은
+  `expectedTakenAt`을 그대로 리포지토리에 전달하는지
+- `SchoolCampSessionClaimServiceIntegrationTest`(`@SpringBootTest`, 실 DB, `reclaimIfExpired`
+  자체가 원자적 `UPDATE`라 목으로 검증할 수 없는 부분 담당, 코드 리뷰 Medium 2번 반영):
+  - 유예시간이 지났고 활성 신청이 없는 세션은 재점유에 성공하는지(기존)
+  - **유예시간 이전에 점유된 세션은 재점유되지 않는지**(정상 예약 보호, 코드 리뷰 전까지
+    누락돼 있었음 — `s.taken_at < :threshold` 부등호가 뒤집혀도 잡아내지 못하던 갭)
+  - 유예시간이 지났지만 활성 신청이 있는 세션은 재점유되지 않는지(`NOT EXISTS` 조건
+    실동작 확인)
+  - 두 요청이 동시에 같은 유령 세션의 재점유를 시도하면 정확히 하나만 성공하는지(기존,
+    20-스레드 동시성 테스트)
 - `SchoolCampServiceTest`(기존 `GetCalendar` `@Nested`에 케이스 추가):
   - 유예시간 이전 유령 후보는 여전히 CLOSED로 보이는지(기존 방어 로직 유지 확인)
   - 유예시간이 지난 유령 후보는 OPEN으로 보이는지
