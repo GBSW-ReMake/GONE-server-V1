@@ -53,23 +53,25 @@ public class SchoolCampWaitlistService {
     Optional<SchoolCampWaitlist> existing =
         waitlistRepository.findByStudentUserIdAndMonth(studentUserId, thisMonth.atDay(1));
 
-    SchoolCampWaitlist waitlist;
     if (existing.isPresent()) {
-      waitlist = existing.get();
-      if (waitlist.getCancelledAt() == null) {
-        throw new CustomException(SchoolCampErrorCode.ALREADY_REGISTERED_WAITLIST);
-      }
-      waitlist.setCancelledAt(null);
-      waitlist.setRegisteredAt(now);
-      waitlistRepository.save(waitlist);
+      reactivate(existing.get(), now);
     } else {
-      waitlist = newWaitlist(studentUserId, thisMonth, now);
+      newWaitlist(studentUserId, thisMonth, now);
     }
 
     return new SchoolCampWaitlistResponse(thisMonth.format(YYYYMM_FORMATTER), now);
   }
 
-  private SchoolCampWaitlist newWaitlist(Long studentUserId, YearMonth month, LocalDateTime now) {
+  private void reactivate(SchoolCampWaitlist waitlist, LocalDateTime now) {
+    if (waitlist.getCancelledAt() == null) {
+      throw new CustomException(SchoolCampErrorCode.ALREADY_REGISTERED_WAITLIST);
+    }
+    waitlist.setCancelledAt(null);
+    waitlist.setRegisteredAt(now);
+    waitlistRepository.save(waitlist);
+  }
+
+  private void newWaitlist(Long studentUserId, YearMonth month, LocalDateTime now) {
     User student = userRepository.getReferenceById(studentUserId);
     SchoolCampWaitlist waitlist = SchoolCampWaitlist.builder()
         .studentUser(student)
@@ -77,7 +79,7 @@ public class SchoolCampWaitlistService {
         .registeredAt(now)
         .build();
     try {
-      return waitlistRepository.save(waitlist);
+      waitlistRepository.save(waitlist);
     } catch (DataIntegrityViolationException e) {
       // 동시에 같은 학생이 같은 순간 두 번 등록을 시도하는 레이스(V14 유니크 제약 위반).
       throw new CustomException(SchoolCampErrorCode.ALREADY_REGISTERED_WAITLIST);

@@ -403,6 +403,7 @@ class SchoolCampServiceTest {
           .isEqualTo(SchoolCampErrorCode.INVALID_APPLICATION_FORMAT);
 
       verify(sessionClaimService).release(SESSION_ID);
+      verifyNoInteractions(waitlistService);
       verifyNoInteractions(applicationRepository, memberRepository);
     }
 
@@ -423,6 +424,7 @@ class SchoolCampServiceTest {
           .isEqualTo(SchoolCampErrorCode.INVALID_MEMBER_INFO);
 
       verify(sessionClaimService).release(SESSION_ID);
+      verifyNoInteractions(waitlistService);
       verifyNoInteractions(applicationRepository, memberRepository);
     }
 
@@ -443,6 +445,7 @@ class SchoolCampServiceTest {
           .isEqualTo(SchoolCampErrorCode.INVALID_MEMBER_INFO);
 
       verify(sessionClaimService).release(SESSION_ID);
+      verifyNoInteractions(waitlistService);
       verifyNoInteractions(applicationRepository, memberRepository);
     }
 
@@ -464,6 +467,7 @@ class SchoolCampServiceTest {
           .isEqualTo(SchoolCampErrorCode.INVALID_MEMBER_INFO);
 
       verify(sessionClaimService).release(SESSION_ID);
+      verifyNoInteractions(waitlistService);
       verifyNoInteractions(applicationRepository, memberRepository);
     }
 
@@ -495,6 +499,7 @@ class SchoolCampServiceTest {
           });
 
       verify(sessionClaimService).release(SESSION_ID);
+      verifyNoInteractions(waitlistService);
       verifyNoInteractions(applicationRepository);
       verify(memberRepository, never()).saveAll(anyList());
     }
