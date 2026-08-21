@@ -176,7 +176,8 @@ jobs:
         run: ./gradlew build -x checkstyleMain -x checkstyleTest
 
       - name: 빌드 아티팩트(jar) 업로드
-        # dev EC2 배포(#51)를 위해, 이미 테스트까지 통과한 jar를 이후 job에서 재사용한다.
+        # staging EC2(구 dev EC2) 배포(#51, #77)를 위해, 이미 테스트까지 통과한 jar를
+        # 이후 job에서 재사용한다.
         # Docker 이미지 안에서 다시 컴파일하지 않기 위함.
         uses: actions/upload-artifact@v4
         with:
