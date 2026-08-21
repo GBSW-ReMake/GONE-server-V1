@@ -6,6 +6,7 @@ import com.remake.gone.schoolcamp.entity.SchoolCampSession;
 import com.remake.gone.schoolcamp.repository.SchoolCampSessionRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -63,6 +64,15 @@ class SchoolCampSessionClaimServiceIntegrationTest {
     return SchoolCampSession.builder().campDate(campDate).build();
   }
 
+  /**
+   * {@code taken_at}은 {@code DATETIME}(소수점 이하 초 없음) 컬럼이라 저장 시 나노초가
+   * 잘려나간다 — DB에 쓴 값과 이후 비교할 값을 정확히 맞추려면 저장 전에 미리 초 단위로
+   * 잘라둬야 한다({@code SchoolCampController#applyToCamp}와 동일한 이유).
+   */
+  private static LocalDateTime now() {
+    return LocalDateTime.now().truncatedTo(ChronoUnit.SECONDS);
+  }
+
   @Nested
   @DisplayName("claim")
   class Claim {
@@ -80,7 +90,7 @@ class SchoolCampSessionClaimServiceIntegrationTest {
           .<Callable<Boolean>>mapToObj(i -> () -> {
             readyLatch.countDown();
             startLatch.await();
-            return claimService.claim(session.getId(), LocalDateTime.now());
+            return claimService.claim(session.getId(), now());
           })
           .toList();
 
@@ -110,7 +120,7 @@ class SchoolCampSessionClaimServiceIntegrationTest {
     void commitsImmediately() {
       session = sessionRepository.save(newSession());
 
-      boolean claimed = claimService.claim(session.getId(), LocalDateTime.now());
+      boolean claimed = claimService.claim(session.getId(), now());
 
       assertThat(claimed).isTrue();
       // claimService.claim 호출이 끝난 이 시점에는 그 REQUIRES_NEW 트랜잭션이 이미 커밋된
@@ -122,19 +132,96 @@ class SchoolCampSessionClaimServiceIntegrationTest {
   }
 
   @Nested
+  @DisplayName("claim - 유령 점유 재점유(#84)")
+  class ReclaimGhost {
+
+    @Test
+    @DisplayName("유예시간이 지난 유령 세션에 동시에 여러 번 재점유를 시도해도 정확히 하나만 성공한다")
+    void onlyOneReclaimSucceedsUnderConcurrency() throws Exception {
+      LocalDateTime expiredTakenAt = now()
+          .minus(SchoolCampSessionClaimService.GRACE_PERIOD).minusMinutes(1);
+      session = sessionRepository.save(
+          SchoolCampSession.builder().campDate(newSession().getCampDate())
+              .takenAt(expiredTakenAt).build());
+      // 이 세션에는 활성 신청이 없다(방금 저장만 했을 뿐) — 진짜 유령 시나리오와 동일.
+
+      int concurrentRequests = 20;
+      ExecutorService executor = Executors.newFixedThreadPool(concurrentRequests);
+      CountDownLatch readyLatch = new CountDownLatch(concurrentRequests);
+      CountDownLatch startLatch = new CountDownLatch(1);
+
+      List<Callable<Boolean>> tasks = IntStream.range(0, concurrentRequests)
+          .<Callable<Boolean>>mapToObj(i -> () -> {
+            readyLatch.countDown();
+            startLatch.await();
+            return claimService.claim(session.getId(), now());
+          })
+          .toList();
+
+      try {
+        List<Future<Boolean>> futures = tasks.stream().map(executor::submit).toList();
+        readyLatch.await(5, TimeUnit.SECONDS);
+        startLatch.countDown();
+
+        long successCount = 0;
+        for (Future<Boolean> future : futures) {
+          if (future.get(10, TimeUnit.SECONDS)) {
+            successCount++;
+          }
+        }
+
+        assertThat(successCount).isEqualTo(1);
+      } finally {
+        executor.shutdown();
+      }
+    }
+
+    @Test
+    @DisplayName("유예시간 이내에 점유된 세션은 재점유되지 않는다(정상 예약 보호, 코드 리뷰 Medium 2번 대응)")
+    void doesNotReclaimWithinGracePeriod() {
+      LocalDateTime recentTakenAt = now()
+          .minus(SchoolCampSessionClaimService.GRACE_PERIOD).plusSeconds(30);
+      session = sessionRepository.save(
+          SchoolCampSession.builder().campDate(newSession().getCampDate())
+              .takenAt(recentTakenAt).build());
+
+      boolean claimed = claimService.claim(session.getId(), now());
+
+      assertThat(claimed).isFalse();
+      SchoolCampSession reloaded = sessionRepository.findById(session.getId()).orElseThrow();
+      assertThat(reloaded.getTakenAt()).isEqualTo(recentTakenAt);
+    }
+  }
+
+  @Nested
   @DisplayName("release")
   class Release {
 
     @Test
-    @DisplayName("claim 이후 호출하면 taken_at이 다시 null로 돌아온다")
+    @DisplayName("claim 이후 같은 시각으로 호출하면 taken_at이 다시 null로 돌아온다")
     void reopensSession() {
       session = sessionRepository.save(newSession());
-      claimService.claim(session.getId(), LocalDateTime.now());
+      LocalDateTime takenAt = now();
+      claimService.claim(session.getId(), takenAt);
 
-      claimService.release(session.getId());
+      claimService.release(session.getId(), takenAt);
 
       SchoolCampSession reloaded = sessionRepository.findById(session.getId()).orElseThrow();
       assertThat(reloaded.getTakenAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("넘긴 expectedTakenAt이 현재 값과 다르면(이미 재점유됨) 아무것도 하지 않는다(#84 코드 리뷰 High 1번 대응)")
+    void doesNothingWhenExpectedTakenAtDoesNotMatch() {
+      session = sessionRepository.save(newSession());
+      LocalDateTime originalTakenAt = now();
+      claimService.claim(session.getId(), originalTakenAt);
+      LocalDateTime staleExpectedTakenAt = originalTakenAt.minusMinutes(5);
+
+      claimService.release(session.getId(), staleExpectedTakenAt);
+
+      SchoolCampSession reloaded = sessionRepository.findById(session.getId()).orElseThrow();
+      assertThat(reloaded.getTakenAt()).isEqualTo(originalTakenAt);
     }
   }
 }

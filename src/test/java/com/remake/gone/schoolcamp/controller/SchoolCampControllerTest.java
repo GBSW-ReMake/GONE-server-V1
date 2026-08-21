@@ -135,14 +135,15 @@ class SchoolCampControllerTest {
           new SchoolCampController(schoolCampService, schoolCampWaitlistService);
       List<SchoolCampCalendarResponse> expected = List.of(
           new SchoolCampCalendarResponse(12L, "20260403", SchoolCampStatus.OPEN, null, null));
-      given(schoolCampService.getCalendar(YearMonth.of(2026, 4))).willReturn(expected);
+      given(schoolCampService.getCalendar(eq(YearMonth.of(2026, 4)), any(LocalDateTime.class)))
+          .willReturn(expected);
 
       ApiResponse<List<SchoolCampCalendarResponse>> response =
           controller.getCalendar(YearMonth.of(2026, 4));
 
       assertThat(response.success()).isTrue();
       assertThat(response.data()).isEqualTo(expected);
-      verify(schoolCampService).getCalendar(YearMonth.of(2026, 4));
+      verify(schoolCampService).getCalendar(eq(YearMonth.of(2026, 4)), any(LocalDateTime.class));
     }
   }
 

@@ -195,6 +195,8 @@ class SchoolCampServiceTest {
   @DisplayName("getCalendar")
   class GetCalendar {
 
+    private static final LocalDateTime NOW = LocalDateTime.of(2026, 4, 1, 0, 0);
+
     @Test
     @DisplayName("taken_at이 없는 세션은 OPEN이고 이름 필드가 null이다")
     void returnsOpenSessionWithNullNames() {
@@ -207,7 +209,7 @@ class SchoolCampServiceTest {
           .willReturn(List.of(openSession));
 
       List<SchoolCampCalendarResponse> result =
-          schoolCampService.getCalendar(YearMonth.of(2026, 4));
+          schoolCampService.getCalendar(YearMonth.of(2026, 4), NOW);
 
       assertThat(result).containsExactly(
           new SchoolCampCalendarResponse(1L, "20260406", SchoolCampStatus.OPEN, null, null));
@@ -234,7 +236,7 @@ class SchoolCampServiceTest {
           .willReturn(List.of(application));
 
       List<SchoolCampCalendarResponse> result =
-          schoolCampService.getCalendar(YearMonth.of(2026, 4));
+          schoolCampService.getCalendar(YearMonth.of(2026, 4), NOW);
 
       assertThat(result).containsExactly(new SchoolCampCalendarResponse(
           2L, "20260410", SchoolCampStatus.CLOSED, "박선생", "3218정문경"));
@@ -262,19 +264,19 @@ class SchoolCampServiceTest {
           .willReturn(List.of(application));
 
       List<SchoolCampCalendarResponse> result =
-          schoolCampService.getCalendar(YearMonth.of(2026, 4));
+          schoolCampService.getCalendar(YearMonth.of(2026, 4), NOW);
 
       assertThat(result).containsExactly(new SchoolCampCalendarResponse(
           2L, "20260410", SchoolCampStatus.CLOSED, "김선생", "3218정문경"));
     }
 
     @Test
-    @DisplayName("점유됐지만 활성 신청이 없는 세션(유령 점유)은 예외 없이 이름만 비운 CLOSED로 반환한다")
-    void returnsClosedSessionWithNullNamesWhenApplicationMissing() {
+    @DisplayName("점유됐지만 활성 신청이 없고 유예시간 내인 세션(유령 점유 의심)은 CLOSED로 방어적 반환한다")
+    void returnsClosedSessionWithNullNamesWhenApplicationMissingWithinGracePeriod() {
       SchoolCampSession ghostSession = SchoolCampSession.builder()
           .id(3L)
           .campDate(LocalDate.of(2026, 4, 13))
-          .takenAt(LocalDateTime.of(2026, 3, 20, 9, 12))
+          .takenAt(NOW.minusSeconds(30))
           .build();
       given(sessionRepository.findByCampDateBetween(
           LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 30)))
@@ -283,10 +285,31 @@ class SchoolCampServiceTest {
           .willReturn(List.of());
 
       List<SchoolCampCalendarResponse> result =
-          schoolCampService.getCalendar(YearMonth.of(2026, 4));
+          schoolCampService.getCalendar(YearMonth.of(2026, 4), NOW);
 
       assertThat(result).containsExactly(new SchoolCampCalendarResponse(
           3L, "20260413", SchoolCampStatus.CLOSED, null, null));
+    }
+
+    @Test
+    @DisplayName("점유됐지만 활성 신청이 없고 유예시간이 지난 세션(유령 점유)은 OPEN으로 반환한다(#84)")
+    void returnsOpenSessionWhenApplicationMissingAndGracePeriodExpired() {
+      SchoolCampSession ghostSession = SchoolCampSession.builder()
+          .id(3L)
+          .campDate(LocalDate.of(2026, 4, 13))
+          .takenAt(NOW.minus(SchoolCampSessionClaimService.GRACE_PERIOD).minusSeconds(1))
+          .build();
+      given(sessionRepository.findByCampDateBetween(
+          LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 30)))
+          .willReturn(List.of(ghostSession));
+      given(applicationRepository.findBySessionIdInAndCancelledAtIsNull(List.of(3L)))
+          .willReturn(List.of());
+
+      List<SchoolCampCalendarResponse> result =
+          schoolCampService.getCalendar(YearMonth.of(2026, 4), NOW);
+
+      assertThat(result).containsExactly(
+          new SchoolCampCalendarResponse(3L, "20260413", SchoolCampStatus.OPEN, null, null));
     }
 
     @Test
@@ -297,7 +320,7 @@ class SchoolCampServiceTest {
           .willReturn(List.of());
 
       List<SchoolCampCalendarResponse> result =
-          schoolCampService.getCalendar(YearMonth.of(2026, 5));
+          schoolCampService.getCalendar(YearMonth.of(2026, 5), NOW);
 
       assertThat(result).isEmpty();
     }
@@ -381,7 +404,7 @@ class SchoolCampServiceTest {
 
       verifyNoInteractions(
           userRepository, userRoleRepository, applicationRepository, memberRepository);
-      verify(sessionClaimService, never()).release(SESSION_ID);
+      verify(sessionClaimService, never()).release(SESSION_ID, NOW);
     }
 
     @Test
@@ -402,7 +425,7 @@ class SchoolCampServiceTest {
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(SchoolCampErrorCode.INVALID_APPLICATION_FORMAT);
 
-      verify(sessionClaimService).release(SESSION_ID);
+      verify(sessionClaimService).release(SESSION_ID, NOW);
       verifyNoInteractions(waitlistService);
       verifyNoInteractions(applicationRepository, memberRepository);
     }
@@ -423,7 +446,7 @@ class SchoolCampServiceTest {
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(SchoolCampErrorCode.INVALID_MEMBER_INFO);
 
-      verify(sessionClaimService).release(SESSION_ID);
+      verify(sessionClaimService).release(SESSION_ID, NOW);
       verifyNoInteractions(waitlistService);
       verifyNoInteractions(applicationRepository, memberRepository);
     }
@@ -444,7 +467,7 @@ class SchoolCampServiceTest {
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(SchoolCampErrorCode.INVALID_MEMBER_INFO);
 
-      verify(sessionClaimService).release(SESSION_ID);
+      verify(sessionClaimService).release(SESSION_ID, NOW);
       verifyNoInteractions(waitlistService);
       verifyNoInteractions(applicationRepository, memberRepository);
     }
@@ -466,7 +489,7 @@ class SchoolCampServiceTest {
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(SchoolCampErrorCode.INVALID_MEMBER_INFO);
 
-      verify(sessionClaimService).release(SESSION_ID);
+      verify(sessionClaimService).release(SESSION_ID, NOW);
       verifyNoInteractions(waitlistService);
       verifyNoInteractions(applicationRepository, memberRepository);
     }
@@ -498,7 +521,7 @@ class SchoolCampServiceTest {
             assertThat(data.conflictingMembers().get(0).studentRealName()).isEqualTo("홍길동");
           });
 
-      verify(sessionClaimService).release(SESSION_ID);
+      verify(sessionClaimService).release(SESSION_ID, NOW);
       verifyNoInteractions(waitlistService);
       verifyNoInteractions(applicationRepository);
       verify(memberRepository, never()).saveAll(anyList());
@@ -578,7 +601,7 @@ class SchoolCampServiceTest {
       assertThat(response.members().get(2).guestName())
           .isEqualTo("김철수(옆반 아님, 외부인)");
 
-      verify(sessionClaimService, never()).release(SESSION_ID);
+      verify(sessionClaimService, never()).release(SESSION_ID, NOW);
       verify(notificationService, times(1))
           .send(eq(55L), anyString(), anyString(), eq(NotificationType.SCHOOLCAMP));
       verify(notificationService, never())
@@ -594,10 +617,11 @@ class SchoolCampServiceTest {
     private static final Long APPLICANT_ID = 101L;
     private static final Long SESSION_ID = 15L;
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 4, 10, 9, 0);
+    private static final LocalDateTime SESSION_TAKEN_AT = LocalDateTime.of(2026, 3, 15, 10, 0);
 
     private SchoolCampApplication application(LocalDate campDate) {
-      SchoolCampSession session =
-          SchoolCampSession.builder().id(SESSION_ID).campDate(campDate).build();
+      SchoolCampSession session = SchoolCampSession.builder()
+          .id(SESSION_ID).campDate(campDate).takenAt(SESSION_TAKEN_AT).build();
       User applicant = studentUser(APPLICANT_ID, studentGbsw(3, 4, 1, "홍길동"), "길동");
       return SchoolCampApplication.builder()
           .id(APPLICATION_ID)
@@ -618,7 +642,7 @@ class SchoolCampServiceTest {
 
       assertThat(application.getCancelledAt()).isEqualTo(NOW);
       verify(applicationRepository).save(application);
-      verify(sessionRepository).release(SESSION_ID);
+      verify(sessionRepository).release(SESSION_ID, SESSION_TAKEN_AT);
       verify(waitlistService)
           .notifyForMonth(YearMonth.from(application.getSession().getCampDate()));
       verifyNoInteractions(sessionClaimService);
@@ -637,7 +661,7 @@ class SchoolCampServiceTest {
           .isEqualTo(SchoolCampErrorCode.NOT_APPLICATION_OWNER);
 
       verify(applicationRepository, never()).save(any());
-      verify(sessionRepository, never()).release(anyLong());
+      verify(sessionRepository, never()).release(anyLong(), any());
       verifyNoInteractions(waitlistService);
     }
 
@@ -668,7 +692,7 @@ class SchoolCampServiceTest {
           .isEqualTo(SchoolCampErrorCode.CANCEL_NOT_ALLOWED_ON_CAMP_DAY);
 
       verify(applicationRepository, never()).save(any());
-      verify(sessionRepository, never()).release(anyLong());
+      verify(sessionRepository, never()).release(anyLong(), any());
       verifyNoInteractions(waitlistService);
     }
   }

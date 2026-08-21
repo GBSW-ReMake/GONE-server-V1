@@ -18,6 +18,7 @@ import jakarta.validation.Valid;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -77,7 +78,8 @@ public class SchoolCampController {
   public ApiResponse<List<SchoolCampCalendarResponse>> getCalendar(
       @RequestParam @DateTimeFormat(pattern = "yyyyMM") YearMonth month
   ) {
-    List<SchoolCampCalendarResponse> response = schoolCampService.getCalendar(month);
+    List<SchoolCampCalendarResponse> response =
+        schoolCampService.getCalendar(month, LocalDateTime.now(KST));
     return ApiResponse.success(response, "스쿨캠핑 일정을 조회했습니다.");
   }
 
@@ -142,8 +144,13 @@ public class SchoolCampController {
       @PathVariable Long sessionId,
       @Valid @RequestBody SchoolCampApplyRequest request
   ) {
-    SchoolCampApplicationResponse response = schoolCampService.applyToCamp(
-        principal.userId(), sessionId, request, LocalDateTime.now(KST));
+    // MySQL의 taken_at 컬럼은 DATETIME(소수점 이하 초 없음)이라 저장 시 나노초가
+    // 잘려나간다 — claim에 쓰는 시각을 여기서 미리 초 단위로 잘라둬야, claim 이후 실패
+    // 시 release(sessionId, now)의 CAS 비교(taken_at = :expectedTakenAt, #84)가 DB에
+    // 실제로 저장된 값과 항상 정확히 일치한다(안 그러면 release가 조용히 매번 실패한다).
+    LocalDateTime now = LocalDateTime.now(KST).truncatedTo(ChronoUnit.SECONDS);
+    SchoolCampApplicationResponse response =
+        schoolCampService.applyToCamp(principal.userId(), sessionId, request, now);
     return ApiResponse.success(response, "스쿨캠핑 신청이 완료되었습니다.");
   }
 
