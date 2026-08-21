@@ -404,7 +404,7 @@ class SchoolCampServiceTest {
 
       verifyNoInteractions(
           userRepository, userRoleRepository, applicationRepository, memberRepository);
-      verify(sessionClaimService, never()).release(SESSION_ID);
+      verify(sessionClaimService, never()).release(SESSION_ID, NOW);
     }
 
     @Test
@@ -425,7 +425,7 @@ class SchoolCampServiceTest {
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(SchoolCampErrorCode.INVALID_APPLICATION_FORMAT);
 
-      verify(sessionClaimService).release(SESSION_ID);
+      verify(sessionClaimService).release(SESSION_ID, NOW);
       verifyNoInteractions(waitlistService);
       verifyNoInteractions(applicationRepository, memberRepository);
     }
@@ -446,7 +446,7 @@ class SchoolCampServiceTest {
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(SchoolCampErrorCode.INVALID_MEMBER_INFO);
 
-      verify(sessionClaimService).release(SESSION_ID);
+      verify(sessionClaimService).release(SESSION_ID, NOW);
       verifyNoInteractions(waitlistService);
       verifyNoInteractions(applicationRepository, memberRepository);
     }
@@ -467,7 +467,7 @@ class SchoolCampServiceTest {
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(SchoolCampErrorCode.INVALID_MEMBER_INFO);
 
-      verify(sessionClaimService).release(SESSION_ID);
+      verify(sessionClaimService).release(SESSION_ID, NOW);
       verifyNoInteractions(waitlistService);
       verifyNoInteractions(applicationRepository, memberRepository);
     }
@@ -489,7 +489,7 @@ class SchoolCampServiceTest {
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(SchoolCampErrorCode.INVALID_MEMBER_INFO);
 
-      verify(sessionClaimService).release(SESSION_ID);
+      verify(sessionClaimService).release(SESSION_ID, NOW);
       verifyNoInteractions(waitlistService);
       verifyNoInteractions(applicationRepository, memberRepository);
     }
@@ -521,7 +521,7 @@ class SchoolCampServiceTest {
             assertThat(data.conflictingMembers().get(0).studentRealName()).isEqualTo("홍길동");
           });
 
-      verify(sessionClaimService).release(SESSION_ID);
+      verify(sessionClaimService).release(SESSION_ID, NOW);
       verifyNoInteractions(waitlistService);
       verifyNoInteractions(applicationRepository);
       verify(memberRepository, never()).saveAll(anyList());
@@ -601,7 +601,7 @@ class SchoolCampServiceTest {
       assertThat(response.members().get(2).guestName())
           .isEqualTo("김철수(옆반 아님, 외부인)");
 
-      verify(sessionClaimService, never()).release(SESSION_ID);
+      verify(sessionClaimService, never()).release(SESSION_ID, NOW);
       verify(notificationService, times(1))
           .send(eq(55L), anyString(), anyString(), eq(NotificationType.SCHOOLCAMP));
       verify(notificationService, never())
@@ -617,10 +617,11 @@ class SchoolCampServiceTest {
     private static final Long APPLICANT_ID = 101L;
     private static final Long SESSION_ID = 15L;
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 4, 10, 9, 0);
+    private static final LocalDateTime SESSION_TAKEN_AT = LocalDateTime.of(2026, 3, 15, 10, 0);
 
     private SchoolCampApplication application(LocalDate campDate) {
-      SchoolCampSession session =
-          SchoolCampSession.builder().id(SESSION_ID).campDate(campDate).build();
+      SchoolCampSession session = SchoolCampSession.builder()
+          .id(SESSION_ID).campDate(campDate).takenAt(SESSION_TAKEN_AT).build();
       User applicant = studentUser(APPLICANT_ID, studentGbsw(3, 4, 1, "홍길동"), "길동");
       return SchoolCampApplication.builder()
           .id(APPLICATION_ID)
@@ -641,7 +642,7 @@ class SchoolCampServiceTest {
 
       assertThat(application.getCancelledAt()).isEqualTo(NOW);
       verify(applicationRepository).save(application);
-      verify(sessionRepository).release(SESSION_ID);
+      verify(sessionRepository).release(SESSION_ID, SESSION_TAKEN_AT);
       verify(waitlistService)
           .notifyForMonth(YearMonth.from(application.getSession().getCampDate()));
       verifyNoInteractions(sessionClaimService);
@@ -660,7 +661,7 @@ class SchoolCampServiceTest {
           .isEqualTo(SchoolCampErrorCode.NOT_APPLICATION_OWNER);
 
       verify(applicationRepository, never()).save(any());
-      verify(sessionRepository, never()).release(anyLong());
+      verify(sessionRepository, never()).release(anyLong(), any());
       verifyNoInteractions(waitlistService);
     }
 
@@ -691,7 +692,7 @@ class SchoolCampServiceTest {
           .isEqualTo(SchoolCampErrorCode.CANCEL_NOT_ALLOWED_ON_CAMP_DAY);
 
       verify(applicationRepository, never()).save(any());
-      verify(sessionRepository, never()).release(anyLong());
+      verify(sessionRepository, never()).release(anyLong(), any());
       verifyNoInteractions(waitlistService);
     }
   }
