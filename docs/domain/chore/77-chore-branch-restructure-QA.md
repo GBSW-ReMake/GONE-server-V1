@@ -17,13 +17,10 @@ QA 대상: `chore/#77-branch-restructure` 브랜치(기획서 "구현 순서" 4�
 없음.
 
 ### Medium
-1. **CI 파이프라인 실제 통과 여부는 이 브랜치 상태로는 확인 불가**: `chore/#77-branch-restructure`는
-   `ci.yml`의 `on.push`/`on.pull_request` 트리거 대상(`main`/`dev`/`staging`)에 포함되지
-   않는 임시 작업 브랜치라, PR을 열기 전까지는 GitHub Actions가 아예 실행되지 않는다.
-   branch-workflow.md 10단계가 요구하는 "CI 통과 확인"은 이 브랜치를 `dev`로 여는 PR이
-   생성된 뒤에야 실제로 검증할 수 있다. → PR 생성(16단계) 직후 Actions 탭에서
-   `checkstyle`/`build-and-test`가 통과하고 `build-and-push-image`/`deploy-staging`은
-   스킵되는지 확인 필요.
+1. ~~CI 파이프라인 실제 통과 여부는 이 브랜치 상태로는 확인 불가~~ → **해소됨**: PR #85
+   생성 직후 Actions에서 `checkstyle`(pass, 1m52s), `build-and-test`(pass, 3m3s) 확인,
+   `build-and-push-image`/`deploy-staging`은 의도대로 `skipping` 처리됨(PR 컨텍스트라
+   push 조건 불충족 — 기획서 "테스트/검증" 절이 요구한 그대로 동작).
 2. **`staging` 실제 배포 검증은 이 PR의 머지만으로는 불가능**: 기획서 "구현 순서" 5~6번대로,
    `deploy-staging` job의 새 조건(`environment: STAGING`, `refs/heads/staging`)과 새
    Discord 알림 포맷은 `dev` → `staging` **승격 PR**이 머지돼 `staging`에 실제로 push가
