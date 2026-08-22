@@ -184,9 +184,14 @@ jobs:
         # staging EC2(구 dev EC2) 배포(#51, #77)를 위해, 이미 테스트까지 통과한 jar를
         # 이후 job에서 재사용한다.
         # Docker 이미지 안에서 다시 컴파일하지 않기 위함.
+        # retention-days를 지정하지 않으면 GitHub 기본값(90일)이 적용돼 매 실행마다 쌓인
+        # jar가 레포 아티팩트 저장 용량을 다 채워버린다(#89 QA 중 발견 — 이후 CI 아티팩트
+        # 업로드 스텝 전체가 실패했었다). 이 jar는 같은 워크플로우 실행 안에서
+        # build-and-push-image 잡에만 넘겨주면 끝이라 그 이후에는 필요 없다.
         uses: actions/upload-artifact@v4
         with:
           name: app-jar
+          retention-days: 1
           path: build/libs/*.jar
 
       - name: 실패 시 테스트 리포트 업로드
