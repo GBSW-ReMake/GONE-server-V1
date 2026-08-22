@@ -58,6 +58,7 @@ class ConductServiceTest {
       assertThat(result.get(0).type()).isEqualTo(ConductType.MERIT);
       assertThat(result.get(0).points()).isEqualTo(2);
       assertThat(result.get(1).id()).isEqualTo(19L);
+      assertThat(result.get(1).label()).isEqualTo("용의 규정을 위반한 학생(염색)");
       assertThat(result.get(1).type()).isEqualTo(ConductType.DEMERIT);
       assertThat(result.get(1).points()).isEqualTo(-5);
     }
