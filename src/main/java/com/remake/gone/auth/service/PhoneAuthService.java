@@ -8,10 +8,10 @@ import com.remake.gone.auth.dto.PhoneVerifyCodeResponse;
 import com.remake.gone.auth.dto.PhoneVerifyFailResponse;
 import com.remake.gone.auth.exception.AuthErrorCode;
 import com.remake.gone.auth.utils.RandomCodeGenerator;
-import com.remake.gone.auth.utils.SmsSender;
 import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.common.redis.RedisKeyType;
 import com.remake.gone.common.redis.RedisRepository;
+import com.remake.gone.sms.SmsSender;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -56,7 +56,7 @@ public class PhoneAuthService {
     redisRepository.save(RedisKeyType.PHONE_VERIFICATION, phoneNumber, code);
 
     try {
-      // local 전용 로그에 인증번호 뿌리기
+      // 구현체에 따라 콘솔 로그(dev) 또는 실제 SMS 발송(dev 외)
       smsSender.send(phoneNumber, "[GONE] 인증번호는 " + code + " 입니다.");
     } catch (RuntimeException e) {
       // 발송 실패 시 쿨다운을 되돌려 사용자가 바로 재시도할 수 있게 한다.

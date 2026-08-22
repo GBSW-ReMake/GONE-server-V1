@@ -158,6 +158,11 @@ jobs:
       NEIS_API_KEY: dummy-neis-api-key
       NEIS_ATPT_OFCDC_SC_CODE: dummy-code
       NEIS_SD_SCHUL_CODE: dummy-school-code
+      # AligoProperties(@NotBlank) 검증을 통과시키기 위한 더미 값. contextLoads()는 실제
+      # 알리고 API를 호출하지 않으므로 진짜 키가 필요 없다.
+      ALIGO_KEY: dummy-aligo-key
+      ALIGO_USER_ID: dummy-aligo-user-id
+      ALIGO_SENDER: '01000000000'
 
     steps:
       - name: Code Checkout(코드 체크아웃)
@@ -179,9 +184,14 @@ jobs:
         # staging EC2(구 dev EC2) 배포(#51, #77)를 위해, 이미 테스트까지 통과한 jar를
         # 이후 job에서 재사용한다.
         # Docker 이미지 안에서 다시 컴파일하지 않기 위함.
+        # retention-days를 지정하지 않으면 GitHub 기본값(90일)이 적용돼 매 실행마다 쌓인
+        # jar가 레포 아티팩트 저장 용량을 다 채워버린다(#89 QA 중 발견 — 이후 CI 아티팩트
+        # 업로드 스텝 전체가 실패했었다). 이 jar는 같은 워크플로우 실행 안에서
+        # build-and-push-image 잡에만 넘겨주면 끝이라 그 이후에는 필요 없다.
         uses: actions/upload-artifact@v4
         with:
           name: app-jar
+          retention-days: 1
           path: build/libs/*.jar
 
       - name: 실패 시 테스트 리포트 업로드
@@ -376,6 +386,9 @@ jobs:
       NEIS_API_KEY: ${{ secrets.NEIS_API_KEY }}
       NEIS_ATPT_OFCDC_SC_CODE: ${{ secrets.NEIS_ATPT_OFCDC_SC_CODE }}
       NEIS_SD_SCHUL_CODE: ${{ secrets.NEIS_SD_SCHUL_CODE }}
+      ALIGO_KEY: ${{ secrets.ALIGO_KEY }}
+      ALIGO_USER_ID: ${{ secrets.ALIGO_USER_ID }}
+      ALIGO_SENDER: ${{ secrets.ALIGO_SENDER }}
 
     steps:
       - name: Code Checkout(코드 체크아웃)
@@ -408,12 +421,13 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: MYSQL_ROOT_PASSWORD,JWT_ACCESS_TOKEN_SECRET,JWT_REFRESH_TOKEN_SECRET,R2_ACCOUNT_ID,R2_ACCESS_KEY,R2_SECRET_KEY,R2_BUCKET,R2_ENDPOINT,NEIS_API_KEY,NEIS_ATPT_OFCDC_SC_CODE,NEIS_SD_SCHUL_CODE
+          envs: MYSQL_ROOT_PASSWORD,JWT_ACCESS_TOKEN_SECRET,JWT_REFRESH_TOKEN_SECRET,R2_ACCOUNT_ID,R2_ACCESS_KEY,R2_SECRET_KEY,R2_BUCKET,R2_ENDPOINT,NEIS_API_KEY,NEIS_ATPT_OFCDC_SC_CODE,NEIS_SD_SCHUL_CODE,ALIGO_KEY,ALIGO_USER_ID,ALIGO_SENDER
           script: |
             set -e
             cd /opt/gone/dev
             cat > .env <<ENVEOF
             MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
+            SPRING_PROFILES_ACTIVE=staging
             SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/gone?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
             SPRING_DATASOURCE_USERNAME=root
             SPRING_DATASOURCE_PASSWORD=$MYSQL_ROOT_PASSWORD
@@ -431,6 +445,9 @@ jobs:
             NEIS_API_KEY=$NEIS_API_KEY
             NEIS_ATPT_OFCDC_SC_CODE=$NEIS_ATPT_OFCDC_SC_CODE
             NEIS_SD_SCHUL_CODE=$NEIS_SD_SCHUL_CODE
+            ALIGO_KEY=$ALIGO_KEY
+            ALIGO_USER_ID=$ALIGO_USER_ID
+            ALIGO_SENDER=$ALIGO_SENDER
             ENVEOF
             chmod 600 .env
             # 매 배포마다 :dev 태그가 새 이미지로 갱신되며 이전 레이어가 dangling으로
