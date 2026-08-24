@@ -4,6 +4,7 @@ import com.remake.gone.common.response.ApiResponse;
 import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.common.security.UserPrincipal;
 import com.remake.gone.outing.dto.OutingApplyRequest;
+import com.remake.gone.outing.dto.OutingLocationRequest;
 import com.remake.gone.outing.dto.OutingRejectRequest;
 import com.remake.gone.outing.dto.OutingResponse;
 import com.remake.gone.outing.enums.OutingQueryPeriod;
@@ -32,8 +33,8 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 외출(Outing) 도메인 API 컨트롤러.
  *
- * <p>#29에서 신청, #30에서 승인, #31에서 거절, #41에서 조회(본인 신청/배정/단건 상세)
- * 엔드포인트를 구현했다. 출발/도착 등은 후속 이슈에서 추가된다.
+ * <p>#29에서 신청, #30에서 승인, #31에서 거절, #41에서 조회(본인 신청/배정/단건 상세), #43에서
+ * 출발/도착 보고 엔드포인트를 구현했다.
  */
 @RestController
 @RequestMapping("/api/v1/outings")
@@ -101,6 +102,54 @@ public class OutingController {
     OutingResponse response = outingService.rejectOuting(
         principal.userId(), code, request.rejectedReason(), LocalDateTime.now(KST));
     return ApiResponse.success(response, "외출증을 거절했습니다.");
+  }
+
+  /**
+   * 학생 본인이 승인된 외출증의 출발을 보고합니다. STUDENT 역할만 보고할 수 있으며, 본인이 그
+   * 외출증의 학생인지는 서비스에서 소유권을 확인합니다(#43).
+   *
+   * @param principal 인증 필터가 Access Token에서 추출한 현재 사용자
+   * @param code      출발을 보고할 외출증의 외부 식별자 코드
+   * @param request   출발 시점의 좌표
+   * @return 출발 처리된 외출증 정보
+   */
+  @PostMapping("/{code}/depart")
+  @PreAuthorize("hasRole('STUDENT')")
+  public ApiResponse<OutingResponse> departOuting(
+      @AuthenticationPrincipal UserPrincipal principal,
+      @PathVariable String code,
+      @Valid @RequestBody OutingLocationRequest request
+  ) {
+    OutingResponse response = outingService.departOuting(
+        principal.userId(), code, request, LocalDateTime.now(KST));
+    String message = response.offSchedule()
+        ? "예정된 시간 외에 출발이 기록되었습니다."
+        : "출발이 기록되었습니다.";
+    return ApiResponse.success(response, message);
+  }
+
+  /**
+   * 학생 본인이 출발한 외출증의 도착을 보고합니다. STUDENT 역할만 보고할 수 있으며, 본인이 그
+   * 외출증의 학생인지는 서비스에서 소유권을 확인합니다(#43).
+   *
+   * @param principal 인증 필터가 Access Token에서 추출한 현재 사용자
+   * @param code      도착을 보고할 외출증의 외부 식별자 코드
+   * @param request   도착 시점의 좌표
+   * @return 도착 처리된 외출증 정보
+   */
+  @PostMapping("/{code}/return")
+  @PreAuthorize("hasRole('STUDENT')")
+  public ApiResponse<OutingResponse> returnOuting(
+      @AuthenticationPrincipal UserPrincipal principal,
+      @PathVariable String code,
+      @Valid @RequestBody OutingLocationRequest request
+  ) {
+    OutingResponse response = outingService.returnOuting(
+        principal.userId(), code, request, LocalDateTime.now(KST));
+    String message = response.offSchedule()
+        ? "예정된 시간 외에 도착이 기록되었습니다."
+        : "도착이 기록되었습니다.";
+    return ApiResponse.success(response, message);
   }
 
   /**
