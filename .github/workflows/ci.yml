@@ -163,6 +163,12 @@ jobs:
       ALIGO_KEY: dummy-aligo-key
       ALIGO_USER_ID: dummy-aligo-user-id
       ALIGO_SENDER: '01000000000'
+      # OutingProperties(@NotNull) 검증을 통과시키기 위한 더미 값. contextLoads()는 실제
+      # 반경 판정을 검증하지 않으므로 실제 학교 좌표가 필요 없다(#43, staging 배포 전
+      # OUTING_SCHOOL_* 실제 좌표를 GitHub Environment "STAGING" 시크릿으로 별도 등록).
+      OUTING_SCHOOL_LATITUDE: '0.0'
+      OUTING_SCHOOL_LONGITUDE: '0.0'
+      OUTING_SCHOOL_RADIUS_METERS: '200'
 
     steps:
       - name: Code Checkout(코드 체크아웃)
