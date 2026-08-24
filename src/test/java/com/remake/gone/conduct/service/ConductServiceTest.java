@@ -6,6 +6,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
 import com.remake.gone.common.exception.CustomException;
+import com.remake.gone.conduct.dto.ConductAmendRequest;
+import com.remake.gone.conduct.dto.ConductCancelRequest;
 import com.remake.gone.conduct.dto.ConductCategoryResponse;
 import com.remake.gone.conduct.dto.ConductGrantRequest;
 import com.remake.gone.conduct.dto.ConductRecordResponse;
@@ -224,6 +226,304 @@ class ConductServiceTest {
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(ConductErrorCode.NOT_STUDENT_ROLE);
+    }
+  }
+
+  @Nested
+  @DisplayName("amendConduct")
+  class AmendConduct {
+
+    private final Long teacherUserId = 42L;
+    private final Long otherTeacherUserId = 99L;
+    private final Long studentUserId = 101L;
+    private final Long recordId = 501L;
+    private final Long categoryId = 5L;
+    private final Long newCategoryId = 6L;
+
+    private ConductCategory demeritsCategory() {
+      return ConductCategory.builder()
+          .id(categoryId)
+          .label("지각")
+          .type(ConductType.DEMERIT)
+          .points(-1)
+          .active(true)
+          .build();
+    }
+
+    private ConductCategory newDemeritsCategory() {
+      return ConductCategory.builder()
+          .id(newCategoryId)
+          .label("무단조퇴")
+          .type(ConductType.DEMERIT)
+          .points(-3)
+          .active(true)
+          .build();
+    }
+
+    private ConductRecord activeRecord(ConductCategory category) {
+      User student = User.builder().id(studentUserId).name("길동이").build();
+      User teacher = User.builder().id(teacherUserId).name("김선생").build();
+      return ConductRecord.builder()
+          .id(recordId)
+          .student(student)
+          .teacher(teacher)
+          .category(category)
+          .type(category.getType())
+          .points(category.getPoints())
+          .detail("3교시 10분 지각")
+          .status(ConductStatus.ACTIVE)
+          .version(0L)
+          .build();
+    }
+
+    @Test
+    @DisplayName("categoryId와 detail을 모두 정정하면 category·type·points·detail이 갱신된다")
+    void amendsBothCategoryAndDetail() {
+      ConductRecord record = activeRecord(demeritsCategory());
+      ConductCategory newCategory = newDemeritsCategory();
+      ConductAmendRequest request = new ConductAmendRequest(newCategoryId, "3교시 이후 조퇴");
+
+      given(conductRecordRepository.findById(recordId)).willReturn(Optional.of(record));
+      given(userRoleRepository.findRoleCodesByUserId(teacherUserId))
+          .willReturn(List.of("TEACHER"));
+      given(conductCategoryRepository.findById(newCategoryId))
+          .willReturn(Optional.of(newCategory));
+
+      ConductRecordResponse result = conductService.amendConduct(teacherUserId, recordId, request);
+
+      assertThat(result.categoryId()).isEqualTo(newCategoryId);
+      assertThat(result.categoryLabel()).isEqualTo("무단조퇴");
+      assertThat(result.type()).isEqualTo(ConductType.DEMERIT);
+      assertThat(result.points()).isEqualTo(-3);
+      assertThat(result.detail()).isEqualTo("3교시 이후 조퇴");
+    }
+
+    @Test
+    @DisplayName("detail만 정정하면 category·type·points는 변경되지 않는다")
+    void amendsDetailOnly() {
+      ConductRecord record = activeRecord(demeritsCategory());
+      ConductAmendRequest request = new ConductAmendRequest(null, "수업 10분 전 지각");
+
+      given(conductRecordRepository.findById(recordId)).willReturn(Optional.of(record));
+      given(userRoleRepository.findRoleCodesByUserId(teacherUserId))
+          .willReturn(List.of("TEACHER"));
+
+      ConductRecordResponse result = conductService.amendConduct(teacherUserId, recordId, request);
+
+      assertThat(result.categoryId()).isEqualTo(categoryId);
+      assertThat(result.points()).isEqualTo(-1);
+      assertThat(result.detail()).isEqualTo("수업 10분 전 지각");
+    }
+
+    @Test
+    @DisplayName("ADMIN은 본인이 부여하지 않은 기록도 정정할 수 있다")
+    void adminCanAmendAnyRecord() {
+      Long adminUserId = 999L;
+      ConductRecord record = activeRecord(demeritsCategory());
+      ConductAmendRequest request = new ConductAmendRequest(null, "ADMIN 수정");
+
+      given(conductRecordRepository.findById(recordId)).willReturn(Optional.of(record));
+      given(userRoleRepository.findRoleCodesByUserId(adminUserId))
+          .willReturn(List.of("ADMIN"));
+
+      ConductRecordResponse result = conductService.amendConduct(adminUserId, recordId, request);
+
+      assertThat(result.detail()).isEqualTo("ADMIN 수정");
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 recordId이면 CONDUCT_001 예외를 던진다")
+    void throwsWhenRecordNotFound() {
+      given(conductRecordRepository.findById(recordId)).willReturn(Optional.empty());
+
+      assertThatThrownBy(() -> conductService.amendConduct(
+          teacherUserId, recordId, new ConductAmendRequest(null, null)))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(ConductErrorCode.RECORD_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("본인이 부여하지 않은 기록을 TEACHER가 정정하면 CONDUCT_002 예외를 던진다")
+    void throwsWhenNotRecordOwner() {
+      ConductRecord record = activeRecord(demeritsCategory());
+
+      given(conductRecordRepository.findById(recordId)).willReturn(Optional.of(record));
+      given(userRoleRepository.findRoleCodesByUserId(otherTeacherUserId))
+          .willReturn(List.of("TEACHER"));
+
+      assertThatThrownBy(() -> conductService.amendConduct(
+          otherTeacherUserId, recordId, new ConductAmendRequest(null, "수정 시도")))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(ConductErrorCode.NOT_RECORD_OWNER);
+    }
+
+    @Test
+    @DisplayName("이미 취소된 기록이면 CONDUCT_003 예외를 던진다")
+    void throwsWhenAlreadyCanceled() {
+      ConductRecord canceledRecord = ConductRecord.builder()
+          .id(recordId)
+          .student(User.builder().id(studentUserId).name("길동이").build())
+          .teacher(User.builder().id(teacherUserId).name("김선생").build())
+          .category(demeritsCategory())
+          .type(ConductType.DEMERIT)
+          .points(-1)
+          .status(ConductStatus.CANCELED)
+          .version(1L)
+          .build();
+
+      given(conductRecordRepository.findById(recordId)).willReturn(Optional.of(canceledRecord));
+      given(userRoleRepository.findRoleCodesByUserId(teacherUserId))
+          .willReturn(List.of("TEACHER"));
+
+      assertThatThrownBy(() -> conductService.amendConduct(
+          teacherUserId, recordId, new ConductAmendRequest(null, "수정 시도")))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(ConductErrorCode.ALREADY_CANCELED);
+    }
+
+    @Test
+    @DisplayName("비활성 categoryId로 정정하면 CONDUCT_004 예외를 던진다")
+    void throwsWhenNewCategoryInactive() {
+      ConductRecord record = activeRecord(demeritsCategory());
+      ConductCategory inactiveCategory = ConductCategory.builder()
+          .id(newCategoryId).label("무단조퇴").type(ConductType.DEMERIT).points(-3).active(false)
+          .build();
+
+      given(conductRecordRepository.findById(recordId)).willReturn(Optional.of(record));
+      given(userRoleRepository.findRoleCodesByUserId(teacherUserId))
+          .willReturn(List.of("TEACHER"));
+      given(conductCategoryRepository.findById(newCategoryId))
+          .willReturn(Optional.of(inactiveCategory));
+
+      assertThatThrownBy(() -> conductService.amendConduct(
+          teacherUserId, recordId, new ConductAmendRequest(newCategoryId, null)))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(ConductErrorCode.CATEGORY_NOT_FOUND_OR_INACTIVE);
+    }
+  }
+
+  @Nested
+  @DisplayName("cancelConduct")
+  class CancelConduct {
+
+    private final Long teacherUserId = 42L;
+    private final Long otherTeacherUserId = 99L;
+    private final Long studentUserId = 101L;
+    private final Long recordId = 501L;
+    private final Long categoryId = 5L;
+
+    private ConductCategory demeritsCategory() {
+      return ConductCategory.builder()
+          .id(categoryId).label("지각").type(ConductType.DEMERIT).points(-1).active(true).build();
+    }
+
+    private ConductRecord activeRecord() {
+      User student = User.builder().id(studentUserId).name("길동이").build();
+      User teacher = User.builder().id(teacherUserId).name("김선생").build();
+      return ConductRecord.builder()
+          .id(recordId)
+          .student(student)
+          .teacher(teacher)
+          .category(demeritsCategory())
+          .type(ConductType.DEMERIT)
+          .points(-1)
+          .detail("3교시 10분 지각")
+          .status(ConductStatus.ACTIVE)
+          .version(0L)
+          .build();
+    }
+
+    @Test
+    @DisplayName("정상 취소 시 status가 CANCELED로 변경되고 취소 사유가 저장된다")
+    void cancelsRecordSuccessfully() {
+      ConductRecord record = activeRecord();
+      User teacherUser = User.builder().id(teacherUserId).name("김선생").build();
+      ConductCancelRequest request = new ConductCancelRequest("오인 부여 확인됨");
+
+      given(conductRecordRepository.findById(recordId)).willReturn(Optional.of(record));
+      given(userRoleRepository.findRoleCodesByUserId(teacherUserId))
+          .willReturn(List.of("TEACHER"));
+      given(userRepository.findById(teacherUserId)).willReturn(Optional.of(teacherUser));
+
+      ConductRecordResponse result =
+          conductService.cancelConduct(teacherUserId, recordId, request);
+
+      assertThat(result.status()).isEqualTo(ConductStatus.CANCELED);
+    }
+
+    @Test
+    @DisplayName("ADMIN은 본인이 부여하지 않은 기록도 취소할 수 있다")
+    void adminCanCancelAnyRecord() {
+      Long adminUserId = 999L;
+      ConductRecord record = activeRecord();
+      User adminUser = User.builder().id(adminUserId).name("관리자").build();
+      ConductCancelRequest request = new ConductCancelRequest("ADMIN 취소");
+
+      given(conductRecordRepository.findById(recordId)).willReturn(Optional.of(record));
+      given(userRoleRepository.findRoleCodesByUserId(adminUserId))
+          .willReturn(List.of("ADMIN"));
+      given(userRepository.findById(adminUserId)).willReturn(Optional.of(adminUser));
+
+      ConductRecordResponse result = conductService.cancelConduct(adminUserId, recordId, request);
+
+      assertThat(result.status()).isEqualTo(ConductStatus.CANCELED);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 recordId이면 CONDUCT_001 예외를 던진다")
+    void throwsWhenRecordNotFound() {
+      given(conductRecordRepository.findById(recordId)).willReturn(Optional.empty());
+
+      assertThatThrownBy(() -> conductService.cancelConduct(
+          teacherUserId, recordId, new ConductCancelRequest("취소 사유")))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(ConductErrorCode.RECORD_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("본인이 부여하지 않은 기록을 TEACHER가 취소하면 CONDUCT_002 예외를 던진다")
+    void throwsWhenNotRecordOwner() {
+      ConductRecord record = activeRecord();
+
+      given(conductRecordRepository.findById(recordId)).willReturn(Optional.of(record));
+      given(userRoleRepository.findRoleCodesByUserId(otherTeacherUserId))
+          .willReturn(List.of("TEACHER"));
+
+      assertThatThrownBy(() -> conductService.cancelConduct(
+          otherTeacherUserId, recordId, new ConductCancelRequest("취소 시도")))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(ConductErrorCode.NOT_RECORD_OWNER);
+    }
+
+    @Test
+    @DisplayName("이미 취소된 기록이면 CONDUCT_003 예외를 던진다")
+    void throwsWhenAlreadyCanceled() {
+      ConductRecord canceledRecord = ConductRecord.builder()
+          .id(recordId)
+          .student(User.builder().id(studentUserId).name("길동이").build())
+          .teacher(User.builder().id(teacherUserId).name("김선생").build())
+          .category(demeritsCategory())
+          .type(ConductType.DEMERIT)
+          .points(-1)
+          .status(ConductStatus.CANCELED)
+          .version(1L)
+          .build();
+
+      given(conductRecordRepository.findById(recordId)).willReturn(Optional.of(canceledRecord));
+      given(userRoleRepository.findRoleCodesByUserId(teacherUserId))
+          .willReturn(List.of("TEACHER"));
+
+      assertThatThrownBy(() -> conductService.cancelConduct(
+          teacherUserId, recordId, new ConductCancelRequest("재취소 시도")))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(ConductErrorCode.ALREADY_CANCELED);
     }
   }
 }
