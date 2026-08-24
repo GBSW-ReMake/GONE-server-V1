@@ -275,6 +275,24 @@ class OutingControllerTest {
               .content("{\"latitude\": 36.1234}"))
           .andExpect(status().isBadRequest());
     }
+
+    @Test
+    @DisplayName("latitude가 범위(-90~90) 밖이면 400을 반환한다(#43 코드 리뷰 Low 3번 대응)")
+    void returns400WhenLatitudeOutOfRange() throws Exception {
+      mockMvc.perform(post("/api/v1/outings/8A1zx9202n/depart")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content("{\"latitude\": 999.0, \"longitude\": 128.4321}"))
+          .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("longitude가 범위(-180~180) 밖이면 400을 반환한다(#43 코드 리뷰 Low 3번 대응)")
+    void returns400WhenLongitudeOutOfRange() throws Exception {
+      mockMvc.perform(post("/api/v1/outings/8A1zx9202n/depart")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content("{\"latitude\": 36.1234, \"longitude\": 181.0}"))
+          .andExpect(status().isBadRequest());
+    }
   }
 
   @Nested
