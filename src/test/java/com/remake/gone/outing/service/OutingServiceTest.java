@@ -758,6 +758,24 @@ class OutingServiceTest {
       assertThat(response.status()).isEqualTo(OutingStatus.DEPARTED);
       assertThat(response.offSchedule()).isTrue();
     }
+
+    @Test
+    @DisplayName("저장 중 낙관적 락 충돌이 나면 500이 아니라 409(ALREADY_PROCESSED)로 변환한다"
+        + "(#43 코드 리뷰 Medium 2번 대응)")
+    void convertsOptimisticLockFailureToAlreadyProcessed() {
+      Outing outing = approvedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(outingRepository.save(any(Outing.class)))
+          .willThrow(new ObjectOptimisticLockingFailureException(Outing.class, OUTING_CODE));
+      givenSchoolPropertiesOk();
+
+      assertThatThrownBy(() -> outingService.departOuting(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          LocalDateTime.of(2026, 8, 10, 12, 31)))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.ALREADY_PROCESSED);
+    }
   }
 
   @Nested
@@ -900,6 +918,24 @@ class OutingServiceTest {
 
       assertThat(response.status()).isEqualTo(OutingStatus.RETURNED);
       assertThat(response.offSchedule()).isTrue();
+    }
+
+    @Test
+    @DisplayName("저장 중 낙관적 락 충돌이 나면 500이 아니라 409(ALREADY_PROCESSED)로 변환한다"
+        + "(#43 코드 리뷰 Medium 2번 대응)")
+    void convertsOptimisticLockFailureToAlreadyProcessed() {
+      Outing outing = departedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(outingRepository.save(any(Outing.class)))
+          .willThrow(new ObjectOptimisticLockingFailureException(Outing.class, OUTING_CODE));
+      givenSchoolPropertiesOk();
+
+      assertThatThrownBy(() -> outingService.returnOuting(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          LocalDateTime.of(2026, 8, 10, 13, 30)))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.ALREADY_PROCESSED);
     }
   }
 

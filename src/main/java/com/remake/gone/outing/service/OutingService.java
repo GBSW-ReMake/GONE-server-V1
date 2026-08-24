@@ -250,7 +250,7 @@ public class OutingService {
     outing.setDepartedAt(now);
     outing.setDepartedLatitude(request.latitude());
     outing.setDepartedLongitude(request.longitude());
-    outingRepository.save(outing);
+    saveOrRejectAsAlreadyProcessed(outing);
 
     return toResponse(
         outing, outing.getStudent(), outing.getTeacher(), now.toLocalDate(), now.toLocalTime());
@@ -281,10 +281,27 @@ public class OutingService {
     outing.setReturnedAt(now);
     outing.setReturnedLatitude(request.latitude());
     outing.setReturnedLongitude(request.longitude());
-    outingRepository.save(outing);
+    saveOrRejectAsAlreadyProcessed(outing);
 
     return toResponse(
         outing, outing.getStudent(), outing.getTeacher(), now.toLocalDate(), now.toLocalTime());
+  }
+
+  /**
+   * 출발/도착 보고 저장 중 낙관적 락 충돌이 나면 409({@code ALREADY_PROCESSED})로 변환한다
+   * (#43 코드 리뷰 Medium 2번 대응). 학생이 네트워크 지연 중 버튼을 두 번 누르거나 클라이언트가
+   * 재전송하면, 먼저 커밋된 요청이 이미 {@code status}를 바꿔놓은 뒤라 두 번째 저장은 버전
+   * 충돌로 실패한다 — 이 상황은 원인 불명의 500이 아니라 "이미 처리된 요청"이라는 의미 있는
+   * 409로 응답해야 한다.
+   *
+   * @param outing 저장할 외출증(출발/도착 필드가 이미 반영된 상태)
+   */
+  private void saveOrRejectAsAlreadyProcessed(Outing outing) {
+    try {
+      outingRepository.save(outing);
+    } catch (ObjectOptimisticLockingFailureException e) {
+      throw new CustomException(OutingErrorCode.ALREADY_PROCESSED);
+    }
   }
 
   private void validateOwnership(Long studentUserId, Outing outing) {
