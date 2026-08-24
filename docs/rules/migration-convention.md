@@ -9,8 +9,18 @@ V{yyyyMMddHHmmss}__{설명}.sql
 
 예: `V20260824151700__add_outing_ping_location.sql`
 
-- 타임스탬프는 KST 기준 "지금" 값을 그대로 쓴다(별도 변환 불필요). `date +%Y%m%d%H%M%S`
-  (또는 동일한 값을 주는 아무 방법)로 얻는다.
+- 타임스탬프는 항상 KST(Asia/Seoul) 기준이다. 로컬 머신 시계가 KST가 아닐 수 있으므로
+  (WSL/Docker, 해외 위치 등은 기본값이 UTC인 경우가 많다) OS 타임존 설정에 기대지 말고
+  다음처럼 명시적으로 KST로 변환해서 얻는다(둘 다 실제로 검증됨):
+  - Node(가장 안전 — OS 타임존 설정과 무관하게 항상 정확함):
+    `node -e "console.log(new Date(Date.now()+9*3600*1000).toISOString().slice(0,19).replace(/[-T:]/g,''))"`
+  - PowerShell: `[TimeZoneInfo]::ConvertTimeBySystemTimeZoneId((Get-Date), 'Korea
+    Standard Time').ToString('yyyyMMddHHmmss')`
+
+  bash의 `TZ=Asia/Seoul date ...`처럼 OS/셸의 타임존 데이터베이스에 의존하는 방식은
+  환경에 따라 오히려 잘못된 값(예: UTC)을 낼 수 있어(이 저장소의 Windows+Git Bash
+  조합에서 실제로 확인됨) 권장하지 않는다 — 반드시 얻은 값이 실제 한국 시각과 맞는지
+  눈으로 한 번 확인한다.
 - 브랜치 생성 시점에 미리 번호를 확정하지 않는다 — 실제로 마이그레이션 파일을 커밋하는
   순간의 타임스탬프를 쓴다.
 
