@@ -98,6 +98,10 @@ public class ConductService {
   @Transactional
   public ConductRecordResponse amendConduct(
       Long callerUserId, Long recordId, ConductAmendRequest request) {
+    if (request.categoryId() == null && request.detail() == null) {
+      throw new CustomException(CommonErrorCode.INVALID_REQUEST);
+    }
+
     ConductRecord record = conductRecordRepository.findById(recordId)
         .orElseThrow(() -> new CustomException(ConductErrorCode.RECORD_NOT_FOUND));
 

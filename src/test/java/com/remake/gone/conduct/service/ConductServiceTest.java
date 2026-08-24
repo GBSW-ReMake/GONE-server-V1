@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
+import com.remake.gone.common.exception.CommonErrorCode;
 import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.conduct.dto.ConductAmendRequest;
 import com.remake.gone.conduct.dto.ConductCancelRequest;
@@ -332,12 +333,22 @@ class ConductServiceTest {
     }
 
     @Test
+    @DisplayName("categoryId·detail 둘 다 null이면 COMMON_001 예외를 던진다")
+    void throwsWhenBothFieldsNull() {
+      assertThatThrownBy(() -> conductService.amendConduct(
+          teacherUserId, recordId, new ConductAmendRequest(null, null)))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(CommonErrorCode.INVALID_REQUEST);
+    }
+
+    @Test
     @DisplayName("존재하지 않는 recordId이면 CONDUCT_001 예외를 던진다")
     void throwsWhenRecordNotFound() {
       given(conductRecordRepository.findById(recordId)).willReturn(Optional.empty());
 
       assertThatThrownBy(() -> conductService.amendConduct(
-          teacherUserId, recordId, new ConductAmendRequest(null, null)))
+          teacherUserId, recordId, new ConductAmendRequest(null, "변경")))
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(ConductErrorCode.RECORD_NOT_FOUND);
