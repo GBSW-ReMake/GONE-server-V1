@@ -12,6 +12,15 @@ import org.springframework.http.HttpStatus;
  */
 public enum ConductErrorCode implements ErrorCode {
 
+  /** 상/벌점 기록을 찾을 수 없습니다. */
+  RECORD_NOT_FOUND(HttpStatus.NOT_FOUND, "CONDUCT_001", "상/벌점 기록을 찾을 수 없습니다."),
+
+  /** 본인이 부여한 기록만 처리할 수 있습니다. */
+  NOT_RECORD_OWNER(HttpStatus.FORBIDDEN, "CONDUCT_002", "본인이 부여한 기록만 처리할 수 있습니다."),
+
+  /** 이미 취소된 기록입니다. */
+  ALREADY_CANCELED(HttpStatus.CONFLICT, "CONDUCT_003", "이미 취소된 기록입니다."),
+
   /** 존재하지 않거나 비활성화된 카테고리입니다. */
   CATEGORY_NOT_FOUND_OR_INACTIVE(HttpStatus.BAD_REQUEST, "CONDUCT_004",
       "존재하지 않거나 비활성화된 카테고리입니다."),

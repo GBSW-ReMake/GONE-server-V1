@@ -2,17 +2,22 @@ package com.remake.gone.conduct.service;
 
 import com.remake.gone.common.exception.CommonErrorCode;
 import com.remake.gone.common.exception.CustomException;
+import com.remake.gone.conduct.dto.ConductAmendRequest;
+import com.remake.gone.conduct.dto.ConductCancelRequest;
 import com.remake.gone.conduct.dto.ConductCategoryResponse;
 import com.remake.gone.conduct.dto.ConductGrantRequest;
 import com.remake.gone.conduct.dto.ConductRecordResponse;
 import com.remake.gone.conduct.entity.ConductCategory;
 import com.remake.gone.conduct.entity.ConductRecord;
+import com.remake.gone.conduct.enums.ConductStatus;
 import com.remake.gone.conduct.exception.ConductErrorCode;
 import com.remake.gone.conduct.repository.ConductCategoryRepository;
 import com.remake.gone.conduct.repository.ConductRecordRepository;
 import com.remake.gone.role.repository.UserRoleRepository;
 import com.remake.gone.user.entity.User;
 import com.remake.gone.user.repository.UserRepository;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -24,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class ConductService {
 
   private static final String STUDENT_ROLE_CODE = "STUDENT";
+  private static final String ADMIN_ROLE_CODE = "ADMIN";
 
   private final ConductCategoryRepository conductCategoryRepository;
   private final ConductRecordRepository conductRecordRepository;
@@ -76,5 +82,90 @@ public class ConductService {
         .build();
 
     return ConductRecordResponse.from(conductRecordRepository.save(record));
+  }
+
+  /**
+   * 상/벌점 기록을 정정합니다.
+   *
+   * <p>TEACHER는 본인이 부여한 기록만 정정할 수 있습니다. ADMIN은 소유권 무관하게 정정할 수 있습니다.
+   * CANCELED 상태인 기록은 정정할 수 없습니다.
+   *
+   * @param callerUserId  호출자 사용자 ID (Access Token에서 추출됨)
+   * @param recordId      정정할 기록 ID
+   * @param request       정정 요청 정보
+   * @return 정정된 상/벌점 기록
+   */
+  @Transactional
+  public ConductRecordResponse amendConduct(
+      Long callerUserId, Long recordId, ConductAmendRequest request) {
+    if (request.categoryId() == null && request.detail() == null) {
+      throw new CustomException(CommonErrorCode.INVALID_REQUEST);
+    }
+
+    ConductRecord record = conductRecordRepository.findById(recordId)
+        .orElseThrow(() -> new CustomException(ConductErrorCode.RECORD_NOT_FOUND));
+
+    boolean isAdmin = userRoleRepository.findRoleCodesByUserId(callerUserId)
+        .contains(ADMIN_ROLE_CODE);
+    if (!isAdmin && !callerUserId.equals(record.getTeacher().getId())) {
+      throw new CustomException(ConductErrorCode.NOT_RECORD_OWNER);
+    }
+
+    if (record.getStatus() == ConductStatus.CANCELED) {
+      throw new CustomException(ConductErrorCode.ALREADY_CANCELED);
+    }
+
+    if (request.categoryId() != null) {
+      ConductCategory newCategory = conductCategoryRepository.findById(request.categoryId())
+          .filter(ConductCategory::isActive)
+          .orElseThrow(() -> new CustomException(ConductErrorCode.CATEGORY_NOT_FOUND_OR_INACTIVE));
+      record.setCategory(newCategory);
+      record.setType(newCategory.getType());
+      record.setPoints(newCategory.getPoints());
+    }
+
+    if (request.detail() != null) {
+      record.setDetail(request.detail());
+    }
+
+    return ConductRecordResponse.from(record);
+  }
+
+  /**
+   * 상/벌점 기록을 취소합니다.
+   *
+   * <p>TEACHER는 본인이 부여한 기록만 취소할 수 있습니다. ADMIN은 소유권 무관하게 취소할 수 있습니다.
+   * 이미 취소된 기록은 다시 취소할 수 없습니다.
+   *
+   * @param callerUserId  호출자 사용자 ID (Access Token에서 추출됨)
+   * @param recordId      취소할 기록 ID
+   * @param request       취소 요청 정보
+   * @return 취소된 상/벌점 기록
+   */
+  @Transactional
+  public ConductRecordResponse cancelConduct(
+      Long callerUserId, Long recordId, ConductCancelRequest request) {
+    ConductRecord record = conductRecordRepository.findById(recordId)
+        .orElseThrow(() -> new CustomException(ConductErrorCode.RECORD_NOT_FOUND));
+
+    boolean isAdmin = userRoleRepository.findRoleCodesByUserId(callerUserId)
+        .contains(ADMIN_ROLE_CODE);
+    if (!isAdmin && !callerUserId.equals(record.getTeacher().getId())) {
+      throw new CustomException(ConductErrorCode.NOT_RECORD_OWNER);
+    }
+
+    if (record.getStatus() == ConductStatus.CANCELED) {
+      throw new CustomException(ConductErrorCode.ALREADY_CANCELED);
+    }
+
+    User cancelingUser = userRepository.findById(callerUserId)
+        .orElseThrow(() -> new CustomException(CommonErrorCode.NOT_FOUND));
+
+    record.setStatus(ConductStatus.CANCELED);
+    record.setCanceledAt(LocalDateTime.now(ZoneId.of("Asia/Seoul")));
+    record.setCanceledBy(cancelingUser);
+    record.setCancelReason(request.cancelReason());
+
+    return ConductRecordResponse.from(record);
   }
 }

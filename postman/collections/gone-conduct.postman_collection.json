@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "GONE - Conduct API",
-    "description": "상/벌점(Conduct) 도메인 API 컬렉션.\n\n**#92 카테고리 목록 조회**: 인증된 사용자 전체가 접근할 수 있습니다.\n**#94 상/벌점 부여**: 교사 토큰(`teacherAccessToken`)으로만 호출 가능합니다.\n\n로그인 요청은 각각 토큰을 `studentAccessToken`/`teacherAccessToken` 환경 변수에 자동으로 저장합니다.\n\n**실행 순서**: \"사전 준비\" 폴더(로그인) → 최상위 엔드포인트 → \"에러 케이스\" 폴더.\n\n**사전 조건**: `studentLoginId`/`studentPassword`, `teacherLoginId`/`teacherPassword` 테스트 계정이 DB에 있어야 합니다.",
+    "description": "GONE - Conduct API 컬렉션. #92 카테고리 목록 조회, #94 상/벌점 부여, #107 정정·취소 엔드포인트 포함.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -29,8 +29,15 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/auth/login",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "auth", "login"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
             }
           },
           "event": [
@@ -77,8 +84,15 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/auth/login",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "auth", "login"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
             }
           },
           "event": [
@@ -118,8 +132,15 @@
         ],
         "url": {
           "raw": "{{baseUrl}}/api/v1/conduct-records/categories",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "v1", "conduct-records", "categories"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "conduct-records",
+            "categories"
+          ]
         },
         "description": "활성 카테고리 목록을 조회합니다. 인증된 사용자 전체가 접근할 수 있습니다(#92).\n\n**응답**: `data` 배열에 `id`/`label`/`type`/`points` 포함. `id`는 이후 부여 요청의 `categoryId`로 그대로 사용합니다."
       },
@@ -182,8 +203,14 @@
         },
         "url": {
           "raw": "{{baseUrl}}/api/v1/conduct-records",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "v1", "conduct-records"]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "conduct-records"
+          ]
         },
         "description": "교사가 학생에게 상점 또는 벌점을 부여합니다(#94).\n\n**권한**: TEACHER 전용. 학생/미인증 요청은 403/401 반환.\n\n**응답**: `201 Created`. `data`에 `id`/`studentUserId`/`studentNickname`/`teacherUserId`/`teacherNickname`/`categoryId`/`categoryLabel`/`type`/`points`/`detail`/`status`/`createdAt` 포함.\n\n**사전 조건**: \"사전 준비 > 교사 로그인\"으로 `teacherAccessToken` 설정, \"사전 준비 > 학생 로그인\"으로 `studentUserId` 설정."
       },
@@ -225,6 +252,87 @@
       ]
     },
     {
+      "name": "상/벌점 정정",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{teacherAccessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"categoryId\": 20, \"detail\": \"수정된 상세 사유\"}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/conduct-records/{{recordId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "conduct-records",
+            "{{recordId}}"
+          ]
+        },
+        "description": "TEACHER 또는 ADMIN이 기존 상/벌점 기록을 정정한다. categoryId 또는 detail 중 하나 이상 필수."
+      },
+      "response": []
+    },
+    {
+      "name": "상/벌점 취소",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{teacherAccessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"cancelReason\": \"오인 부여로 확인됨\"}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/conduct-records/{{recordId}}/cancel",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "conduct-records",
+            "{{recordId}}",
+            "cancel"
+          ]
+        },
+        "description": "TEACHER 또는 ADMIN이 기존 상/벌점 기록을 취소한다. 취소는 되돌릴 수 없다."
+      },
+      "response": []
+    },
+    {
       "name": "에러 케이스",
       "item": [
         {
@@ -234,8 +342,15 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/v1/conduct-records/categories",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "conduct-records", "categories"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "categories"
+              ]
             },
             "description": "Authorization 헤더 없이 요청하면 401을 반환해야 합니다."
           },
@@ -282,8 +397,14 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/conduct-records",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "conduct-records"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records"
+              ]
             },
             "description": "STUDENT 권한 토큰으로 부여 요청 시 403 COMMON_003을 반환해야 합니다."
           },
@@ -326,8 +447,14 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/conduct-records",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "conduct-records"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records"
+              ]
             },
             "description": "인증 없이 부여 요청 시 401 COMMON_002를 반환해야 합니다."
           },
@@ -374,8 +501,14 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/conduct-records",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "conduct-records"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records"
+              ]
             },
             "description": "존재하지 않는 studentUserId로 요청 시 404 CONDUCT_005를 반환해야 합니다."
           },
@@ -422,8 +555,14 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/conduct-records",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "conduct-records"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records"
+              ]
             },
             "description": "studentUserId에 교사의 ID를 입력하면 STUDENT 역할이 없으므로 400 CONDUCT_006을 반환해야 합니다."
           },
@@ -470,8 +609,14 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/conduct-records",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "conduct-records"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records"
+              ]
             },
             "description": "존재하지 않는 categoryId로 요청 시 400 CONDUCT_004를 반환해야 합니다."
           },
@@ -492,6 +637,163 @@
               }
             }
           ]
+        },
+        {
+          "name": "존재하지 않는 recordId 정정 → 404 CONDUCT_001",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{teacherAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"detail\": \"없는 기록\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/99999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "99999"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "타 교사 기록 정정 시도 → 403 CONDUCT_002",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{otherTeacherAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"detail\": \"타 교사 수정 시도\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/{{recordId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "{{recordId}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "이미 취소된 기록 재취소 → 409 CONDUCT_003",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{teacherAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"cancelReason\": \"재취소 시도\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/{{canceledRecordId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "{{canceledRecordId}}",
+                "cancel"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "양 필드 모두 null 정정 → 400 COMMON_001",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{teacherAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/{{recordId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "{{recordId}}"
+              ]
+            }
+          },
+          "response": []
         }
       ]
     },
@@ -520,8 +822,15 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/auth/login",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "auth", "login"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
             }
           },
           "event": [
@@ -568,8 +877,15 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/auth/login",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "auth", "login"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
             }
           },
           "event": [
@@ -607,8 +923,15 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/api/v1/conduct-records/categories",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "conduct-records", "categories"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "categories"
+              ]
             },
             "description": "부여할 categoryId 확인용."
           },
@@ -651,8 +974,14 @@
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/conduct-records",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "conduct-records"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records"
+              ]
             }
           },
           "event": [
@@ -676,6 +1005,184 @@
               }
             }
           ]
+        }
+      ]
+    },
+    {
+      "name": "상/벌점 정정·취소 확인 (#107)",
+      "item": [
+        {
+          "name": "1. 교사 로그인",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var res = pm.response.json();",
+                  "if (res.success) {",
+                  "  pm.collectionVariables.set('teacherAccessToken', res.data.accessToken);",
+                  "  pm.collectionVariables.set('teacherUserId', res.data.userId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"identifier\": \"qatest_teacher\", \"password\": \"{{teacherPassword}}\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "2. 상/벌점 부여 (정정·취소 대상 기록 생성)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var res = pm.response.json();",
+                  "if (res.success) pm.collectionVariables.set('recordId', res.data.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{teacherAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"studentUserId\": \"{{studentUserId}}\", \"categoryId\": 19, \"detail\": \"QA 테스트 기록\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3. 정정 (categoryId + detail)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{teacherAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"categoryId\": 20, \"detail\": \"수정된 사유\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/{{recordId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "{{recordId}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "4. 취소",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{teacherAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"cancelReason\": \"QA 취소 확인\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/{{recordId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "{{recordId}}",
+                "cancel"
+              ]
+            }
+          },
+          "response": []
         }
       ]
     }
