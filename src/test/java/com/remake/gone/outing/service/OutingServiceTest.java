@@ -13,7 +13,9 @@ import com.remake.gone.file.service.R2FileService;
 import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.enums.GbswType;
 import com.remake.gone.gbsw.exception.GbswErrorCode;
+import com.remake.gone.outing.config.OutingProperties;
 import com.remake.gone.outing.dto.OutingApplyRequest;
+import com.remake.gone.outing.dto.OutingLocationRequest;
 import com.remake.gone.outing.dto.OutingResponse;
 import com.remake.gone.outing.entity.Outing;
 import com.remake.gone.outing.enums.OutingQueryPeriod;
@@ -65,6 +67,9 @@ class OutingServiceTest {
 
   @Mock
   private R2FileService r2FileService;
+
+  @Mock
+  private OutingProperties outingProperties;
 
   @InjectMocks
   private OutingService outingService;
@@ -563,6 +568,338 @@ class OutingServiceTest {
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(OutingErrorCode.DEADLINE_PASSED);
+    }
+  }
+
+  @Nested
+  @DisplayName("departOuting")
+  class DepartOuting {
+
+    private static final String OUTING_CODE = "8A1zx9202n";
+    private static final double SCHOOL_LATITUDE = 36.0;
+    private static final double SCHOOL_LONGITUDE = 128.0;
+
+    private Outing approvedOuting(LocalDate outingDate, LocalTime start, LocalTime end) {
+      return Outing.builder()
+          .id(500L)
+          .code(OUTING_CODE)
+          .student(student())
+          .teacher(teacher())
+          .reason("치과 진료")
+          .outingDate(outingDate)
+          .timeSlot(OutingTimeSlot.LUNCH)
+          .startTime(start)
+          .endTime(end)
+          .status(OutingStatus.APPROVED)
+          .build();
+    }
+
+    private void givenSchoolPropertiesOk() {
+      given(outingProperties.schoolLatitude()).willReturn(SCHOOL_LATITUDE);
+      given(outingProperties.schoolLongitude()).willReturn(SCHOOL_LONGITUDE);
+      given(outingProperties.schoolRadiusMeters()).willReturn(200);
+    }
+
+    @Test
+    @DisplayName("APPROVED 외출증을 학교 반경 안에서 출발 보고하면 DEPARTED로 바뀌고 좌표가 저장된다")
+    void departsSuccessfully() {
+      Outing outing = approvedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(outingRepository.save(any(Outing.class)))
+          .willAnswer(invocation -> invocation.getArgument(0, Outing.class));
+      givenSchoolPropertiesOk();
+      LocalDateTime now = LocalDateTime.of(2026, 8, 10, 12, 31);
+
+      OutingResponse response = outingService.departOuting(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          now);
+
+      assertThat(response.status()).isEqualTo(OutingStatus.DEPARTED);
+      assertThat(response.departedAt()).isEqualTo(now);
+      assertThat(response.offSchedule()).isFalse();
+      assertThat(outing.getDepartedLatitude()).isEqualTo(SCHOOL_LATITUDE);
+      assertThat(outing.getDepartedLongitude()).isEqualTo(SCHOOL_LONGITUDE);
+      verify(outingRepository).save(outing);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 code면 거부한다")
+    void rejectsWhenOutingNotFound() {
+      given(outingRepository.findByCode("NOPE")).willReturn(Optional.empty());
+
+      assertThatThrownBy(() -> outingService.departOuting(
+          STUDENT_ID, "NOPE", new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          LocalDateTime.of(2026, 8, 10, 12, 31)))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.OUTING_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("본인 외출증이 아니면 거부한다")
+    void rejectsWhenNotOwner() {
+      Outing outing = approvedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      Long otherStudentId = 99L;
+
+      assertThatThrownBy(() -> outingService.departOuting(
+          otherStudentId, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          LocalDateTime.of(2026, 8, 10, 12, 31)))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.ACCESS_DENIED);
+    }
+
+    @Test
+    @DisplayName("운영시간(08:40~20:30) 밖에서 호출하면 거부한다(08:39)")
+    void rejectsWhenBeforeOperatingHours() {
+      Outing outing = approvedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+
+      assertThatThrownBy(() -> outingService.departOuting(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          LocalDateTime.of(2026, 8, 10, 8, 39)))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.OUTSIDE_OPERATING_HOURS);
+    }
+
+    @Test
+    @DisplayName("운영시간 하한(08:40) 정각은 허용한다(경계값 포함)")
+    void allowsExactlyAtOperatingHoursStart() {
+      Outing outing = approvedOuting(TODAY, LocalTime.of(8, 40), LocalTime.of(9, 40));
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(outingRepository.save(any(Outing.class)))
+          .willAnswer(invocation -> invocation.getArgument(0, Outing.class));
+      givenSchoolPropertiesOk();
+
+      OutingResponse response = outingService.departOuting(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          LocalDateTime.of(2026, 8, 10, 8, 40));
+
+      assertThat(response.status()).isEqualTo(OutingStatus.DEPARTED);
+    }
+
+    @Test
+    @DisplayName("운영시간 상한(20:30) 정각은 허용한다(경계값 포함)")
+    void allowsExactlyAtOperatingHoursEnd() {
+      Outing outing = approvedOuting(TODAY, LocalTime.of(19, 30), LocalTime.of(20, 30));
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(outingRepository.save(any(Outing.class)))
+          .willAnswer(invocation -> invocation.getArgument(0, Outing.class));
+      givenSchoolPropertiesOk();
+
+      OutingResponse response = outingService.departOuting(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          LocalDateTime.of(2026, 8, 10, 20, 30));
+
+      assertThat(response.status()).isEqualTo(OutingStatus.DEPARTED);
+    }
+
+    @Test
+    @DisplayName("운영시간(08:40~20:30) 밖에서 호출하면 거부한다(20:31)")
+    void rejectsWhenAfterOperatingHours() {
+      Outing outing = approvedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+
+      assertThatThrownBy(() -> outingService.departOuting(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          LocalDateTime.of(2026, 8, 10, 20, 31)))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.OUTSIDE_OPERATING_HOURS);
+    }
+
+    @Test
+    @DisplayName("APPROVED 상태가 아니면 거부한다")
+    void rejectsWhenNotApproved() {
+      Outing outing = approvedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
+      outing.setStatus(OutingStatus.PENDING);
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+
+      assertThatThrownBy(() -> outingService.departOuting(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          LocalDateTime.of(2026, 8, 10, 12, 31)))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.ALREADY_PROCESSED);
+    }
+
+    @Test
+    @DisplayName("학교 반경 밖에서 시도하면 거부한다")
+    void rejectsWhenOutOfSchoolRadius() {
+      Outing outing = approvedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      givenSchoolPropertiesOk();
+
+      // 학교(36.0, 128.0)에서 위도 1도(약 111km) 떨어진 지점 — 반경 200m를 훨씬 벗어난다.
+      assertThatThrownBy(() -> outingService.departOuting(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(37.0, SCHOOL_LONGITUDE),
+          LocalDateTime.of(2026, 8, 10, 12, 31)))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.OUT_OF_SCHOOL_RADIUS);
+    }
+
+    @Test
+    @DisplayName("운영시간 안이지만 이 외출증의 예정 시간대 밖에서 출발하면 차단되지 않고 offSchedule만 true다")
+    void allowsButFlagsOffScheduleWhenOutsideOwnTimeSlot() {
+      // LUNCH(12:30~13:40)인데 저녁 시간대(18:00)에 출발 보고.
+      Outing outing = approvedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(outingRepository.save(any(Outing.class)))
+          .willAnswer(invocation -> invocation.getArgument(0, Outing.class));
+      givenSchoolPropertiesOk();
+
+      OutingResponse response = outingService.departOuting(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          LocalDateTime.of(2026, 8, 10, 18, 0));
+
+      assertThat(response.status()).isEqualTo(OutingStatus.DEPARTED);
+      assertThat(response.offSchedule()).isTrue();
+    }
+  }
+
+  @Nested
+  @DisplayName("returnOuting")
+  class ReturnOuting {
+
+    private static final String OUTING_CODE = "8A1zx9202n";
+    private static final double SCHOOL_LATITUDE = 36.0;
+    private static final double SCHOOL_LONGITUDE = 128.0;
+
+    private Outing departedOuting(LocalDate outingDate, LocalTime start, LocalTime end) {
+      return Outing.builder()
+          .id(500L)
+          .code(OUTING_CODE)
+          .student(student())
+          .teacher(teacher())
+          .reason("치과 진료")
+          .outingDate(outingDate)
+          .timeSlot(OutingTimeSlot.LUNCH)
+          .startTime(start)
+          .endTime(end)
+          .status(OutingStatus.DEPARTED)
+          .departedAt(outingDate.atTime(start).plusMinutes(1))
+          .build();
+    }
+
+    private void givenSchoolPropertiesOk() {
+      given(outingProperties.schoolLatitude()).willReturn(SCHOOL_LATITUDE);
+      given(outingProperties.schoolLongitude()).willReturn(SCHOOL_LONGITUDE);
+      given(outingProperties.schoolRadiusMeters()).willReturn(200);
+    }
+
+    @Test
+    @DisplayName("DEPARTED 외출증을 학교 반경 안에서 도착 보고하면 RETURNED로 바뀌고 좌표가 저장된다")
+    void returnsSuccessfully() {
+      Outing outing = departedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(outingRepository.save(any(Outing.class)))
+          .willAnswer(invocation -> invocation.getArgument(0, Outing.class));
+      givenSchoolPropertiesOk();
+      LocalDateTime now = LocalDateTime.of(2026, 8, 10, 13, 30);
+
+      OutingResponse response = outingService.returnOuting(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          now);
+
+      assertThat(response.status()).isEqualTo(OutingStatus.RETURNED);
+      assertThat(response.returnedAt()).isEqualTo(now);
+      assertThat(response.offSchedule()).isFalse();
+      assertThat(outing.getReturnedLatitude()).isEqualTo(SCHOOL_LATITUDE);
+      assertThat(outing.getReturnedLongitude()).isEqualTo(SCHOOL_LONGITUDE);
+      verify(outingRepository).save(outing);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 code면 거부한다")
+    void rejectsWhenOutingNotFound() {
+      given(outingRepository.findByCode("NOPE")).willReturn(Optional.empty());
+
+      assertThatThrownBy(() -> outingService.returnOuting(
+          STUDENT_ID, "NOPE", new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          LocalDateTime.of(2026, 8, 10, 13, 30)))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.OUTING_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("본인 외출증이 아니면 거부한다")
+    void rejectsWhenNotOwner() {
+      Outing outing = departedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      Long otherStudentId = 99L;
+
+      assertThatThrownBy(() -> outingService.returnOuting(
+          otherStudentId, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          LocalDateTime.of(2026, 8, 10, 13, 30)))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.ACCESS_DENIED);
+    }
+
+    @Test
+    @DisplayName("운영시간(08:40~20:30) 밖에서 호출하면 거부한다")
+    void rejectsWhenOutsideOperatingHours() {
+      Outing outing = departedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+
+      assertThatThrownBy(() -> outingService.returnOuting(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          LocalDateTime.of(2026, 8, 10, 20, 31)))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.OUTSIDE_OPERATING_HOURS);
+    }
+
+    @Test
+    @DisplayName("DEPARTED 상태가 아니면 거부한다")
+    void rejectsWhenNotDeparted() {
+      Outing outing = departedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
+      outing.setStatus(OutingStatus.APPROVED);
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+
+      assertThatThrownBy(() -> outingService.returnOuting(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          LocalDateTime.of(2026, 8, 10, 13, 30)))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.ALREADY_PROCESSED);
+    }
+
+    @Test
+    @DisplayName("학교 반경 밖에서 시도하면 거부한다")
+    void rejectsWhenOutOfSchoolRadius() {
+      Outing outing = departedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      givenSchoolPropertiesOk();
+
+      assertThatThrownBy(() -> outingService.returnOuting(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(37.0, SCHOOL_LONGITUDE),
+          LocalDateTime.of(2026, 8, 10, 13, 30)))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.OUT_OF_SCHOOL_RADIUS);
+    }
+
+    @Test
+    @DisplayName("운영시간 안이지만 이 외출증의 예정 시간대 이전에 도착하면 차단되지 않고 offSchedule만 true다")
+    void allowsButFlagsOffScheduleWhenBeforeOwnTimeSlot() {
+      Outing outing = departedOuting(TODAY, LocalTime.of(18, 10), LocalTime.of(19, 10));
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(outingRepository.save(any(Outing.class)))
+          .willAnswer(invocation -> invocation.getArgument(0, Outing.class));
+      givenSchoolPropertiesOk();
+
+      // DINNER(18:10~19:10)인데 운영시간 안인 09:00에 도착 보고.
+      OutingResponse response = outingService.returnOuting(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          LocalDateTime.of(2026, 8, 10, 9, 0));
+
+      assertThat(response.status()).isEqualTo(OutingStatus.RETURNED);
+      assertThat(response.offSchedule()).isTrue();
     }
   }
 
