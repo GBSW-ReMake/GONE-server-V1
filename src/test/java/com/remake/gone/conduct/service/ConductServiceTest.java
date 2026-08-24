@@ -453,13 +453,12 @@ class ConductServiceTest {
     void cancelsRecordSuccessfully() {
       ConductRecord record = activeRecord();
       User teacherUser = User.builder().id(teacherUserId).name("김선생").build();
-      ConductCancelRequest request = new ConductCancelRequest("오인 부여 확인됨");
-
       given(conductRecordRepository.findById(recordId)).willReturn(Optional.of(record));
       given(userRoleRepository.findRoleCodesByUserId(teacherUserId))
           .willReturn(List.of("TEACHER"));
       given(userRepository.findById(teacherUserId)).willReturn(Optional.of(teacherUser));
 
+      ConductCancelRequest request = new ConductCancelRequest("오인 부여 확인됨");
       conductService.cancelConduct(teacherUserId, recordId, request);
 
       assertThat(record.getStatus()).isEqualTo(ConductStatus.CANCELED);
