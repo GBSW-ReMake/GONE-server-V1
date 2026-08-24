@@ -605,7 +605,7 @@ class OutingServiceTest {
     void departsSuccessfully() {
       Outing outing = approvedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
       given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
-      given(outingRepository.save(any(Outing.class)))
+      given(outingRepository.saveAndFlush(any(Outing.class)))
           .willAnswer(invocation -> invocation.getArgument(0, Outing.class));
       givenSchoolPropertiesOk();
       LocalDateTime now = LocalDateTime.of(2026, 8, 10, 12, 31);
@@ -619,7 +619,7 @@ class OutingServiceTest {
       assertThat(response.offSchedule()).isFalse();
       assertThat(outing.getDepartedLatitude()).isEqualTo(SCHOOL_LATITUDE);
       assertThat(outing.getDepartedLongitude()).isEqualTo(SCHOOL_LONGITUDE);
-      verify(outingRepository).save(outing);
+      verify(outingRepository).saveAndFlush(outing);
     }
 
     @Test
@@ -669,7 +669,7 @@ class OutingServiceTest {
     void allowsExactlyAtOperatingHoursStart() {
       Outing outing = approvedOuting(TODAY, LocalTime.of(8, 40), LocalTime.of(9, 40));
       given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
-      given(outingRepository.save(any(Outing.class)))
+      given(outingRepository.saveAndFlush(any(Outing.class)))
           .willAnswer(invocation -> invocation.getArgument(0, Outing.class));
       givenSchoolPropertiesOk();
 
@@ -685,7 +685,7 @@ class OutingServiceTest {
     void allowsExactlyAtOperatingHoursEnd() {
       Outing outing = approvedOuting(TODAY, LocalTime.of(19, 30), LocalTime.of(20, 30));
       given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
-      given(outingRepository.save(any(Outing.class)))
+      given(outingRepository.saveAndFlush(any(Outing.class)))
           .willAnswer(invocation -> invocation.getArgument(0, Outing.class));
       givenSchoolPropertiesOk();
 
@@ -747,7 +747,7 @@ class OutingServiceTest {
       // LUNCH(12:30~13:40)인데 저녁 시간대(18:00)에 출발 보고.
       Outing outing = approvedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
       given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
-      given(outingRepository.save(any(Outing.class)))
+      given(outingRepository.saveAndFlush(any(Outing.class)))
           .willAnswer(invocation -> invocation.getArgument(0, Outing.class));
       givenSchoolPropertiesOk();
 
@@ -765,7 +765,7 @@ class OutingServiceTest {
     void convertsOptimisticLockFailureToAlreadyProcessed() {
       Outing outing = approvedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
       given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
-      given(outingRepository.save(any(Outing.class)))
+      given(outingRepository.saveAndFlush(any(Outing.class)))
           .willThrow(new ObjectOptimisticLockingFailureException(Outing.class, OUTING_CODE));
       givenSchoolPropertiesOk();
 
@@ -813,7 +813,7 @@ class OutingServiceTest {
     void returnsSuccessfully() {
       Outing outing = departedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
       given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
-      given(outingRepository.save(any(Outing.class)))
+      given(outingRepository.saveAndFlush(any(Outing.class)))
           .willAnswer(invocation -> invocation.getArgument(0, Outing.class));
       givenSchoolPropertiesOk();
       LocalDateTime now = LocalDateTime.of(2026, 8, 10, 13, 30);
@@ -827,7 +827,7 @@ class OutingServiceTest {
       assertThat(response.offSchedule()).isFalse();
       assertThat(outing.getReturnedLatitude()).isEqualTo(SCHOOL_LATITUDE);
       assertThat(outing.getReturnedLongitude()).isEqualTo(SCHOOL_LONGITUDE);
-      verify(outingRepository).save(outing);
+      verify(outingRepository).saveAndFlush(outing);
     }
 
     @Test
@@ -907,7 +907,7 @@ class OutingServiceTest {
     void allowsButFlagsOffScheduleWhenBeforeOwnTimeSlot() {
       Outing outing = departedOuting(TODAY, LocalTime.of(18, 10), LocalTime.of(19, 10));
       given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
-      given(outingRepository.save(any(Outing.class)))
+      given(outingRepository.saveAndFlush(any(Outing.class)))
           .willAnswer(invocation -> invocation.getArgument(0, Outing.class));
       givenSchoolPropertiesOk();
 
@@ -926,7 +926,7 @@ class OutingServiceTest {
     void convertsOptimisticLockFailureToAlreadyProcessed() {
       Outing outing = departedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
       given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
-      given(outingRepository.save(any(Outing.class)))
+      given(outingRepository.saveAndFlush(any(Outing.class)))
           .willThrow(new ObjectOptimisticLockingFailureException(Outing.class, OUTING_CODE));
       givenSchoolPropertiesOk();
 

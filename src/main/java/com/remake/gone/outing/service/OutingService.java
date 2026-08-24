@@ -292,13 +292,17 @@ public class OutingService {
    * (#43 코드 리뷰 Medium 2번 대응). 학생이 네트워크 지연 중 버튼을 두 번 누르거나 클라이언트가
    * 재전송하면, 먼저 커밋된 요청이 이미 {@code status}를 바꿔놓은 뒤라 두 번째 저장은 버전
    * 충돌로 실패한다 — 이 상황은 원인 불명의 500이 아니라 "이미 처리된 요청"이라는 의미 있는
-   * 409로 응답해야 한다.
+   * 409로 응답해야 한다. {@code save}가 아니라 {@code saveAndFlush}를 쓴다 — 일반
+   * {@code save}는 실제 UPDATE를 트랜잭션 커밋 시점까지 지연시킬 수 있어, 버전 충돌이 이
+   * 메서드의 {@code try} 밖(커밋 시점)에서 터져 그대로 500으로 새어나갈 수 있다(PR 코드
+   * 리뷰에서 발견). {@code saveAndFlush}로 UPDATE를 즉시 실행시켜야 충돌을 이 자리에서
+   * 확실히 잡는다.
    *
    * @param outing 저장할 외출증(출발/도착 필드가 이미 반영된 상태)
    */
   private void saveOrRejectAsAlreadyProcessed(Outing outing) {
     try {
-      outingRepository.save(outing);
+      outingRepository.saveAndFlush(outing);
     } catch (ObjectOptimisticLockingFailureException e) {
       throw new CustomException(OutingErrorCode.ALREADY_PROCESSED);
     }
