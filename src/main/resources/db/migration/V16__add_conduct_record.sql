@@ -11,7 +11,7 @@ CREATE TABLE conduct_record
     canceled_at          DATETIME     NULL,
     canceled_by_user_id  BIGINT       NULL,
     cancel_reason        VARCHAR(500) NULL,
-    version              INT          NOT NULL DEFAULT 0,
+    version              BIGINT       NOT NULL DEFAULT 0,
     created_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
