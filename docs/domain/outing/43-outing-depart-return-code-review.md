@@ -10,8 +10,18 @@ checkstyleTest`는 경고 없이 통과했고, `./gradlew test --tests "com.rema
 ## 요약
 - Critical: 없음
 - High: 없음
-- Medium: 2건 (#1, #2)
-- Low: 1건 (#3)
+- Medium: 2건 (#1, #2) — 모두 반영 완료
+- Low: 1건 (#3) — 반영 완료
+
+**보스 결정 및 반영 내역(2026-08-24):**
+1. IDOR: `OutingDepartReturnOwnershipIntegrationTest` 추가(실제 학생 2명 + 외출증을 DB에
+   저장하고 `@SpringBootTest`로 403/`OUTING_007`을 검증).
+2. 낙관적 락 충돌: `departOuting`/`returnOuting`에만 개별로
+   `ObjectOptimisticLockingFailureException` → `OutingErrorCode.ALREADY_PROCESSED`(409)
+   변환 추가(`OutingService.saveOrRejectAsAlreadyProcessed`). `approveOuting`/`rejectOuting`은
+   범위 밖으로 남겨두고, 두 API 계열의 동시성 처리가 갈리는 점은 후속 이슈로 분리한다.
+3. 좌표 범위: `OutingLocationRequest`에 `@DecimalMin`/`@DecimalMax` 추가(위도 -90~90,
+   경도 -180~180).
 
 기획서 범위 이탈(스코프 크립)이나 누락된 필수 동작은 발견되지 않았다. 검증 순서(404 →
 403 → 운영시간 400 → 상태 409 → 반경 400), 에러 코드 재사용(`OUTING_007`/`OUTING_005`),
