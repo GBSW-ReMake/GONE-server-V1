@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "GONE - Outing API",
-    "description": "외출증(Outing) 도메인 API 컬렉션. 최상위에는 실제 구현된 신청(#29)/승인(#30)/거절(#31) 3개 엔드포인트만 두고, 로그인/토큰 준비는 \"사전 준비\" 폴더로, 주요 에러 케이스는 \"에러 케이스\" 폴더로 분리했습니다.\n\n**실행 순서**: \"사전 준비\" 폴더 전체(학생/선생님 로그인 + 거절 테스트용 신청 1건) → 최상위 \"외출증 신청\" → \"외출증 승인\" → \"외출증 거절\" → \"에러 케이스\" 폴더(외출증 승인 실행 후 아무 때나 가능).\n\n**사전 조건**: `studentLoginId`(user1)/`teacherLoginId`(teacher1) 테스트 계정이 DB에 있어야 합니다. `outingDate`는 항상 \"오늘~이번 주 금요일\" 범위 안이어야 하므로, 주말에 실행하면 환경 변수 값을 조정하세요.\n\n**#41 조회 API 추가**: 최상위에 \"외출증 본인 신청 조회\"/\"외출증 배정 조회\"/\"외출증 단건 조회\" 3개가 추가됐습니다. 이 세 엔드포인트를 처음부터 끝까지 확인하려면 \"#41 외출증 조회 확인\" 폴더를 순서대로 실행하세요(사전 준비~에러 케이스 폴더와 독립적으로 완결적입니다).",
+    "description": "외출증(Outing) 도메인 API 컬렉션. 최상위에는 실제 구현된 신청(#29)/승인(#30)/거절(#31) 3개 엔드포인트만 두고, 로그인/토큰 준비는 \"사전 준비\" 폴더로, 주요 에러 케이스는 \"에러 케이스\" 폴더로 분리했습니다.\n\n**실행 순서**: \"사전 준비\" 폴더 전체(학생/선생님 로그인 + 거절 테스트용 신청 1건) → 최상위 \"외출증 신청\" → \"외출증 승인\" → \"외출증 거절\" → \"에러 케이스\" 폴더(외출증 승인 실행 후 아무 때나 가능).\n\n**사전 조건**: `studentLoginId`(user1)/`teacherLoginId`(teacher1) 테스트 계정이 DB에 있어야 합니다. `outingDate`는 항상 \"오늘~이번 주 금요일\" 범위 안이어야 하므로, 주말에 실행하면 환경 변수 값을 조정하세요.\n\n**#41 조회 API 추가**: 최상위에 \"외출증 본인 신청 조회\"/\"외출증 배정 조회\"/\"외출증 단건 조회\" 3개가 추가됐습니다. 이 세 엔드포인트를 처음부터 끝까지 확인하려면 \"#41 외출증 조회 확인\" 폴더를 순서대로 실행하세요(사전 준비~에러 케이스 폴더와 독립적으로 완결적입니다).\n\n**#43 출발/도착 보고 API 추가**: 최상위에 \"외출증 출발 보고\"/\"외출증 도착 보고\" 2개가 추가됐습니다(출발 보고 이후 도착 보고가 이어지므로 실행 순서를 지켜야 합니다). \"사전 준비\" 폴더에 에러 케이스 전용 fixture(outingCodeForDepartureError=APPROVED, outingCodeForReturnError=DEPARTED, 둘 다 pre-request script로 항상 미래 시각을 계산해 실행 시각과 무관하게 동작)가 추가됐고, \"에러 케이스\" 폴더에 IDOR(무관한 사용자)/상태 위반/학교 반경 밖/좌표 범위 밖 케이스가 이 fixture들을 사용해 추가됐습니다. 이 두 엔드포인트만 처음부터 끝까지 확인하려면 \"#43 출발/도착 보고 확인\" 폴더를 순서대로 실행하세요(이 폴더도 자체 fixture를 동적으로 생성하므로 독립적으로 완결적입니다). `outingLatitude`/`outingLongitude` 환경 변수는 로컬 `application-dev.yml`의 `outing.school-latitude`/`school-longitude` 더미값(0.0/0.0)과 반드시 일치해야 학교 반경(200m) 검증을 통과합니다.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -173,6 +173,300 @@
                   "        pm.environment.set(\"outingCodeForReject\", body.data.code);",
                   "    }",
                   "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "외출증 신청 (출발 에러 테스트용 사전 준비)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"#43 QA - 출발 에러 테스트\",\n  \"outingDate\": \"{{qaDepErrDate}}\",\n  \"timeSlot\": \"CUSTOM\",\n  \"customStartTime\": \"{{qaDepErrStart}}\",\n  \"customEndTime\": \"{{qaDepErrEnd}}\",\n  \"teacherUserId\": {{teacherUserId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings"
+              ]
+            },
+            "description": "\"외출증 출발 보고\" 에러 케이스(학교 반경 밖, 좌표 범위 밖, 도착 시도 시 상태 위반, 이미 처리된 code)에 쓸 APPROVED 상태 외출증을 별도로 만들어둔다. Pre-request Script가 \"지금부터 5분 뒤\"를 시작 시각으로 계산해서 채우므로(08:40~20:30 범위를 벗어나면 실패하니 그 시간대에 실행), 실행 시각과 무관하게 항상 유효하다."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const pad = (n) => String(n).padStart(2, '0');",
+                  "const start = new Date(Date.now() + 5 * 60 * 1000);",
+                  "const end = new Date(start.getTime() + 30 * 60 * 1000);",
+                  "const ymd = `${start.getFullYear()}${pad(start.getMonth() + 1)}${pad(start.getDate())}`;",
+                  "pm.environment.set('qaDepErrDate', ymd);",
+                  "pm.environment.set('qaDepErrStart', `${pad(start.getHours())}:${pad(start.getMinutes())}`);",
+                  "pm.environment.set('qaDepErrEnd', `${pad(end.getHours())}:${pad(end.getMinutes())}`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data && body.data.code) {",
+                  "        pm.environment.set(\"outingCodeForDepartureError\", body.data.code);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "외출증 승인 (출발 에러 테스트용)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCodeForDepartureError}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCodeForDepartureError}}",
+                "approve"
+              ]
+            },
+            "description": "위 신청을 승인해 APPROVED로 만든다 — 에러 케이스에서만 소비하므로(실제로 출발 처리하지 않음) 이후에도 계속 APPROVED로 남는다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"status는 APPROVED\", function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.data.status).to.eql(\"APPROVED\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "외출증 신청 (도착 에러 테스트용 사전 준비)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"#43 QA - 도착 에러 테스트\",\n  \"outingDate\": \"{{qaRetErrDate}}\",\n  \"timeSlot\": \"CUSTOM\",\n  \"customStartTime\": \"{{qaRetErrStart}}\",\n  \"customEndTime\": \"{{qaRetErrEnd}}\",\n  \"teacherUserId\": {{teacherUserId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings"
+              ]
+            },
+            "description": "\"외출증 도착 보고\" 에러 케이스(학교 반경 밖, 좌표 범위 밖, 이미 처리된 code)에 쓸 DEPARTED 상태 외출증을 별도로 만들어둔다. 위 출발 에러 테스트용 fixture와 겹치지 않도록 다른 시간대를 쓴다."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const pad = (n) => String(n).padStart(2, '0');",
+                  "const start = new Date(Date.now() + 40 * 60 * 1000);",
+                  "const end = new Date(start.getTime() + 30 * 60 * 1000);",
+                  "const ymd = `${start.getFullYear()}${pad(start.getMonth() + 1)}${pad(start.getDate())}`;",
+                  "pm.environment.set('qaRetErrDate', ymd);",
+                  "pm.environment.set('qaRetErrStart', `${pad(start.getHours())}:${pad(start.getMinutes())}`);",
+                  "pm.environment.set('qaRetErrEnd', `${pad(end.getHours())}:${pad(end.getMinutes())}`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data && body.data.code) {",
+                  "        pm.environment.set(\"outingCodeForReturnError\", body.data.code);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "외출증 승인 (도착 에러 테스트용)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCodeForReturnError}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCodeForReturnError}}",
+                "approve"
+              ]
+            },
+            "description": "위 신청을 승인한다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"status는 APPROVED\", function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.data.status).to.eql(\"APPROVED\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "외출증 출발 처리 (도착 에러 테스트용, 반경 안 정상 출발)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": {{outingLatitude}},\n  \"longitude\": {{outingLongitude}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCodeForReturnError}}/depart",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCodeForReturnError}}",
+                "depart"
+              ]
+            },
+            "description": "도착 보고 에러 케이스는 DEPARTED 상태가 전제조건이라, 학교 반경 안 좌표(outingLatitude/outingLongitude — 로컬 dev 더미값은 0.0/0.0)로 정상 출발 처리를 먼저 해둔다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"status는 DEPARTED\", function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.data.status).to.eql(\"DEPARTED\");",
+                  "});"
                 ]
               }
             }
@@ -510,6 +804,124 @@
           }
         }
       ]
+    },
+    {
+      "name": "외출증 출발 보고",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{studentAccessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"latitude\": {{outingLatitude}},\n  \"longitude\": {{outingLongitude}}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/outings/{{outingCode}}/depart",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "outings",
+            "{{outingCode}}",
+            "depart"
+          ]
+        },
+        "description": "#43 신규 엔드포인트. \"외출증 신청\"→\"외출증 승인\"에서 APPROVED로 만든 outingCode를 학교 반경 안 좌표(outingLatitude/outingLongitude — 로컬 dev 더미값 0.0/0.0, 반경 200m)로 출발 처리합니다. status가 DEPARTED로 바뀝니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"status는 DEPARTED\", function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(body.data.status).to.eql(\"DEPARTED\");",
+              "});"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "외출증 도착 보고",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{studentAccessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"latitude\": {{outingLatitude}},\n  \"longitude\": {{outingLongitude}}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/outings/{{outingCode}}/return",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "outings",
+            "{{outingCode}}",
+            "return"
+          ]
+        },
+        "description": "#43 신규 엔드포인트. 위 \"외출증 출발 보고\"에서 DEPARTED로 만든 같은 outingCode를 학교 반경 안 좌표로 도착 처리합니다. status가 RETURNED로 바뀌고 departedAt/returnedAt이 모두 채워집니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"status는 RETURNED, departedAt/returnedAt 모두 존재\", function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(body.data.status).to.eql(\"RETURNED\");",
+              "    pm.expect(body.data.departedAt).to.not.be.null;",
+              "    pm.expect(body.data.returnedAt).to.not.be.null;",
+              "});"
+            ]
+          }
+        }
+      ],
+      "response": []
     },
     {
       "name": "에러 케이스",
@@ -1178,6 +1590,710 @@
                   "    pm.response.to.have.status(409);",
                   "    const body = pm.response.json();",
                   "    pm.expect(body.code).to.eql(\"OUTING_008\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "출발: 존재하지 않는 code → 404",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": {{outingLatitude}},\n  \"longitude\": {{outingLongitude}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/NOTEXISTCODE/depart",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "NOTEXISTCODE",
+                "depart"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"404 Not Found, OUTING_006\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.code).to.eql(\"OUTING_006\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "출발: 무관한 사용자로 시도 → 403 OUTING_007",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCodeForDepartureError}}/depart",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCodeForDepartureError}}",
+                "depart"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": {{outingLatitude}},\n  \"longitude\": {{outingLongitude}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "역할이 없는 무관한 계정이 아니라, STUDENT 역할은 있지만 이 외출증의 학생이 아닌 계정({{accessToken}} — Auth 컬렉션 또는 사전 준비 로그인으로 채워둔 testuser01 토큰)으로 시도해야 소유권 검사(OUTING_007)까지 도달한다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403 Forbidden, OUTING_007\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.code).to.eql(\"OUTING_007\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "출발: TEACHER 역할로 시도 → 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCodeForDepartureError}}/depart",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCodeForDepartureError}}",
+                "depart"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": {{outingLatitude}},\n  \"longitude\": {{outingLongitude}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "TEACHER 역할로는 @PreAuthorize(\"hasRole('STUDENT')\")를 통과하지 못해야 합니다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403 Forbidden\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "출발: Authorization 헤더 없이 시도 → 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCodeForDepartureError}}/depart",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCodeForDepartureError}}",
+                "depart"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": {{outingLatitude}},\n  \"longitude\": {{outingLongitude}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401 Unauthorized\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "출발: 학교 반경 밖에서 시도 → 400 OUTING_009",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCodeForDepartureError}}/depart",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCodeForDepartureError}}",
+                "depart"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 37.0,\n  \"longitude\": {{outingLongitude}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "\"사전 준비\"의 outingCodeForDepartureError(APPROVED)를 학교 반경(200m) 밖 좌표로 출발 시도한다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request, OUTING_009\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.code).to.eql(\"OUTING_009\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "출발: 좌표 범위 밖(latitude 999)으로 시도 → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCodeForDepartureError}}/depart",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCodeForDepartureError}}",
+                "depart"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 999.0,\n  \"longitude\": {{outingLongitude}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Bean Validation(@DecimalMax(90))에서 걸러져야 합니다(코드 리뷰 Low 3번 대응)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request, COMMON_001\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.code).to.eql(\"COMMON_001\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "출발: 이미 처리된 code로 재출발 시도 → 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCodeForReturnError}}/depart",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCodeForReturnError}}",
+                "depart"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": {{outingLatitude}},\n  \"longitude\": {{outingLongitude}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "\"사전 준비\"에서 이미 DEPARTED로 만들어둔 outingCodeForReturnError를 재사용한다. APPROVED가 아니므로 409로 거부돼야 한다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409 Conflict, OUTING_005\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.code).to.eql(\"OUTING_005\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "도착: 아직 DEPARTED 아님(APPROVED)에서 시도 → 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCodeForDepartureError}}/return",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCodeForDepartureError}}",
+                "return"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": {{outingLatitude}},\n  \"longitude\": {{outingLongitude}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "outingCodeForDepartureError는 위 출발 에러 케이스들에서 실패만 반복해 여전히 APPROVED다 — DEPARTED가 아니므로 409로 거부돼야 한다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409 Conflict, OUTING_005\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.code).to.eql(\"OUTING_005\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "도착: 존재하지 않는 code → 404",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": {{outingLatitude}},\n  \"longitude\": {{outingLongitude}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/NOTEXISTCODE/return",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "NOTEXISTCODE",
+                "return"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"404 Not Found, OUTING_006\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.code).to.eql(\"OUTING_006\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "도착: 무관한 사용자로 시도 → 403 OUTING_007",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCodeForReturnError}}/return",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCodeForReturnError}}",
+                "return"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": {{outingLatitude}},\n  \"longitude\": {{outingLongitude}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "출발과 동일한 이유로 {{accessToken}}(STUDENT 역할 보유, 무관한 계정)을 사용한다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403 Forbidden, OUTING_007\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.code).to.eql(\"OUTING_007\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "도착: 학교 반경 밖에서 시도 → 400 OUTING_009",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCodeForReturnError}}/return",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCodeForReturnError}}",
+                "return"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 37.0,\n  \"longitude\": {{outingLongitude}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "\"사전 준비\"에서 DEPARTED로 만들어둔 outingCodeForReturnError를 학교 반경 밖 좌표로 도착 시도한다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request, OUTING_009\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.code).to.eql(\"OUTING_009\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "도착: 좌표 범위 밖(longitude 200)으로 시도 → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCodeForReturnError}}/return",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCodeForReturnError}}",
+                "return"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": {{outingLatitude}},\n  \"longitude\": 200.0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Bean Validation(@DecimalMax(180))에서 걸러져야 합니다(코드 리뷰 Low 3번 대응)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request, COMMON_001\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.code).to.eql(\"COMMON_001\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "도착: 이미 처리된 code로 재도착 시도 → 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCodeForDepartureError}}/return",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCodeForDepartureError}}",
+                "return"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": {{outingLatitude}},\n  \"longitude\": {{outingLongitude}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "outingCodeForDepartureError는 APPROVED 상태다 — DEPARTED가 아니므로 409로 거부돼야 한다(위 \"도착: 아직 DEPARTED 아님\" 케이스와 같은 전제조건을 재사용)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409 Conflict, OUTING_005\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.code).to.eql(\"OUTING_005\");",
                   "});"
                 ]
               }
@@ -1921,6 +3037,450 @@
                   "    pm.response.to.have.status(409);",
                   "    const body = pm.response.json();",
                   "    pm.expect(body.code).to.eql(\"OUTING_005\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "#43 출발/도착 보고 확인",
+      "item": [
+        {
+          "name": "1. 학생 로그인",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{studentLoginId}}\",\n  \"password\": \"{{studentPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"studentAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));",
+                  "        pm.environment.set(\"studentUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "2. 선생님 로그인",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{teacherLoginId}}\",\n  \"password\": \"{{teacherPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "응답 JWT를 디코드해 teacherUserId를 자동으로 추출합니다(외출증 신청 요청 바디에 사용)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"teacherAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));",
+                  "        pm.environment.set(\"teacherUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "3. 외출증 신청 (출발/도착 확인 대상 생성)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"#43 QA - 출발/도착 확인\",\n  \"outingDate\": \"{{qa43Date}}\",\n  \"timeSlot\": \"CUSTOM\",\n  \"customStartTime\": \"{{qa43Start}}\",\n  \"customEndTime\": \"{{qa43End}}\",\n  \"teacherUserId\": {{teacherUserId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings"
+              ]
+            },
+            "description": "Pre-request Script가 \"지금부터 5분 뒤\"를 시작 시각으로 계산해서 채우므로, 이 폴더는 실행 시각과 무관하게 항상 동작한다(사전 준비/에러 케이스 폴더와 독립적으로 완결적). 응답의 data.code를 qaDepartReturnCode에 저장한다."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const pad = (n) => String(n).padStart(2, '0');",
+                  "const start = new Date(Date.now() + 5 * 60 * 1000);",
+                  "const end = new Date(start.getTime() + 30 * 60 * 1000);",
+                  "const ymd = `${start.getFullYear()}${pad(start.getMonth() + 1)}${pad(start.getDate())}`;",
+                  "pm.environment.set('qa43Date', ymd);",
+                  "pm.environment.set('qa43Start', `${pad(start.getHours())}:${pad(start.getMinutes())}`);",
+                  "pm.environment.set('qa43End', `${pad(end.getHours())}:${pad(end.getMinutes())}`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data && body.data.code) {",
+                  "        pm.environment.set(\"qaDepartReturnCode\", body.data.code);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "4. 외출증 승인",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{qaDepartReturnCode}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{qaDepartReturnCode}}",
+                "approve"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"status는 APPROVED\", function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.data.status).to.eql(\"APPROVED\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "5. 출발 보고 (학교 반경 안)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": {{outingLatitude}},\n  \"longitude\": {{outingLongitude}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{qaDepartReturnCode}}/depart",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{qaDepartReturnCode}}",
+                "depart"
+              ]
+            },
+            "description": null
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK, status는 DEPARTED\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.data.status).to.eql(\"DEPARTED\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "6. 배정 조회 (선생님, status=DEPARTED — 진행 중인 외출 확인)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/me/received?status=DEPARTED",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "me",
+                "received"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "DEPARTED"
+                }
+              ]
+            },
+            "description": "이슈 본문의 \"선생님이 진행 중인 외출을 조회\" 요구사항 확인 — 5번에서 출발 처리한 qaDepartReturnCode가 여기 포함되어야 한다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK, qaDepartReturnCode가 목록에 포함됨\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const body = pm.response.json();",
+                  "    const codes = body.data.content.map((o) => o.code);",
+                  "    pm.expect(codes).to.include(pm.environment.get(\"qaDepartReturnCode\"));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "7. 도착 보고 (학교 반경 안)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": {{outingLatitude}},\n  \"longitude\": {{outingLongitude}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{qaDepartReturnCode}}/return",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{qaDepartReturnCode}}",
+                "return"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK, status는 RETURNED\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.data.status).to.eql(\"RETURNED\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "8. 배정 조회 (선생님, status=RETURNED — 완료된 외출 확인)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/me/received?status=RETURNED",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "me",
+                "received"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "RETURNED"
+                }
+              ]
+            },
+            "description": "이슈 본문의 \"선생님이 완료된 외출을 조회\" 요구사항 확인 — departedAt/returnedAt이 모두 채워진 채로 반환돼야 한다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK, departedAt/returnedAt 모두 존재\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const body = pm.response.json();",
+                  "    const target = body.data.content.find((o) => o.code === pm.environment.get(\"qaDepartReturnCode\"));",
+                  "    pm.expect(target).to.not.be.undefined;",
+                  "    pm.expect(target.departedAt).to.not.be.null;",
+                  "    pm.expect(target.returnedAt).to.not.be.null;",
                   "});"
                 ]
               }
