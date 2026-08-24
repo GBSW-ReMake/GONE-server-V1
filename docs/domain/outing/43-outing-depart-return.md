@@ -193,9 +193,11 @@
   `returnedAt` 시각이 응답에 포함됨 — 위 "마스터 기획서 재검토" 참고)
 
 ## 데이터 모델 변경
-### `Outing` 엔티티에 컬럼 4개 추가 (`db/migration/V16__add_outing_depart_return_location.sql`)
-(최신 마이그레이션이 `V15__add_conduct_category.sql`이므로 다음 번호는 `V16`이다 — 초안의
-`V9`는 이미 `V9__add_notification.sql`이 쓰고 있어 번호가 겹쳤다.)
+### `Outing` 엔티티에 컬럼 4개 추가 (`db/migration/V17__add_outing_depart_return_location.sql`)
+(애초 `V16`으로 작성했으나, PR 생성 후 CI에서 `dev`에 먼저 병합된 다른 PR(#94 상/벌점
+부여)이 이미 `V16__add_conduct_record.sql`을 쓰고 있어 버전이 겹치는 것을 발견해
+`V17`로 재번호했다 — 초안의 `V9`도 이미 `V9__add_notification.sql`이 쓰고 있어 번호가
+겹쳤던 것과 같은 종류의 문제다.)
 `departed_at`/`returned_at` 명명 규칙과 동일하게 맞춘다.
 ```sql
 ALTER TABLE outing
