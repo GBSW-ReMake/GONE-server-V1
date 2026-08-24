@@ -72,7 +72,7 @@
 ## 데이터 모델 변경
 
 ### 신규 enum: `ConductStatus`
-```
+```text
 ACTIVE   — 유효한 기록 (집계 포함)
 CANCELED — 취소됨 (집계 제외, 이력에는 표시)
 ```
@@ -94,7 +94,7 @@ CANCELED — 취소됨 (집계 제외, 이력에는 표시)
 | `canceled_at` | `DATETIME NULL` | 취소 시각 |
 | `canceled_by_user_id` | `BIGINT FK → user.id, NULL` | 취소 실행자 |
 | `cancel_reason` | `VARCHAR(500) NULL` | 취소 사유 |
-| `version` | `INT NOT NULL DEFAULT 0` | 낙관적 락(`@Version`) |
+| `version` | `BIGINT NOT NULL DEFAULT 0` | 낙관적 락(`@Version`) |
 | `created_at` | `DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP` | |
 | `updated_at` | `DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP` | 정정 시 갱신 |
 
