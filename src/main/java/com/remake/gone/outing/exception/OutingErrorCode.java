@@ -59,7 +59,16 @@ public enum OutingErrorCode implements ErrorCode {
 
   /** 승인/거절 요청 시점에 이미 그 외출증의 시작 시각이 지났습니다(#42). DB의 {@code status}가
    *  아직 {@code PENDING}이어도(스케줄러가 아직 반영 전이어도) 매 요청마다 재계산해 차단한다. */
-  DEADLINE_PASSED(HttpStatus.CONFLICT, "OUTING_008", "마감이 지나 더 이상 처리할 수 없는 외출증입니다.");
+  DEADLINE_PASSED(HttpStatus.CONFLICT, "OUTING_008", "마감이 지나 더 이상 처리할 수 없는 외출증입니다."),
+
+  /** 출발/도착 보고 요청 좌표가 학교 반경({@code schoolRadiusMeters}) 밖입니다(#43). */
+  OUT_OF_SCHOOL_RADIUS(
+      HttpStatus.BAD_REQUEST, "OUTING_009", "학교 반경을 벗어난 위치에서는 출발/도착 처리를 할 수 없습니다."),
+
+  /** 현재 시각이 학교 운영시간({@code OutingTimeSlot.CUSTOM_WINDOW_START}~
+   *  {@code CUSTOM_WINDOW_END}, 08:40~20:30) 밖입니다(#43). */
+  OUTSIDE_OPERATING_HOURS(
+      HttpStatus.BAD_REQUEST, "OUTING_010", "학교 운영시간(08:40~20:30) 외에는 출발/도착을 보고할 수 없습니다.");
 
   private final HttpStatus httpStatus;
   private final String code;

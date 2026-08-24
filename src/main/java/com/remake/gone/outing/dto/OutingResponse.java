@@ -2,6 +2,7 @@ package com.remake.gone.outing.dto;
 
 import com.remake.gone.outing.enums.OutingStatus;
 import com.remake.gone.outing.enums.OutingTimeSlot;
+import java.time.LocalDateTime;
 
 /**
  * 외출증 신청 응답 DTO.
@@ -20,6 +21,11 @@ import com.remake.gone.outing.enums.OutingTimeSlot;
  * @param endTime                종료 시각({@code HH:mm})
  * @param status                 외출증 상태
  * @param rejectedReason         거절 사유. {@code REJECTED} 상태가 아니면 {@code null}
+ * @param departedAt             출발 보고 시각(#43). 아직 출발 전이면 {@code null}
+ * @param returnedAt             도착 보고 시각(#43). 아직 도착 전이면 {@code null}
+ * @param offSchedule            출발/도착이 이 외출증의 예정 시간대({@code startTime}~
+ *                               {@code endTime}) 밖에서 보고됐는지(#43). 출발/도착 전이면
+ *                               {@code false}
  */
 public record OutingResponse(
     String code,
@@ -35,5 +41,8 @@ public record OutingResponse(
     String startTime,
     String endTime,
     OutingStatus status,
-    String rejectedReason
+    String rejectedReason,
+    LocalDateTime departedAt,
+    LocalDateTime returnedAt,
+    boolean offSchedule
 ) {}
