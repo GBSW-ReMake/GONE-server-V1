@@ -129,7 +129,8 @@ class ConductServiceTest {
       ConductCategory category = demeritsCategory();
       User studentUser = student();
       User teacherUser = teacher();
-      ConductGrantRequest request = new ConductGrantRequest(studentUserId, categoryId, "3교시 10분 지각");
+      ConductGrantRequest request =
+          new ConductGrantRequest(studentUserId, categoryId, "3교시 10분 지각");
 
       given(conductCategoryRepository.findById(categoryId)).willReturn(Optional.of(category));
       given(userRepository.findById(studentUserId)).willReturn(Optional.of(studentUser));
