@@ -1038,7 +1038,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"identifier\": \"qatest_teacher\", \"password\": \"Test1234!\"}"
+              "raw": "{\"identifier\": \"qatest_teacher\", \"password\": \"{{teacherPassword}}\"}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/auth/login",

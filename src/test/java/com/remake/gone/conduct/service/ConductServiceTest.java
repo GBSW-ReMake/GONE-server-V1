@@ -460,10 +460,12 @@ class ConductServiceTest {
           .willReturn(List.of("TEACHER"));
       given(userRepository.findById(teacherUserId)).willReturn(Optional.of(teacherUser));
 
-      ConductRecordResponse result =
-          conductService.cancelConduct(teacherUserId, recordId, request);
+      conductService.cancelConduct(teacherUserId, recordId, request);
 
-      assertThat(result.status()).isEqualTo(ConductStatus.CANCELED);
+      assertThat(record.getStatus()).isEqualTo(ConductStatus.CANCELED);
+      assertThat(record.getCancelReason()).isEqualTo("오인 부여 확인됨");
+      assertThat(record.getCanceledBy()).isEqualTo(teacherUser);
+      assertThat(record.getCanceledAt()).isNotNull();
     }
 
     @Test

@@ -36,6 +36,7 @@
 { "categoryId": 6, "detail": "3교시 이후 조퇴, 사유서 미제출" }
 ```
 - `categoryId`만 보내거나, `detail`만 보내거나, 둘 다 보낼 수 있다.
+- **두 필드 모두 `null`인 경우(빈 바디 포함)는 `400` `COMMON_001 INVALID_REQUEST` 반환.** 변경할 내용이 없는 요청은 거부한다.
 - `detail`에 빈 문자열(`""`) 허용 여부: `null`은 "변경 없음"으로, `""` 전달 시 그대로 저장한다.
 - `categoryId`를 보내면 `type`/`points`도 새 카테고리 기준으로 재계산해 스냅샷.
 
@@ -74,6 +75,7 @@
 
 | 조건 | HTTP | 코드 |
 |---|---|---|
+| `categoryId`·`detail` 모두 null | 400 | `COMMON_001` |
 | `id` 없음 | 404 | `CONDUCT_001` |
 | 소유권 없음(ADMIN 아닌 경우) | 403 | `CONDUCT_002` |
 | 이미 취소됨 | 409 | `CONDUCT_003` |
