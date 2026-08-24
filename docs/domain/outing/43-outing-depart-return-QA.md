@@ -9,12 +9,15 @@
 - `./gradlew checkstyleMain checkstyleTest`: **통과** (경고 없음)
 - `./gradlew test`: **통과** (전체 105개 테스트 클래스, 실패/에러 0건 — 코드 리뷰 반영분
   포함 재실행)
-- GitHub Actions CI: 이 저장소의 CI는 `pull_request`/`push`가 `main`/`dev`/`staging`
-  대상일 때만 트리거되고 기능 브랜치 push로는 돌지 않는다(`.github/workflows/ci.yml`).
-  이번 브랜치는 아직 PR 이전(로컬 전용)이라 CI 실행 이력이 없다 — **16단계(PR 생성) 직후
-  실제 CI 결과를 다시 확인한다.**
+- GitHub Actions CI: PR #104 생성 후 확인 완료. 최초 실행은 Flyway 마이그레이션 버전
+  충돌(`V16`이 `dev`에 먼저 병합된 #94와 겹침)로 실패했으나, `V17`로 재번호한 뒤
+  재실행해 `checkstyle`/`build-and-test` 모두 통과했다(자세한 경위는 PR #104 코멘트
+  참고).
 
-### 수동 검증 (실서버, `localhost:9090`, dev 프로필, 로컬 MySQL/Redis 기동)
+### 수동 검증 (로컬 dev 서버, `localhost:9090`, dev 프로필, 로컬 MySQL/Redis 기동)
+아래 검증은 모두 로컬 개발 환경에서 수행했다 — staging/production 배포 환경 검증이
+아니다. 학교 좌표도 로컬 `application-dev.yml`의 더미값(`0.0`/`0.0`)이며, 실제 좌표는
+staging 배포 전 별도로 등록해야 한다(기획서 "환경변수/시크릿" 절 참고).
 `user1`(STUDENT, id=12)/`teacher1`(TEACHER, id=13)/`testuser01`(STUDENT 역할 보유, 관계없는
 사용자 대역, id=1) 계정으로 실제 요청을 보내 확인했다. `outing.school-latitude`/
 `school-longitude`가 로컬 `application-dev.yml`에 더미값 `0.0`/`0.0`(반경 200m)으로 설정돼
@@ -61,17 +64,21 @@
    두 요청을 정확히 겹치게 만들어야 재현되는데, curl 기반 수동 QA로는 그 타이밍을 통제할 수
    없었다. `OutingServiceTest`의
    `convertsOptimisticLockFailureToAlreadyProcessed`(출발/도착 각각)로 대체 확인했다
-   (`OutingRepository.save`가 `ObjectOptimisticLockingFailureException`을 던지도록 목킹해
-   409 `ALREADY_PROCESSED` 변환을 검증) — #42 QA의 동일 판단(환경 제약 시 단위 테스트로
-   대체)을 따른다.
+   (`OutingRepository.saveAndFlush`가 `ObjectOptimisticLockingFailureException`을
+   던지도록 목킹해 409 `ALREADY_PROCESSED` 변환을 검증) — #42 QA의 동일 판단(환경 제약 시
+   단위 테스트로 대체)을 따른다. (PR 코드 리뷰에서 `save`는 실제 UPDATE를 커밋 시점까지
+   지연시켜 충돌이 이 메서드의 `try` 밖에서 터질 수 있음이 추가로 발견돼
+   `saveAndFlush`로 수정됐다 — 이 QA 문서는 그 수정 이후 기준으로 갱신됐다.)
 
 ## 2. 결론
 
 Critical/High 없음. 계획된 18개 케이스(정상 출발/도착, 4xx/409 에러 전 종류, 권한/역할
-검증, 이슈 본문의 진행중·완료 조회 요구사항) 모두 실서버에서 기대대로 동작함을 확인했다.
-코드 리뷰에서 반영한 3건(IDOR, 낙관적 락 충돌, 좌표 범위 검증) 중 IDOR과 좌표 범위 검증은
-실서버로 직접 재현했고, 낙관적 락 충돌과 운영시간 게이트는 실시간 재현이 불가능한 환경
-제약으로 단위 테스트로 대체 확인했다(기존 #41/#42 선례와 동일한 판단). CI는 이 브랜치가
-PR 이전 단계라 아직 실행 이력이 없어, PR 생성 직후 별도로 확인이 필요하다.
+검증, 이슈 본문의 진행중·완료 조회 요구사항) 모두 로컬 dev 서버에서 기대대로 동작함을
+확인했다(staging/production 검증 아님 — 위 "수동 검증" 절 참고). 코드 리뷰에서 반영한
+3건(IDOR, 낙관적 락 충돌, 좌표 범위 검증) 중 IDOR과 좌표 범위 검증은 로컬 서버로 직접
+재현했고, 낙관적 락 충돌과 운영시간 게이트는 실시간 재현이 불가능한 환경 제약으로 단위
+테스트로 대체 확인했다(기존 #41/#42 선례와 동일한 판단). CI(checkstyle/build-and-test)는
+PR #104 생성 후 확인해 모두 통과했다(마이그레이션 버전 충돌 수정 포함, 위 "자동 검증"
+절 참고).
 
 추가 조치 없이 다음 단계(문제사항 보고)로 진행 가능하다고 판단한다.

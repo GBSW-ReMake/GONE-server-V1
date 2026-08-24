@@ -12,6 +12,9 @@ on:
       - dev
       - staging
 
+permissions:
+  contents: read
+
 jobs:
   checkstyle:
     runs-on: ubuntu-22.04

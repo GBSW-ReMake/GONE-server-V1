@@ -129,7 +129,7 @@ OutingLocationRequest.java:11-14`)는 `latitude`/`longitude`에 `@NotNull`만 �
   400 운영시간 → 409 상태 → 400 반경)를 정확히 따른다(`OutingService.java:238-257`,
   `268-288`).
 - **경계값**: 운영시간(08:40/20:30)과 자체 시간대(startTime/endTime) 모두 inclusive로
-  구현됐고(`isBefore`/`isAfter`만 사용, `isBefore`/`isAfter` 아님에 유의), 각 경계값이
+  구현됐고(`isBefore`/`isAfter`만 사용해 경계 시각은 허용), 각 경계값이
   `OutingServiceTest`에 08:39/08:40/20:30/20:31로 명시적으로 테스트된다.
 - **`DINNER` 버그 수정**: `OutingTimeSlot.DINNER` 종료 시각이 21:10 → 19:10으로
   수정됐고, 회귀 방지 테스트(`OutingTimeSlotTest.dinnerEndTimeIsNineteenTen`)가
