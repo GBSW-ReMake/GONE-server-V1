@@ -14,6 +14,7 @@ import com.remake.gone.common.response.ApiResponse;
 import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.common.security.UserPrincipal;
 import com.remake.gone.outing.dto.OutingApplyRequest;
+import com.remake.gone.outing.dto.OutingLocationRequest;
 import com.remake.gone.outing.dto.OutingRejectRequest;
 import com.remake.gone.outing.dto.OutingResponse;
 import com.remake.gone.outing.enums.OutingQueryPeriod;
@@ -71,7 +72,7 @@ class OutingControllerTest {
       OutingResponse expected = new OutingResponse(
           "8A1zx9202n", "길동이", null, "홍길동", 3, 4, "김선생",
           "치과 진료", "20260814", OutingTimeSlot.LUNCH, "12:30", "13:40", OutingStatus.PENDING,
-          null);
+          null, null, null, false);
       given(outingService.applyOuting(
           eq(STUDENT_ID), eq(request), any(LocalDate.class), any(LocalTime.class)))
           .willReturn(expected);
@@ -156,7 +157,7 @@ class OutingControllerTest {
       OutingResponse expected = new OutingResponse(
           code, "길동이", null, "홍길동", 3, 4, "김선생",
           "치과 진료", "20260814", OutingTimeSlot.LUNCH, "12:30", "13:40", OutingStatus.APPROVED,
-          null);
+          null, null, null, false);
       given(outingService.approveOuting(eq(TEACHER_ID), eq(code), any(LocalDateTime.class)))
           .willReturn(expected);
 
@@ -180,7 +181,7 @@ class OutingControllerTest {
       OutingResponse expected = new OutingResponse(
           code, "길동이", null, "홍길동", 3, 4, "김선생",
           "치과 진료", "20260814", OutingTimeSlot.LUNCH, "12:30", "13:40", OutingStatus.REJECTED,
-          reason);
+          reason, null, null, false);
       given(outingService.rejectOuting(
           eq(TEACHER_ID), eq(code), eq(reason), any(LocalDateTime.class)))
           .willReturn(expected);
@@ -209,6 +210,143 @@ class OutingControllerTest {
       mockMvc.perform(patch("/api/v1/outings/8A1zx9202n/reject")
               .contentType(MediaType.APPLICATION_JSON)
               .content("{\"rejectedReason\": \"" + tooLong + "\"}"))
+          .andExpect(status().isBadRequest());
+    }
+  }
+
+  @Nested
+  @DisplayName("POST /api/v1/outings/{code}/depart")
+  class DepartOuting {
+
+    @Test
+    @DisplayName("principal의 userId, code, 좌표를 그대로 서비스에 전달한다")
+    void passesPrincipalCodeAndRequestToService() {
+      String code = "8A1zx9202n";
+      OutingLocationRequest request = new OutingLocationRequest(36.1234, 128.4321);
+      OutingResponse expected = new OutingResponse(
+          code, "길동이", null, "홍길동", 3, 4, "김선생",
+          "치과 진료", "20260814", OutingTimeSlot.LUNCH, "12:30", "13:40", OutingStatus.DEPARTED,
+          null, LocalDateTime.of(2026, 8, 14, 12, 31), null, false);
+      given(outingService.departOuting(
+          eq(STUDENT_ID), eq(code), eq(request), any(LocalDateTime.class)))
+          .willReturn(expected);
+
+      ApiResponse<OutingResponse> response =
+          controller().departOuting(new UserPrincipal(STUDENT_ID), code, request);
+
+      assertThat(response.success()).isTrue();
+      assertThat(response.data()).isEqualTo(expected);
+      assertThat(response.message()).isEqualTo("출발이 기록되었습니다.");
+    }
+
+    @Test
+    @DisplayName("offSchedule이 true면 안내 메시지로 분기한다")
+    void switchesMessageWhenOffSchedule() {
+      String code = "8A1zx9202n";
+      OutingLocationRequest request = new OutingLocationRequest(36.1234, 128.4321);
+      OutingResponse expected = new OutingResponse(
+          code, "길동이", null, "홍길동", 3, 4, "김선생",
+          "치과 진료", "20260814", OutingTimeSlot.LUNCH, "12:30", "13:40", OutingStatus.DEPARTED,
+          null, LocalDateTime.of(2026, 8, 14, 14, 10), null, true);
+      given(outingService.departOuting(
+          eq(STUDENT_ID), eq(code), eq(request), any(LocalDateTime.class)))
+          .willReturn(expected);
+
+      ApiResponse<OutingResponse> response =
+          controller().departOuting(new UserPrincipal(STUDENT_ID), code, request);
+
+      assertThat(response.message()).isEqualTo("예정된 시간 외에 출발이 기록되었습니다.");
+    }
+
+    @Test
+    @DisplayName("latitude가 없으면 400을 반환한다")
+    void returns400WhenLatitudeMissing() throws Exception {
+      mockMvc.perform(post("/api/v1/outings/8A1zx9202n/depart")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content("{\"longitude\": 128.4321}"))
+          .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("longitude가 없으면 400을 반환한다")
+    void returns400WhenLongitudeMissing() throws Exception {
+      mockMvc.perform(post("/api/v1/outings/8A1zx9202n/depart")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content("{\"latitude\": 36.1234}"))
+          .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("latitude가 범위(-90~90) 밖이면 400을 반환한다(#43 코드 리뷰 Low 3번 대응)")
+    void returns400WhenLatitudeOutOfRange() throws Exception {
+      mockMvc.perform(post("/api/v1/outings/8A1zx9202n/depart")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content("{\"latitude\": 999.0, \"longitude\": 128.4321}"))
+          .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("longitude가 범위(-180~180) 밖이면 400을 반환한다(#43 코드 리뷰 Low 3번 대응)")
+    void returns400WhenLongitudeOutOfRange() throws Exception {
+      mockMvc.perform(post("/api/v1/outings/8A1zx9202n/depart")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content("{\"latitude\": 36.1234, \"longitude\": 181.0}"))
+          .andExpect(status().isBadRequest());
+    }
+  }
+
+  @Nested
+  @DisplayName("POST /api/v1/outings/{code}/return")
+  class ReturnOuting {
+
+    @Test
+    @DisplayName("principal의 userId, code, 좌표를 그대로 서비스에 전달한다")
+    void passesPrincipalCodeAndRequestToService() {
+      String code = "8A1zx9202n";
+      OutingLocationRequest request = new OutingLocationRequest(36.1234, 128.4321);
+      OutingResponse expected = new OutingResponse(
+          code, "길동이", null, "홍길동", 3, 4, "김선생",
+          "치과 진료", "20260814", OutingTimeSlot.LUNCH, "12:30", "13:40", OutingStatus.RETURNED,
+          null, LocalDateTime.of(2026, 8, 14, 12, 31),
+          LocalDateTime.of(2026, 8, 14, 13, 35), false);
+      given(outingService.returnOuting(
+          eq(STUDENT_ID), eq(code), eq(request), any(LocalDateTime.class)))
+          .willReturn(expected);
+
+      ApiResponse<OutingResponse> response =
+          controller().returnOuting(new UserPrincipal(STUDENT_ID), code, request);
+
+      assertThat(response.success()).isTrue();
+      assertThat(response.data()).isEqualTo(expected);
+      assertThat(response.message()).isEqualTo("도착이 기록되었습니다.");
+    }
+
+    @Test
+    @DisplayName("offSchedule이 true면 안내 메시지로 분기한다")
+    void switchesMessageWhenOffSchedule() {
+      String code = "8A1zx9202n";
+      OutingLocationRequest request = new OutingLocationRequest(36.1234, 128.4321);
+      OutingResponse expected = new OutingResponse(
+          code, "길동이", null, "홍길동", 3, 4, "김선생",
+          "치과 진료", "20260814", OutingTimeSlot.LUNCH, "12:30", "13:40", OutingStatus.RETURNED,
+          null, LocalDateTime.of(2026, 8, 14, 12, 31),
+          LocalDateTime.of(2026, 8, 14, 19, 0), true);
+      given(outingService.returnOuting(
+          eq(STUDENT_ID), eq(code), eq(request), any(LocalDateTime.class)))
+          .willReturn(expected);
+
+      ApiResponse<OutingResponse> response =
+          controller().returnOuting(new UserPrincipal(STUDENT_ID), code, request);
+
+      assertThat(response.message()).isEqualTo("예정된 시간 외에 도착이 기록되었습니다.");
+    }
+
+    @Test
+    @DisplayName("latitude가 없으면 400을 반환한다")
+    void returns400WhenLatitudeMissing() throws Exception {
+      mockMvc.perform(post("/api/v1/outings/8A1zx9202n/return")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content("{\"longitude\": 128.4321}"))
           .andExpect(status().isBadRequest());
     }
   }
@@ -259,9 +397,9 @@ class OutingControllerTest {
     }
 
     @Test
-    @DisplayName("status=DEPARTED처럼 아직 도달 불가능한 상태로 필터링하면 400을 반환한다")
-    void returns400WhenStatusIsUnreachableValue() throws Exception {
-      mockMvc.perform(get("/api/v1/outings/me/requests").param("status", "DEPARTED"))
+    @DisplayName("status 값이 정의되지 않은 값이면 400을 반환한다")
+    void returns400WhenStatusInvalid() throws Exception {
+      mockMvc.perform(get("/api/v1/outings/me/requests").param("status", "NOT_A_STATUS"))
           .andExpect(status().isBadRequest());
     }
   }
@@ -297,7 +435,7 @@ class OutingControllerTest {
       OutingResponse expected = new OutingResponse(
           code, "길동이", null, "홍길동", 3, 4, "김선생",
           "치과 진료", "20260814", OutingTimeSlot.LUNCH, "12:30", "13:40", OutingStatus.PENDING,
-          null);
+          null, null, null, false);
       given(outingService.getOutingDetail(
           eq(STUDENT_ID), eq(code), any(LocalDate.class), any(LocalTime.class)))
           .willReturn(expected);

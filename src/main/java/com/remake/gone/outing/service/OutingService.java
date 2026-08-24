@@ -6,7 +6,9 @@ import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.file.service.R2FileService;
 import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.exception.GbswErrorCode;
+import com.remake.gone.outing.config.OutingProperties;
 import com.remake.gone.outing.dto.OutingApplyRequest;
+import com.remake.gone.outing.dto.OutingLocationRequest;
 import com.remake.gone.outing.dto.OutingResponse;
 import com.remake.gone.outing.entity.Outing;
 import com.remake.gone.outing.enums.OutingQueryPeriod;
@@ -15,6 +17,7 @@ import com.remake.gone.outing.enums.OutingStatus;
 import com.remake.gone.outing.enums.OutingTimeSlot;
 import com.remake.gone.outing.exception.OutingErrorCode;
 import com.remake.gone.outing.repository.OutingRepository;
+import com.remake.gone.outing.utils.GeoUtils;
 import com.remake.gone.outing.utils.OutingCodeGenerator;
 import com.remake.gone.outing.utils.OutingDateRange;
 import com.remake.gone.outing.utils.OutingQueryPeriodResolver;
@@ -65,6 +68,7 @@ public class OutingService {
   private final UserRepository userRepository;
   private final UserRoleRepository userRoleRepository;
   private final R2FileService r2FileService;
+  private final OutingProperties outingProperties;
 
   /**
    * 학생이 정해진 시간대(프리셋) 또는 직접 입력한 시간대(커스텀)에 외출증을 신청한다.
@@ -219,6 +223,118 @@ public class OutingService {
             teacherUserId, range.from(), range.to());
     List<OutingResponse> filtered = toFilteredResponses(outings, statusFilter, today, now);
     return PageResponse.of(filtered, page, size);
+  }
+
+  /**
+   * 학생 본인이 승인된 외출증의 출발을 보고합니다(#43).
+   *
+   * @param studentUserId 출발을 보고하는 학생 사용자 ID (Access Token에서 추출됨)
+   * @param code          출발을 보고할 외출증의 외부 식별자 코드
+   * @param request       출발 시점의 좌표
+   * @param now           "지금" 시각(KST) — 운영시간 검증 + {@code departedAt} 기록에 사용
+   * @return 출발 처리된 외출증 정보
+   */
+  @Transactional
+  public OutingResponse departOuting(
+      Long studentUserId, String code, OutingLocationRequest request, LocalDateTime now) {
+    Outing outing = outingRepository.findByCode(code)
+        .orElseThrow(() -> new CustomException(OutingErrorCode.OUTING_NOT_FOUND));
+    validateOwnership(studentUserId, outing);
+    validateOperatingHours(now.toLocalTime());
+    if (outing.getStatus() != OutingStatus.APPROVED) {
+      throw new CustomException(OutingErrorCode.ALREADY_PROCESSED);
+    }
+    validateSchoolRadius(request);
+
+    outing.setStatus(OutingStatus.DEPARTED);
+    outing.setDepartedAt(now);
+    outing.setDepartedLatitude(request.latitude());
+    outing.setDepartedLongitude(request.longitude());
+    saveOrRejectAsAlreadyProcessed(outing);
+
+    return toResponse(
+        outing, outing.getStudent(), outing.getTeacher(), now.toLocalDate(), now.toLocalTime());
+  }
+
+  /**
+   * 학생 본인이 출발한 외출증의 도착을 보고합니다(#43).
+   *
+   * @param studentUserId 도착을 보고하는 학생 사용자 ID (Access Token에서 추출됨)
+   * @param code          도착을 보고할 외출증의 외부 식별자 코드
+   * @param request       도착 시점의 좌표
+   * @param now           "지금" 시각(KST) — 운영시간 검증 + {@code returnedAt} 기록에 사용
+   * @return 도착 처리된 외출증 정보
+   */
+  @Transactional
+  public OutingResponse returnOuting(
+      Long studentUserId, String code, OutingLocationRequest request, LocalDateTime now) {
+    Outing outing = outingRepository.findByCode(code)
+        .orElseThrow(() -> new CustomException(OutingErrorCode.OUTING_NOT_FOUND));
+    validateOwnership(studentUserId, outing);
+    validateOperatingHours(now.toLocalTime());
+    if (outing.getStatus() != OutingStatus.DEPARTED) {
+      throw new CustomException(OutingErrorCode.ALREADY_PROCESSED);
+    }
+    validateSchoolRadius(request);
+
+    outing.setStatus(OutingStatus.RETURNED);
+    outing.setReturnedAt(now);
+    outing.setReturnedLatitude(request.latitude());
+    outing.setReturnedLongitude(request.longitude());
+    saveOrRejectAsAlreadyProcessed(outing);
+
+    return toResponse(
+        outing, outing.getStudent(), outing.getTeacher(), now.toLocalDate(), now.toLocalTime());
+  }
+
+  /**
+   * 출발/도착 보고 저장 중 낙관적 락 충돌이 나면 409({@code ALREADY_PROCESSED})로 변환한다
+   * (#43 코드 리뷰 Medium 2번 대응). 학생이 네트워크 지연 중 버튼을 두 번 누르거나 클라이언트가
+   * 재전송하면, 먼저 커밋된 요청이 이미 {@code status}를 바꿔놓은 뒤라 두 번째 저장은 버전
+   * 충돌로 실패한다 — 이 상황은 원인 불명의 500이 아니라 "이미 처리된 요청"이라는 의미 있는
+   * 409로 응답해야 한다. {@code save}가 아니라 {@code saveAndFlush}를 쓴다 — 일반
+   * {@code save}는 실제 UPDATE를 트랜잭션 커밋 시점까지 지연시킬 수 있어, 버전 충돌이 이
+   * 메서드의 {@code try} 밖(커밋 시점)에서 터져 그대로 500으로 새어나갈 수 있다(PR 코드
+   * 리뷰에서 발견). {@code saveAndFlush}로 UPDATE를 즉시 실행시켜야 충돌을 이 자리에서
+   * 확실히 잡는다.
+   *
+   * @param outing 저장할 외출증(출발/도착 필드가 이미 반영된 상태)
+   */
+  private void saveOrRejectAsAlreadyProcessed(Outing outing) {
+    try {
+      outingRepository.saveAndFlush(outing);
+    } catch (ObjectOptimisticLockingFailureException e) {
+      throw new CustomException(OutingErrorCode.ALREADY_PROCESSED);
+    }
+  }
+
+  private void validateOwnership(Long studentUserId, Outing outing) {
+    if (!outing.getStudent().getId().equals(studentUserId)) {
+      throw new CustomException(OutingErrorCode.ACCESS_DENIED);
+    }
+  }
+
+  /**
+   * 학교 운영시간({@link OutingTimeSlot#CUSTOM_WINDOW_START}~{@link
+   * OutingTimeSlot#CUSTOM_WINDOW_END}) 안인지 검증한다(#43). 이 범위 밖에서는 외출증 상태와
+   * 무관하게 "외출"이라는 개념 자체가 성립하지 않으므로 상태 검증보다 먼저 차단한다.
+   *
+   * @param now "지금" 시각(KST)
+   */
+  private void validateOperatingHours(LocalTime now) {
+    if (now.isBefore(OutingTimeSlot.CUSTOM_WINDOW_START)
+        || now.isAfter(OutingTimeSlot.CUSTOM_WINDOW_END)) {
+      throw new CustomException(OutingErrorCode.OUTSIDE_OPERATING_HOURS);
+    }
+  }
+
+  private void validateSchoolRadius(OutingLocationRequest request) {
+    double distance = GeoUtils.distanceMeters(
+        request.latitude(), request.longitude(),
+        outingProperties.schoolLatitude(), outingProperties.schoolLongitude());
+    if (distance > outingProperties.schoolRadiusMeters()) {
+      throw new CustomException(OutingErrorCode.OUT_OF_SCHOOL_RADIUS);
+    }
   }
 
   private void validatePageParams(int page, int size) {
@@ -455,7 +571,31 @@ public class OutingService {
         outing.getStartTime().format(HM_FORMATTER),
         outing.getEndTime().format(HM_FORMATTER),
         resolveEffectiveStatus(outing, today, now),
-        outing.getRejectedReason());
+        outing.getRejectedReason(),
+        outing.getDepartedAt(),
+        outing.getReturnedAt(),
+        isOffSchedule(outing));
+  }
+
+  /**
+   * 출발/도착 보고가 이 외출증의 예정 시간대({@code outingDate}+{@code startTime}~
+   * {@code endTime}) 밖에서 일어났는지 계산한다(#43). 별도 컬럼에 저장하지 않고 응답 변환
+   * 시점마다 재계산한다 — 도착까지 끝났으면 도착 시각을, 아직 출발만 했으면 출발 시각을
+   * 기준으로 판정한다. 경계값(정확히 {@code startTime}/{@code endTime})은 범위 안으로 본다.
+   *
+   * @param outing 판정할 외출증
+   * @return 예정 시간대 밖에서 보고됐으면 {@code true}, 아직 출발 전이거나 시간대 안이면
+   *         {@code false}
+   */
+  private boolean isOffSchedule(Outing outing) {
+    LocalDateTime reportedAt =
+        outing.getReturnedAt() != null ? outing.getReturnedAt() : outing.getDepartedAt();
+    if (reportedAt == null) {
+      return false;
+    }
+    LocalDateTime scheduledStart = outing.getOutingDate().atTime(outing.getStartTime());
+    LocalDateTime scheduledEnd = outing.getOutingDate().atTime(outing.getEndTime());
+    return reportedAt.isBefore(scheduledStart) || reportedAt.isAfter(scheduledEnd);
   }
 
   /**
