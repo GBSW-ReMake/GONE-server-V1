@@ -1795,6 +1795,22 @@ class OutingServiceTest {
       assertThat(saved.getLongitude()).isEqualTo(129.5);
       assertThat(saved.getRecordedAt()).isEqualTo(now);
     }
+
+    @Test
+    @DisplayName("최소 간격 검증 없이 짧은 간격으로 두 번 호출해도 둘 다 저장된다")
+    void savesBothPingsWithoutMinimumIntervalCheck() {
+      Outing outing = departedOuting();
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      LocalDateTime firstPingAt = LocalDateTime.of(2026, 8, 10, 13, 0, 0);
+      LocalDateTime secondPingAt = LocalDateTime.of(2026, 8, 10, 13, 0, 1);
+
+      outingService.recordLocationPing(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(36.0, 128.0), firstPingAt);
+      outingService.recordLocationPing(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(36.01, 128.01), secondPingAt);
+
+      verify(outingLocationRepository, times(2)).save(any(OutingLocation.class));
+    }
   }
 
   @Nested
@@ -1834,7 +1850,7 @@ class OutingServiceTest {
     void allowsAssignedTeacher() {
       Outing outing = outing(OutingStatus.DEPARTED);
       given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
-      given(outingLocationRepository.findByOutingIdOrderByRecordedAtAsc(outing.getId()))
+      given(outingLocationRepository.findByOutingIdOrderByRecordedAtAscIdAsc(outing.getId()))
           .willReturn(List.of());
 
       OutingLocationsResponse response = outingService.getOutingLocations(TEACHER_ID, OUTING_CODE);
@@ -1850,7 +1866,7 @@ class OutingServiceTest {
       given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
       given(userRoleRepository.findRoleCodesByUserId(disciplineUserId))
           .willReturn(List.of("DISCIPLINE"));
-      given(outingLocationRepository.findByOutingIdOrderByRecordedAtAsc(outing.getId()))
+      given(outingLocationRepository.findByOutingIdOrderByRecordedAtAscIdAsc(outing.getId()))
           .willReturn(List.of());
 
       OutingLocationsResponse response =
@@ -1866,7 +1882,7 @@ class OutingServiceTest {
       Outing outing = outing(OutingStatus.DEPARTED);
       given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
       given(userRoleRepository.findRoleCodesByUserId(adminUserId)).willReturn(List.of("ADMIN"));
-      given(outingLocationRepository.findByOutingIdOrderByRecordedAtAsc(outing.getId()))
+      given(outingLocationRepository.findByOutingIdOrderByRecordedAtAscIdAsc(outing.getId()))
           .willReturn(List.of());
 
       OutingLocationsResponse response = outingService.getOutingLocations(adminUserId, OUTING_CODE);
@@ -1923,7 +1939,7 @@ class OutingServiceTest {
       OutingLocation ping2 = OutingLocation.builder()
           .outing(outing).latitude(36.05).longitude(128.05)
           .recordedAt(LocalDateTime.of(2026, 8, 10, 13, 10)).build();
-      given(outingLocationRepository.findByOutingIdOrderByRecordedAtAsc(outing.getId()))
+      given(outingLocationRepository.findByOutingIdOrderByRecordedAtAscIdAsc(outing.getId()))
           .willReturn(List.of(ping1, ping2));
 
       OutingLocationsResponse response = outingService.getOutingLocations(TEACHER_ID, OUTING_CODE);
@@ -1945,7 +1961,7 @@ class OutingServiceTest {
       outing.setDepartedLatitude(36.0);
       outing.setDepartedLongitude(128.0);
       given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
-      given(outingLocationRepository.findByOutingIdOrderByRecordedAtAsc(outing.getId()))
+      given(outingLocationRepository.findByOutingIdOrderByRecordedAtAscIdAsc(outing.getId()))
           .willReturn(List.of());
 
       OutingLocationsResponse response = outingService.getOutingLocations(TEACHER_ID, OUTING_CODE);
