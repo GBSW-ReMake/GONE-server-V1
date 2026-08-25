@@ -7,6 +7,7 @@ import com.remake.gone.file.service.R2FileService;
 import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.exception.GbswErrorCode;
 import com.remake.gone.outing.config.OutingProperties;
+import com.remake.gone.outing.dto.OutingActiveResponse;
 import com.remake.gone.outing.dto.OutingApplyRequest;
 import com.remake.gone.outing.dto.OutingLocationRequest;
 import com.remake.gone.outing.dto.OutingResponse;
@@ -37,6 +38,10 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -63,6 +68,18 @@ public class OutingService {
   private static final int MAX_CODE_GENERATION_ATTEMPTS = 5;
   private static final int MIN_PAGE_SIZE = 1;
   private static final int MAX_PAGE_SIZE = 100;
+
+  // getMyRequests/getReceivedOutings 조회 정렬 기준(#41 도입, #96에서 DB 페이지네이션으로
+  // 전환하며 id를 보조 정렬 키로 추가) — outingDate/startTime이 같은 두 건이 존재할 수 있어
+  // (예: 거절된 뒤 같은 시간대로 재신청) 페이지 경계에서 순서가 흔들리지 않도록 한다.
+  private static final Sort LIST_QUERY_SORT = Sort.by(
+      Sort.Order.asc("outingDate"), Sort.Order.asc("startTime"), Sort.Order.asc("id"));
+
+  // getActiveOutings(#96) 정렬 기준 — 가장 오래 나가 있는 학생이 먼저 보이도록 departedAt
+  // 오름차순, departedAt이 초 단위 정밀도라 같은 초에 여러 학생이 출발할 수 있어 id를 보조
+  // 정렬 키로 추가한다(동률 시 페이지 경계에서 학생이 누락되는 것을 방지).
+  private static final Sort ACTIVE_LIST_SORT =
+      Sort.by(Sort.Order.asc("departedAt"), Sort.Order.asc("id"));
 
   private final OutingRepository outingRepository;
   private final UserRepository userRepository;
@@ -191,11 +208,14 @@ public class OutingService {
 
     validatePageParams(page, size);
     OutingDateRange range = resolveQueryRange(period, dateFrom, dateTo, today);
-    List<Outing> outings = outingRepository
-        .findByStudentIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
-            studentUserId, range.from(), range.to());
-    List<OutingResponse> filtered = toFilteredResponses(outings, statusFilter, today, now);
-    return PageResponse.of(filtered, page, size);
+    StatusFilterParams filter = resolveStatusFilterParams(statusFilter);
+    Pageable pageable = PageRequest.of(page, size, LIST_QUERY_SORT);
+    Page<Outing> outings = outingRepository.findStudentRequestsPage(
+        studentUserId, range.from(), range.to(),
+        filter.statusEq(), filter.wantExpired(), today, now, pageable);
+    Page<OutingResponse> responses = outings.map(
+        outing -> toResponse(outing, outing.getStudent(), outing.getTeacher(), today, now));
+    return PageResponse.of(responses);
   }
 
   /**
@@ -218,11 +238,78 @@ public class OutingService {
       OutingQueryStatus statusFilter, int page, int size, LocalDate today, LocalTime now) {
     validatePageParams(page, size);
     OutingDateRange range = resolveQueryRange(period, dateFrom, dateTo, today);
-    List<Outing> outings = outingRepository
-        .findByTeacherIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
-            teacherUserId, range.from(), range.to());
-    List<OutingResponse> filtered = toFilteredResponses(outings, statusFilter, today, now);
-    return PageResponse.of(filtered, page, size);
+    StatusFilterParams filter = resolveStatusFilterParams(statusFilter);
+    Pageable pageable = PageRequest.of(page, size, LIST_QUERY_SORT);
+    Page<Outing> outings = outingRepository.findTeacherReceivedPage(
+        teacherUserId, range.from(), range.to(),
+        filter.statusEq(), filter.wantExpired(), today, now, pageable);
+    Page<OutingResponse> responses = outings.map(
+        outing -> toResponse(outing, outing.getStudent(), outing.getTeacher(), today, now));
+    return PageResponse.of(responses);
+  }
+
+  /**
+   * {@code statusFilter}(응답에 노출되는 유효 상태 기준)를 {@code status} 컬럼과 직접 비교
+   * 가능한 값({@code statusEq}) + 마감 여부 플래그({@code wantExpired})로 변환한다(#96). 이
+   * 변환이 필요한 이유는 {@link OutingRepository#findStudentRequestsPage}의 Javadoc 참고 —
+   * {@code PENDING}이 마감을 넘겨도 DB 값은 그대로 {@code PENDING}이라 단일 컬럼 비교로는
+   * "마감 전 PENDING만"과 "마감 지난 PENDING(MISSED로 표시)만"을 구분할 수 없다.
+   */
+  private StatusFilterParams resolveStatusFilterParams(OutingQueryStatus statusFilter) {
+    if (statusFilter == null) {
+      return new StatusFilterParams(null, null);
+    }
+    if (statusFilter == OutingQueryStatus.PENDING) {
+      return new StatusFilterParams(OutingStatus.PENDING, false);
+    }
+    if (statusFilter == OutingQueryStatus.MISSED) {
+      return new StatusFilterParams(OutingStatus.PENDING, true);
+    }
+    return new StatusFilterParams(statusFilter.toOutingStatus(), null);
+  }
+
+  private record StatusFilterParams(OutingStatus statusEq, Boolean wantExpired) {}
+
+  /**
+   * 지금 외출 중(DEPARTED)인 학생 목록을 조회합니다(#96). 선도부/선생님이 별도 위치 정보 없이
+   * "누가 지금 밖에 있는지"만 빠르게 훑어보는 용도라 좌표는 응답에 포함하지 않는다(위치는
+   * #97에서 더 좁은 권한으로 제공).
+   *
+   * <p>도착 보고 없이 방치된 외출증(자정을 넘겨도 자동 정리되지 않는 기존 리스크)을 날짜
+   * 필터로 가리지 않는다 — 오래 방치된 건일수록 선도부가 확인해야 할 이상 신호이므로, 숨기는
+   * 대신 {@code departedAt} 오름차순 정렬로 목록 맨 위에 노출한다(보스 확정, 2026-08-25).
+   * 근본적인 자동 정리는 이 이슈 범위 밖이며 #102에서 다룬다.
+   *
+   * @param page 페이지 번호(0부터 시작)
+   * @param size 페이지 크기(1~100)
+   * @return 지금 외출 중인 학생 목록의 페이지네이션된 결과({@code departedAt} 오름차순 —
+   *         가장 오래 나가 있는 학생이 먼저 보임)
+   */
+  @Transactional(readOnly = true)
+  public PageResponse<OutingActiveResponse> getActiveOutings(int page, int size) {
+    validatePageParams(page, size);
+    Pageable pageable = PageRequest.of(page, size, ACTIVE_LIST_SORT);
+    Page<Outing> outings = outingRepository.findByStatus(OutingStatus.DEPARTED, pageable);
+    return PageResponse.of(outings.map(this::toActiveResponse));
+  }
+
+  private OutingActiveResponse toActiveResponse(Outing outing) {
+    User student = outing.getStudent();
+    String studentProfileImageUrl = student.getProfileImageKey() != null
+        ? r2FileService.generateDownloadUrl(student.getProfileImageKey())
+        : null;
+    Gbsw studentGbsw = student.getGbsw();
+    return new OutingActiveResponse(
+        outing.getCode(),
+        student.getName(),
+        studentProfileImageUrl,
+        studentGbsw.getName(),
+        studentGbsw.getGrade(),
+        studentGbsw.getClassNo(),
+        outing.getReason(),
+        outing.getTimeSlot(),
+        outing.getDepartedAt(),
+        outing.getEndTime().format(HM_FORMATTER));
   }
 
   /**
@@ -638,15 +725,14 @@ public class OutingService {
     }
   }
 
-  private List<OutingResponse> toFilteredResponses(
-      List<Outing> outings, OutingQueryStatus statusFilter, LocalDate today, LocalTime now) {
-    OutingStatus effectiveFilter = statusFilter == null ? null : statusFilter.toOutingStatus();
-    return outings.stream()
-        .map(outing -> toResponse(outing, outing.getStudent(), outing.getTeacher(), today, now))
-        .filter(response -> effectiveFilter == null || response.status() == effectiveFilter)
-        .toList();
-  }
-
+  /**
+   * 외출증 단건 상세 조회 접근 권한을 검증합니다(#41 도입, #96에서 범위 확장). 신청 학생
+   * 본인, 지정된 담당 선생님은 항상 통과한다. 그 외에는 {@code DISCIPLINE}/{@code ADMIN}
+   * 또는 (담당 여부와 무관하게) {@code TEACHER} 역할이면 통과한다 — {@code /active}
+   * 목록이 이미 전체 {@code TEACHER}에게 지금 외출 중인 전교생 현황을 보여주는 것과 인가
+   * 범위를 맞추기 위해, 단건 조회도 담당 선생님으로 한정하지 않기로 확정했다(보스 확정,
+   * 2026-08-25).
+   */
   private void validateDetailAccess(Long callerUserId, Outing outing) {
     boolean isRelated = outing.getStudent().getId().equals(callerUserId)
         || outing.getTeacher().getId().equals(callerUserId);
@@ -654,7 +740,9 @@ public class OutingService {
       return;
     }
     List<String> roles = userRoleRepository.findRoleCodesByUserId(callerUserId);
-    if (roles.contains(DISCIPLINE_ROLE_CODE) || roles.contains(ADMIN_ROLE_CODE)) {
+    if (roles.contains(DISCIPLINE_ROLE_CODE)
+        || roles.contains(ADMIN_ROLE_CODE)
+        || roles.contains(TEACHER_ROLE_CODE)) {
       return;
     }
     throw new CustomException(OutingErrorCode.ACCESS_DENIED);
