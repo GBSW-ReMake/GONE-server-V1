@@ -1444,6 +1444,154 @@ class OutingServiceTest {
   }
 
   @Nested
+  @DisplayName("getDailyOverview")
+  class GetDailyOverview {
+
+    private Outing dailyOuting(Long id, OutingStatus status, LocalTime start) {
+      return Outing.builder()
+          .id(id)
+          .code("DAILYCODE" + id)
+          .student(student())
+          .teacher(teacher())
+          .reason("치과 진료")
+          .outingDate(TODAY)
+          .timeSlot(OutingTimeSlot.LUNCH)
+          .startTime(start)
+          .endTime(start.plusHours(1))
+          .status(status)
+          .build();
+    }
+
+    @Test
+    @DisplayName("date를 생략하면 today로 조회한다")
+    void defaultsDateToToday() {
+      given(outingRepository.findByOutingDatePage(
+          eq(TODAY), isNull(), isNull(), eq(TODAY), eq(NOW), any(Pageable.class)))
+          .willReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
+
+      PageResponse<OutingResponse> response =
+          outingService.getDailyOverview(null, null, 0, 20, TODAY, NOW);
+
+      assertThat(response.content()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("date를 지정하면 그 날짜로 조회한다")
+    void usesGivenDate() {
+      LocalDate specificDate = LocalDate.of(2026, 8, 1);
+      given(outingRepository.findByOutingDatePage(
+          eq(specificDate), isNull(), isNull(), eq(TODAY), eq(NOW), any(Pageable.class)))
+          .willReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
+
+      PageResponse<OutingResponse> response =
+          outingService.getDailyOverview(specificDate, null, 0, 20, TODAY, NOW);
+
+      assertThat(response.content()).isNotNull().isEmpty();
+    }
+
+    @Test
+    @DisplayName("status=PENDING으로 필터링하면 statusEq=PENDING, wantExpired=false로 조회한다")
+    void statusFilterPendingResolvesToNotExpired() {
+      Outing pending = dailyOuting(1000L, OutingStatus.PENDING, LocalTime.of(18, 0));
+      given(outingRepository.findByOutingDatePage(
+          eq(TODAY), eq(OutingStatus.PENDING), eq(false), eq(TODAY), eq(NOW),
+          any(Pageable.class)))
+          .willReturn(new PageImpl<>(List.of(pending), PageRequest.of(0, 20), 1));
+
+      PageResponse<OutingResponse> response =
+          outingService.getDailyOverview(null, OutingQueryStatus.PENDING, 0, 20, TODAY, NOW);
+
+      assertThat(response.content()).hasSize(1);
+      assertThat(response.content().get(0).status()).isEqualTo(OutingStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("status=MISSED로 필터링하면 statusEq=PENDING, wantExpired=true로 조회한다")
+    void statusFilterMissedResolvesToExpired() {
+      Outing pastDeadline = dailyOuting(1001L, OutingStatus.PENDING, LocalTime.of(8, 0));
+      given(outingRepository.findByOutingDatePage(
+          eq(TODAY), eq(OutingStatus.PENDING), eq(true), eq(TODAY), eq(NOW),
+          any(Pageable.class)))
+          .willReturn(new PageImpl<>(List.of(pastDeadline), PageRequest.of(0, 20), 1));
+
+      PageResponse<OutingResponse> response =
+          outingService.getDailyOverview(null, OutingQueryStatus.MISSED, 0, 20, TODAY, NOW);
+
+      assertThat(response.content()).hasSize(1);
+      assertThat(response.content().get(0).status()).isEqualTo(OutingStatus.MISSED);
+    }
+
+    @Test
+    @DisplayName("status=APPROVED로 필터링하면 statusEq=APPROVED, wantExpired=null로 조회한다")
+    void statusFilterApprovedResolvesToDirectMatch() {
+      Outing approved = dailyOuting(1002L, OutingStatus.APPROVED, LocalTime.of(9, 0));
+      given(outingRepository.findByOutingDatePage(
+          eq(TODAY), eq(OutingStatus.APPROVED), isNull(), eq(TODAY), eq(NOW),
+          any(Pageable.class)))
+          .willReturn(new PageImpl<>(List.of(approved), PageRequest.of(0, 20), 1));
+
+      PageResponse<OutingResponse> response =
+          outingService.getDailyOverview(null, OutingQueryStatus.APPROVED, 0, 20, TODAY, NOW);
+
+      assertThat(response.content()).hasSize(1);
+      assertThat(response.content().get(0).status()).isEqualTo(OutingStatus.APPROVED);
+    }
+
+    @Test
+    @DisplayName("startTime 오름차순 + id 보조 정렬을 요청한다")
+    void queriesWithStartTimeAndIdSort() {
+      ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+      given(outingRepository.findByOutingDatePage(
+          eq(TODAY), isNull(), isNull(), eq(TODAY), eq(NOW), pageableCaptor.capture()))
+          .willReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
+
+      outingService.getDailyOverview(null, null, 0, 20, TODAY, NOW);
+
+      List<org.springframework.data.domain.Sort.Order> orders =
+          pageableCaptor.getValue().getSort().stream().toList();
+      assertThat(orders).extracting(org.springframework.data.domain.Sort.Order::getProperty)
+          .containsExactly("startTime", "id");
+    }
+
+    @Test
+    @DisplayName("리포지토리가 돌려준 Page 메타데이터를 그대로 응답에 담는다")
+    void reflectsRepositoryPageMetadata() {
+      List<Outing> pageContent = List.of(
+          dailyOuting(1003L, OutingStatus.PENDING, LocalTime.of(8, 0)),
+          dailyOuting(1004L, OutingStatus.APPROVED, LocalTime.of(9, 0)));
+      given(outingRepository.findByOutingDatePage(
+          eq(TODAY), isNull(), isNull(), eq(TODAY), eq(NOW), any(Pageable.class)))
+          .willReturn(new PageImpl<>(pageContent, PageRequest.of(0, 2), 3));
+
+      PageResponse<OutingResponse> response =
+          outingService.getDailyOverview(null, null, 0, 2, TODAY, NOW);
+
+      assertThat(response.content()).hasSize(2);
+      assertThat(response.totalElements()).isEqualTo(3);
+      assertThat(response.totalPages()).isEqualTo(2);
+      assertThat(response.hasNext()).isTrue();
+    }
+
+    @Test
+    @DisplayName("page가 음수면 거부한다")
+    void rejectsWhenPageNegative() {
+      assertThatThrownBy(() -> outingService.getDailyOverview(null, null, -1, 20, TODAY, NOW))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.INVALID_PAGE_PARAMS);
+    }
+
+    @Test
+    @DisplayName("size가 100을 초과하면 거부한다")
+    void rejectsWhenSizeTooLarge() {
+      assertThatThrownBy(() -> outingService.getDailyOverview(null, null, 0, 101, TODAY, NOW))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.INVALID_PAGE_PARAMS);
+    }
+  }
+
+  @Nested
   @DisplayName("getOutingDetail")
   class GetOutingDetail {
 
