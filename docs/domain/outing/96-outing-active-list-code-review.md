@@ -49,7 +49,7 @@
 
 ## 발견 사항
 
-### 1. 🟡 Medium — 기획서에 명시된 완료 조건("Postman 컬렉션 반영")이 diff에 반영되지 않음
+### 1. 🟡 Medium — 기획서에 명시된 완료 조건("Postman 컬렉션 반영")이 diff에 반영되지 않음 (해결됨, 커밋 `a8db99a`)
 
 **문제**: `docs/domain/outing/96-outing-active-list.md:206-209`의 "완료 조건(Definition of
 Done)"은 "로컬 빌드/테스트 통과", "CI 통과"와 나란히 "Postman 컬렉션 반영"을 명시한다.
@@ -76,5 +76,10 @@ Postman 워크스페이스에 API 호출로 직접 반영했다 하더라도 로
    코드 리뷰를 막을 필요는 없지만, PR을 올리기 전에 반드시 처리해야 한다(기획서 스스로
    정한 완료 조건이므로).
 
+**반영 결과(15단계, 커밋 `a8db99a`)**: 방안 1을 택해 최상위에 `GET /active` 요청, 에러
+케이스 4건(401/403/page 400/size 400), `#96 실시간 목록 조회 확인` 검증 폴더(신청→승인→
+출발→목록 확인→도착→재조회)를 직접 추가했다. newman으로 로컬 실서버 대상 end-to-end
+실행해 13개 assertion 전부 통과를 확인한 뒤 Postman 워크스페이스에 API로 push했다.
+
 ## 요약
-Critical/High 없음. Medium 1건(Postman 컬렉션 미반영), Low 없음.
+Critical/High 없음. Medium 1건(Postman 컬렉션 미반영 — 해결됨), Low 없음.
