@@ -3,10 +3,15 @@ package com.remake.gone.outing.repository;
 import com.remake.gone.outing.entity.Outing;
 import com.remake.gone.outing.enums.OutingStatus;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 /**
  * {@link Outing} 리포지토리.
@@ -34,30 +39,103 @@ public interface OutingRepository extends JpaRepository<Outing, Long> {
       Long studentId, LocalDate outingDate, Collection<OutingStatus> statuses);
 
   /**
-   * 특정 학생이 신청한, 주어진 날짜 범위(양 끝 포함) 안의 외출증을 조회합니다(#41).
+   * 학생 본인이 신청한, 주어진 날짜 범위(양 끝 포함) 안의 외출증을 DB 페이지네이션으로
+   * 조회합니다(#41 도입, #96에서 in-memory 슬라이싱 대신 DB {@code LIMIT/OFFSET}으로 전환).
    *
-   * @param studentId 학생 사용자 ID
-   * @param dateFrom  범위 시작일
-   * @param dateTo    범위 종료일
-   * @return 조건에 맞는 외출증 목록, 날짜/시작 시각 오름차순
+   * <p>{@code statusEq}/{@code wantExpired} 두 파라미터로 "유효 상태" 필터를 표현한다 — 이
+   * 도메인은 {@code PENDING}이 마감을 넘기면 DB 값은 그대로 둔 채 조회 시점에만
+   * {@code MISSED}로 표시하므로({@link OutingStatus} Javadoc 참고), 응답 DTO의 상태값과
+   * WHERE절이 직접 비교할 수 있는 단일 컬럼이 없다:
+   * <ul>
+   *   <li>{@code statusFilter}가 없으면 {@code statusEq=null}, {@code wantExpired=null}
+   *       (둘 다 무시, 전체 반환)</li>
+   *   <li>{@code APPROVED}/{@code REJECTED}/{@code DEPARTED}/{@code RETURNED}면
+   *       {@code statusEq}=그 값, {@code wantExpired=null}(무시)</li>
+   *   <li>{@code PENDING}(마감 전만)이면 {@code statusEq=PENDING},
+   *       {@code wantExpired=false}</li>
+   *   <li>{@code MISSED}(마감 지난 PENDING만)면 {@code statusEq=PENDING},
+   *       {@code wantExpired=true}</li>
+   * </ul>
+   * 마감 판정 조건({@code outingDate}/{@code startTime} vs {@code today}/{@code now})은
+   * {@link com.remake.gone.outing.utils.OutingTimeUtils#isPastDeadline}과 동일한 규칙을
+   * SQL로 옮긴 것이므로, 그 메서드의 판정 기준이 바뀌면 이 쿼리도 같이 바꿔야 한다.
+   *
+   * @param studentId   학생 사용자 ID
+   * @param dateFrom    범위 시작일
+   * @param dateTo      범위 종료일
+   * @param statusEq    {@code status} 컬럼과 직접 비교할 값. {@code null}이면 무시
+   * @param wantExpired {@code statusEq=PENDING}일 때만 의미 있음 — {@code true}면 마감 지난
+   *                    건만, {@code false}면 마감 전인 건만. {@code null}이면 무시
+   * @param today       "오늘" 날짜(KST) — 마감 판정 기준
+   * @param now         "지금" 시각(KST) — 마감 판정 기준
+   * @param pageable    페이지 번호/크기/정렬
+   * @return 조건에 맞는 외출증의 페이지
    */
-  List<Outing> findByStudentIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
-      Long studentId, LocalDate dateFrom, LocalDate dateTo);
+  @Query("""
+      SELECT o FROM Outing o
+      WHERE o.student.id = :studentId
+        AND o.outingDate BETWEEN :dateFrom AND :dateTo
+        AND (:statusEq IS NULL OR o.status = :statusEq)
+        AND (:wantExpired IS NULL
+             OR (:wantExpired = TRUE
+                 AND (o.outingDate < :today
+                      OR (o.outingDate = :today AND o.startTime <= :now)))
+             OR (:wantExpired = FALSE
+                 AND (o.outingDate > :today
+                      OR (o.outingDate = :today AND o.startTime > :now))))
+      """)
+  Page<Outing> findStudentRequestsPage(
+      @Param("studentId") Long studentId,
+      @Param("dateFrom") LocalDate dateFrom,
+      @Param("dateTo") LocalDate dateTo,
+      @Param("statusEq") OutingStatus statusEq,
+      @Param("wantExpired") Boolean wantExpired,
+      @Param("today") LocalDate today,
+      @Param("now") LocalTime now,
+      Pageable pageable);
 
   /**
-   * 특정 선생님에게 담당으로 지정된, 주어진 날짜 범위(양 끝 포함) 안의 외출증을 조회합니다(#41).
+   * 담당 선생님에게 지정된, 주어진 날짜 범위(양 끝 포함) 안의 외출증을 DB 페이지네이션으로
+   * 조회합니다(#41 도입, #96에서 전환). 필터 파라미터 의미는
+   * {@link #findStudentRequestsPage}와 동일하다.
    *
-   * @param teacherId 선생님 사용자 ID
-   * @param dateFrom  범위 시작일
-   * @param dateTo    범위 종료일
-   * @return 조건에 맞는 외출증 목록, 날짜/시작 시각 오름차순
+   * @param teacherId   선생님 사용자 ID
+   * @param dateFrom    범위 시작일
+   * @param dateTo      범위 종료일
+   * @param statusEq    {@code status} 컬럼과 직접 비교할 값. {@code null}이면 무시
+   * @param wantExpired {@code statusEq=PENDING}일 때만 의미 있음. {@code null}이면 무시
+   * @param today       "오늘" 날짜(KST) — 마감 판정 기준
+   * @param now         "지금" 시각(KST) — 마감 판정 기준
+   * @param pageable    페이지 번호/크기/정렬
+   * @return 조건에 맞는 외출증의 페이지
    */
-  List<Outing> findByTeacherIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
-      Long teacherId, LocalDate dateFrom, LocalDate dateTo);
+  @Query("""
+      SELECT o FROM Outing o
+      WHERE o.teacher.id = :teacherId
+        AND o.outingDate BETWEEN :dateFrom AND :dateTo
+        AND (:statusEq IS NULL OR o.status = :statusEq)
+        AND (:wantExpired IS NULL
+             OR (:wantExpired = TRUE
+                 AND (o.outingDate < :today
+                      OR (o.outingDate = :today AND o.startTime <= :now)))
+             OR (:wantExpired = FALSE
+                 AND (o.outingDate > :today
+                      OR (o.outingDate = :today AND o.startTime > :now))))
+      """)
+  Page<Outing> findTeacherReceivedPage(
+      @Param("teacherId") Long teacherId,
+      @Param("dateFrom") LocalDate dateFrom,
+      @Param("dateTo") LocalDate dateTo,
+      @Param("statusEq") OutingStatus statusEq,
+      @Param("wantExpired") Boolean wantExpired,
+      @Param("today") LocalDate today,
+      @Param("now") LocalTime now,
+      Pageable pageable);
 
   /**
    * 주어진 상태에 해당하는 외출증을 전부 조회합니다(#42, {@code MISSED} 반영 스케줄러 대상
-   * 조회).
+   * 조회). 스케줄러는 페이지네이션 없이 대상 전체를 훑어야 하므로 {@link List}를 반환하는
+   * 이 메서드를 그대로 둔다.
    *
    * @param status 조회할 상태
    * @return 조건에 맞는 외출증 목록
@@ -65,11 +143,14 @@ public interface OutingRepository extends JpaRepository<Outing, Long> {
   List<Outing> findByStatus(OutingStatus status);
 
   /**
-   * 주어진 상태에 해당하는 외출증을 {@code departedAt} 오름차순으로 조회합니다(#96, 지금 외출
-   * 중인 학생 목록 — 가장 오래 나가 있는 학생이 먼저 보이도록 정렬).
+   * 주어진 상태에 해당하는 외출증을 DB 페이지네이션으로 조회합니다(#96, 지금 외출 중인 학생
+   * 목록). 정렬은 호출부가 {@code pageable}의 {@link org.springframework.data.domain.Sort}로
+   * 지정한다({@code departedAt} 오름차순 + {@code id} 보조 정렬 — 가장 오래 나가 있는 학생이
+   * 먼저 보이고, {@code departedAt}이 같은 초에 몰려도 페이지 경계에서 순서가 흔들리지 않도록).
    *
-   * @param status 조회할 상태
-   * @return 조건에 맞는 외출증 목록, {@code departedAt} 오름차순
+   * @param status   조회할 상태
+   * @param pageable 페이지 번호/크기/정렬
+   * @return 조건에 맞는 외출증의 페이지
    */
-  List<Outing> findByStatusOrderByDepartedAtAsc(OutingStatus status);
+  Page<Outing> findByStatus(OutingStatus status, Pageable pageable);
 }

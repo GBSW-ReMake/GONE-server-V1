@@ -1,6 +1,7 @@
 package com.remake.gone.common.response;
 
 import java.util.List;
+import org.springframework.data.domain.Page;
 
 /**
  * 페이지네이션된 목록 응답 포맷(#41에서 최초 도입).
@@ -49,5 +50,20 @@ public record PageResponse<T>(
     List<T> content = allContent.subList(fromIndex, toIndex);
     boolean hasNext = (page + 1L) < totalPages;
     return new PageResponse<>(content, page, size, totalElements, totalPages, hasNext);
+  }
+
+  /**
+   * Spring Data {@link Page}를 이 프로젝트의 응답 포맷으로 변환합니다(#96). {@link
+   * #of(List, int, int)}와 달리 DB가 이미 페이지 단위로 잘라 조회한 결과를 그대로 감싸는
+   * 용도라, 자르는 계산을 다시 하지 않는다.
+   *
+   * @param <T>  목록 항목의 타입
+   * @param page DB에서 이미 페이지 단위로 조회한 결과
+   * @return 변환된 {@link PageResponse}
+   */
+  public static <T> PageResponse<T> of(Page<T> page) {
+    return new PageResponse<>(
+        page.getContent(), page.getNumber(), page.getSize(),
+        page.getTotalElements(), page.getTotalPages(), page.hasNext());
   }
 }
