@@ -17,6 +17,7 @@ import com.remake.gone.user.entity.User;
 import com.remake.gone.user.repository.UserRepository;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import org.junit.jupiter.api.AfterEach;
@@ -42,6 +43,8 @@ import org.springframework.test.web.servlet.MockMvc;
 @SpringBootTest
 @AutoConfigureMockMvc
 class OutingMissedFilterIntegrationTest {
+
+  private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
   @Autowired
   private MockMvc mockMvc;
@@ -146,8 +149,10 @@ class OutingMissedFilterIntegrationTest {
     student = saveStudent();
     teacher = saveTeacher();
     // 어제 날짜는 시각과 무관하게 무조건 마감이 지난 상태다 — 스케줄러 타이밍과 무관하게
-    // 결정론적으로 재현하기 위해 오늘이 아니라 어제로 고정한다.
-    LocalDate outingDate = LocalDate.now().minusDays(1);
+    // 결정론적으로 재현하기 위해 오늘이 아니라 어제로 고정한다. 서버가 KST 기준으로
+    // "오늘"을 계산하므로(OutingController의 now/today), 테스트도 JVM 기본 시간대가 아니라
+    // 명시적으로 KST로 날짜를 구해야 자정 부근에서 날짜가 어긋나지 않는다.
+    LocalDate outingDate = LocalDate.now(KST).minusDays(1);
     alreadyMissedInDb = saveOuting(OutingStatus.MISSED, outingDate, LocalTime.of(9, 0));
     stillPendingButExpired = saveOuting(OutingStatus.PENDING, outingDate, LocalTime.of(10, 0));
     String token = jwtProvider.createAccessToken(1L, Set.of("DISCIPLINE"));
@@ -168,12 +173,16 @@ class OutingMissedFilterIntegrationTest {
   void excludesNotYetExpiredPending() throws Exception {
     student = saveStudent();
     teacher = saveTeacher();
-    // 오늘 날짜 + 하루 중 가장 늦은 시각이라, 테스트가 언제 실행되든 "아직 마감 전"이 보장된다.
-    stillPendingNotExpired =
-        saveOuting(OutingStatus.PENDING, LocalDate.now(), LocalTime.of(23, 59));
+    // 자정 근처(23:59)는 테스트 실행 시각과 startTime<=now 경계가 맞물릴 위험이 있어
+    // 시각에 의존하지 않는 이틀 뒤 날짜 + 자정(00:00)으로 고정한다 — "오늘"이 아니므로
+    // 하루 중 언제 실행되든 outingDate > today라 무조건 마감 전이다. 조회도 같은 날짜를
+    // 명시해 기본값(오늘)에 기대지 않는다.
+    LocalDate targetDate = LocalDate.now(KST).plusDays(2);
+    stillPendingNotExpired = saveOuting(OutingStatus.PENDING, targetDate, LocalTime.MIDNIGHT);
     String token = jwtProvider.createAccessToken(1L, Set.of("DISCIPLINE"));
 
     mockMvc.perform(get("/api/v1/outings")
+            .param("date", targetDate.toString().replace("-", ""))
             .param("status", "MISSED")
             .header("Authorization", "Bearer " + token))
         .andExpect(status().isOk())

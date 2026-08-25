@@ -4392,6 +4392,26 @@
           },
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// KST 기준 오늘/어제 날짜를 매 실행마다 동적으로 계산한다 — 환경 변수에 고정값을",
+                  "// 넣어두면 시간이 지나면서 stale해진다(outingDate 기본값이 이미 겪은 문제).",
+                  "const kstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);",
+                  "const fmt = (d) => {",
+                  "    const yyyy = d.getUTCFullYear();",
+                  "    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');",
+                  "    const dd = String(d.getUTCDate()).padStart(2, '0');",
+                  "    return `${yyyy}${mm}${dd}`;",
+                  "};",
+                  "pm.environment.set('qa98TodayDate', fmt(kstNow));",
+                  "const kstYesterday = new Date(kstNow.getTime() - 24 * 60 * 60 * 1000);",
+                  "pm.environment.set('qa98YesterdayDate', fmt(kstYesterday));"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -4486,7 +4506,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"reason\": \"#98 QA - 오늘 전체 현황 확인\",\n  \"outingDate\": \"{{outingDate}}\",\n  \"timeSlot\": \"DINNER\",\n  \"teacherUserId\": {{teacherUserId}}\n}",
+              "raw": "{\n  \"reason\": \"#98 QA - 오늘 전체 현황 확인\",\n  \"outingDate\": \"{{qa98TodayDate}}\",\n  \"timeSlot\": \"DINNER\",\n  \"teacherUserId\": {{teacherUserId}}\n}",
               "options": {
                 "raw": {
                   "language": "json"
