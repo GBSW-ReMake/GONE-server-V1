@@ -2,24 +2,32 @@ package com.remake.gone.conduct.service;
 
 import com.remake.gone.common.exception.CommonErrorCode;
 import com.remake.gone.common.exception.CustomException;
+import com.remake.gone.common.response.PageResponse;
+import com.remake.gone.conduct.config.ConductProperties;
 import com.remake.gone.conduct.dto.ConductAmendRequest;
 import com.remake.gone.conduct.dto.ConductCancelRequest;
 import com.remake.gone.conduct.dto.ConductCategoryResponse;
 import com.remake.gone.conduct.dto.ConductGrantRequest;
 import com.remake.gone.conduct.dto.ConductRecordResponse;
+import com.remake.gone.conduct.dto.ConductStudentRecordResponse;
+import com.remake.gone.conduct.dto.ConductSummaryResponse;
 import com.remake.gone.conduct.entity.ConductCategory;
 import com.remake.gone.conduct.entity.ConductRecord;
 import com.remake.gone.conduct.enums.ConductStatus;
+import com.remake.gone.conduct.enums.ConductType;
 import com.remake.gone.conduct.exception.ConductErrorCode;
 import com.remake.gone.conduct.repository.ConductCategoryRepository;
 import com.remake.gone.conduct.repository.ConductRecordRepository;
 import com.remake.gone.role.repository.UserRoleRepository;
 import com.remake.gone.user.entity.User;
 import com.remake.gone.user.repository.UserRepository;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,6 +43,7 @@ public class ConductService {
   private final ConductRecordRepository conductRecordRepository;
   private final UserRepository userRepository;
   private final UserRoleRepository userRoleRepository;
+  private final ConductProperties conductProperties;
 
   /**
    * 활성 카테고리 목록을 조회합니다.
@@ -167,5 +176,71 @@ public class ConductService {
     record.setCancelReason(request.cancelReason());
 
     return ConductRecordResponse.from(record);
+  }
+
+  /**
+   * 학생 본인의 누적 상/벌점 요약을 반환합니다.
+   *
+   * <p>전체 기간 기준으로 {@code ACTIVE} 상태인 기록만 집계합니다.
+   *
+   * @param studentUserId 조회 대상 학생 사용자 ID (Access Token에서 추출됨)
+   * @return 총 상점·벌점·순 점수·임계치 초과 여부
+   */
+  @Transactional(readOnly = true)
+  public ConductSummaryResponse getStudentSummary(Long studentUserId) {
+    int totalMeritPoints = conductRecordRepository.sumPointsByStudentAndType(
+        studentUserId, ConductType.MERIT, ConductStatus.ACTIVE);
+    int totalDemeritPoints = conductRecordRepository.sumPointsByStudentAndType(
+        studentUserId, ConductType.DEMERIT, ConductStatus.ACTIVE);
+    int netScore = totalMeritPoints + totalDemeritPoints;
+    int threshold = conductProperties.demeritThreshold();
+    boolean overThreshold = Math.abs(totalDemeritPoints) >= threshold;
+    return new ConductSummaryResponse(
+        totalMeritPoints, totalDemeritPoints, netScore, threshold, overThreshold);
+  }
+
+  /**
+   * 학생 본인의 상/벌점 이력을 필터·페이지네이션해 반환합니다.
+   *
+   * <p>취소된 기록({@code CANCELED})도 포함합니다.
+   *
+   * @param studentUserId 조회 대상 학생 사용자 ID (Access Token에서 추출됨)
+   * @param type          종류 필터({@code null}이면 전체)
+   * @param dateFrom      조회 시작일({@code null}이면 전체 기간)
+   * @param dateTo        조회 종료일({@code null}이면 전체 기간)
+   * @param page          페이지 번호(0부터 시작)
+   * @param size          페이지 크기(1~100)
+   * @return 페이지네이션된 이력 목록
+   */
+  @Transactional(readOnly = true)
+  public PageResponse<ConductStudentRecordResponse> getStudentRecords(
+      Long studentUserId,
+      ConductType type,
+      LocalDate dateFrom,
+      LocalDate dateTo,
+      int page,
+      int size) {
+    if (page < 0 || size < 1 || size > 100) {
+      throw new CustomException(ConductErrorCode.INVALID_PAGE);
+    }
+    boolean hasFrom = dateFrom != null;
+    boolean hasTo = dateTo != null;
+    if (hasFrom != hasTo || (hasFrom && dateFrom.isAfter(dateTo))) {
+      throw new CustomException(ConductErrorCode.INVALID_DATE_RANGE);
+    }
+
+    Page<ConductRecord> recordPage = conductRecordRepository.findByStudentWithFilters(
+        studentUserId, type, dateFrom, dateTo, PageRequest.of(page, size));
+
+    return new PageResponse<>(
+        recordPage.getContent().stream()
+            .map(ConductStudentRecordResponse::from)
+            .toList(),
+        recordPage.getNumber(),
+        recordPage.getSize(),
+        recordPage.getTotalElements(),
+        recordPage.getTotalPages(),
+        recordPage.hasNext()
+    );
   }
 }

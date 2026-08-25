@@ -29,7 +29,13 @@ public enum ConductErrorCode implements ErrorCode {
   STUDENT_NOT_FOUND(HttpStatus.NOT_FOUND, "CONDUCT_005", "대상 학생을 찾을 수 없습니다."),
 
   /** 대상 사용자가 학생 역할이 아닙니다. */
-  NOT_STUDENT_ROLE(HttpStatus.BAD_REQUEST, "CONDUCT_006", "대상 사용자가 학생 역할이 아닙니다.");
+  NOT_STUDENT_ROLE(HttpStatus.BAD_REQUEST, "CONDUCT_006", "대상 사용자가 학생 역할이 아닙니다."),
+
+  /** 페이지 파라미터가 유효하지 않습니다. */
+  INVALID_PAGE(HttpStatus.BAD_REQUEST, "CONDUCT_007", "페이지 파라미터가 유효하지 않습니다."),
+
+  /** 날짜 범위 파라미터가 유효하지 않습니다. */
+  INVALID_DATE_RANGE(HttpStatus.BAD_REQUEST, "CONDUCT_008", "날짜 범위 파라미터가 유효하지 않습니다.");
 
   private final HttpStatus httpStatus;
   private final String code;
