@@ -3,6 +3,7 @@ package com.remake.gone.outing.controller;
 import com.remake.gone.common.response.ApiResponse;
 import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.common.security.UserPrincipal;
+import com.remake.gone.outing.dto.OutingActiveResponse;
 import com.remake.gone.outing.dto.OutingApplyRequest;
 import com.remake.gone.outing.dto.OutingLocationRequest;
 import com.remake.gone.outing.dto.OutingRejectRequest;
@@ -210,6 +211,24 @@ public class OutingController {
         principal.userId(), period, dateFrom, dateTo, status, page, size,
         now.toLocalDate(), now.toLocalTime());
     return ApiResponse.success(response, "외출증 목록을 조회했습니다.");
+  }
+
+  /**
+   * 지금 외출 중(DEPARTED)인 학생 목록을 조회합니다. {@code DISCIPLINE}/{@code TEACHER}/
+   * {@code ADMIN} 역할이 필요합니다(#96).
+   *
+   * @param page 페이지 번호(0부터 시작, 생략 시 0)
+   * @param size 페이지 크기(1~100, 생략 시 20)
+   * @return 지금 외출 중인 학생 목록의 페이지네이션된 결과({@code departedAt} 오름차순)
+   */
+  @GetMapping("/active")
+  @PreAuthorize("hasAnyRole('DISCIPLINE', 'TEACHER', 'ADMIN')")
+  public ApiResponse<PageResponse<OutingActiveResponse>> getActiveOutings(
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "20") int size
+  ) {
+    PageResponse<OutingActiveResponse> response = outingService.getActiveOutings(page, size);
+    return ApiResponse.success(response, "현재 외출 중인 학생 목록입니다.");
   }
 
   /**

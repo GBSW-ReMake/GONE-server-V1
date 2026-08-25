@@ -3,6 +3,8 @@ package com.remake.gone.outing.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -14,6 +16,7 @@ import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.enums.GbswType;
 import com.remake.gone.gbsw.exception.GbswErrorCode;
 import com.remake.gone.outing.config.OutingProperties;
+import com.remake.gone.outing.dto.OutingActiveResponse;
 import com.remake.gone.outing.dto.OutingApplyRequest;
 import com.remake.gone.outing.dto.OutingLocationRequest;
 import com.remake.gone.outing.dto.OutingResponse;
@@ -36,10 +39,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 /**
@@ -1076,9 +1084,10 @@ class OutingServiceTest {
     @DisplayName("period=THIS_WEEK면 TODAY가 속한 주(월~일)로 조회한다")
     void resolvesThisWeekRangeFromToday() {
       // TODAY = 2026-08-10(월) → 이번 주는 2026-08-10(월)~2026-08-16(일)
-      given(outingRepository.findByStudentIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
-          STUDENT_ID, LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 16)))
-          .willReturn(List.of());
+      given(outingRepository.findStudentRequestsPage(
+          eq(STUDENT_ID), eq(LocalDate.of(2026, 8, 10)), eq(LocalDate.of(2026, 8, 16)),
+          isNull(), isNull(), eq(TODAY), eq(NOW), any(Pageable.class)))
+          .willReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
 
       PageResponse<OutingResponse> response = outingService.getMyRequests(
           STUDENT_ID, OutingQueryPeriod.THIS_WEEK, null, null, null, 0, 20, TODAY, NOW);
@@ -1089,9 +1098,10 @@ class OutingServiceTest {
     @Test
     @DisplayName("범위 안에 신청한 게 없으면 빈 배열을 반환한다(null 아님)")
     void returnsEmptyListNotNullWhenNoResults() {
-      given(outingRepository.findByStudentIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
-          STUDENT_ID, TODAY, TODAY))
-          .willReturn(List.of());
+      given(outingRepository.findStudentRequestsPage(
+          eq(STUDENT_ID), eq(TODAY), eq(TODAY), isNull(), isNull(), eq(TODAY), eq(NOW),
+          any(Pageable.class)))
+          .willReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
 
       PageResponse<OutingResponse> response = outingService.getMyRequests(
           STUDENT_ID, OutingQueryPeriod.TODAY,
@@ -1104,9 +1114,10 @@ class OutingServiceTest {
     @DisplayName("PENDING이고 마감이 지난 건은 MISSED로 표시한다(DB 값은 그대로 PENDING)")
     void showsMissedForExpiredPending() {
       Outing pastDeadline = outingWithStatus(OutingStatus.PENDING, TODAY, LocalTime.of(8, 0));
-      given(outingRepository.findByStudentIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
-          STUDENT_ID, TODAY, TODAY))
-          .willReturn(List.of(pastDeadline));
+      given(outingRepository.findStudentRequestsPage(
+          eq(STUDENT_ID), eq(TODAY), eq(TODAY), isNull(), isNull(), eq(TODAY), eq(NOW),
+          any(Pageable.class)))
+          .willReturn(new PageImpl<>(List.of(pastDeadline), PageRequest.of(0, 20), 1));
 
       PageResponse<OutingResponse> response = outingService.getMyRequests(
           STUDENT_ID, OutingQueryPeriod.TODAY,
@@ -1118,13 +1129,13 @@ class OutingServiceTest {
     }
 
     @Test
-    @DisplayName("status=PENDING으로 필터링하면 마감 지난 건(MISSED)은 빠진다")
-    void statusFilterExcludesMissedWhenFilteringPending() {
-      Outing pastDeadline = outingWithStatus(OutingStatus.PENDING, TODAY, LocalTime.of(8, 0));
+    @DisplayName("status=PENDING으로 필터링하면 statusEq=PENDING, wantExpired=false로 조회한다")
+    void statusFilterPendingResolvesToNotExpired() {
       Outing stillPending = outingWithStatus(OutingStatus.PENDING, TODAY, LocalTime.of(18, 0));
-      given(outingRepository.findByStudentIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
-          STUDENT_ID, TODAY, TODAY))
-          .willReturn(List.of(pastDeadline, stillPending));
+      given(outingRepository.findStudentRequestsPage(
+          eq(STUDENT_ID), eq(TODAY), eq(TODAY), eq(OutingStatus.PENDING), eq(false),
+          eq(TODAY), eq(NOW), any(Pageable.class)))
+          .willReturn(new PageImpl<>(List.of(stillPending), PageRequest.of(0, 20), 1));
 
       PageResponse<OutingResponse> response = outingService.getMyRequests(
           STUDENT_ID, OutingQueryPeriod.TODAY,
@@ -1135,13 +1146,13 @@ class OutingServiceTest {
     }
 
     @Test
-    @DisplayName("status=MISSED로 필터링하면 마감 지난 건만 나온다")
-    void statusFilterReturnsOnlyMissed() {
+    @DisplayName("status=MISSED로 필터링하면 statusEq=PENDING, wantExpired=true로 조회한다")
+    void statusFilterMissedResolvesToExpired() {
       Outing pastDeadline = outingWithStatus(OutingStatus.PENDING, TODAY, LocalTime.of(8, 0));
-      Outing stillPending = outingWithStatus(OutingStatus.PENDING, TODAY, LocalTime.of(18, 0));
-      given(outingRepository.findByStudentIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
-          STUDENT_ID, TODAY, TODAY))
-          .willReturn(List.of(pastDeadline, stillPending));
+      given(outingRepository.findStudentRequestsPage(
+          eq(STUDENT_ID), eq(TODAY), eq(TODAY), eq(OutingStatus.PENDING), eq(true),
+          eq(TODAY), eq(NOW), any(Pageable.class)))
+          .willReturn(new PageImpl<>(List.of(pastDeadline), PageRequest.of(0, 20), 1));
 
       PageResponse<OutingResponse> response = outingService.getMyRequests(
           STUDENT_ID, OutingQueryPeriod.TODAY,
@@ -1149,6 +1160,23 @@ class OutingServiceTest {
 
       assertThat(response.content()).hasSize(1);
       assertThat(response.content().get(0).status()).isEqualTo(OutingStatus.MISSED);
+    }
+
+    @Test
+    @DisplayName("status=DEPARTED로 필터링하면 statusEq=DEPARTED, wantExpired=null로 조회한다")
+    void statusFilterDepartedResolvesToDirectMatch() {
+      Outing departed = outingWithStatus(OutingStatus.DEPARTED, TODAY, LocalTime.of(8, 0));
+      given(outingRepository.findStudentRequestsPage(
+          eq(STUDENT_ID), eq(TODAY), eq(TODAY), eq(OutingStatus.DEPARTED), isNull(),
+          eq(TODAY), eq(NOW), any(Pageable.class)))
+          .willReturn(new PageImpl<>(List.of(departed), PageRequest.of(0, 20), 1));
+
+      PageResponse<OutingResponse> response = outingService.getMyRequests(
+          STUDENT_ID, OutingQueryPeriod.TODAY,
+          null, null, OutingQueryStatus.DEPARTED, 0, 20, TODAY, NOW);
+
+      assertThat(response.content()).hasSize(1);
+      assertThat(response.content().get(0).status()).isEqualTo(OutingStatus.DEPARTED);
     }
 
     @Test
@@ -1237,9 +1265,10 @@ class OutingServiceTest {
           .endTime(LocalTime.of(13, 40))
           .status(OutingStatus.PENDING)
           .build();
-      given(outingRepository.findByTeacherIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
-          TEACHER_ID, TODAY, TODAY))
-          .willReturn(List.of(pending));
+      given(outingRepository.findTeacherReceivedPage(
+          eq(TEACHER_ID), eq(TODAY), eq(TODAY), isNull(), isNull(), eq(TODAY), eq(NOW),
+          any(Pageable.class)))
+          .willReturn(new PageImpl<>(List.of(pending), PageRequest.of(0, 20), 1));
 
       PageResponse<OutingResponse> response = outingService.getReceivedOutings(
           TEACHER_ID, OutingQueryPeriod.TODAY,
@@ -1250,11 +1279,11 @@ class OutingServiceTest {
     }
 
     @Test
-    @DisplayName("size보다 결과가 많으면 요청한 size만큼만 반환하고 hasNext는 true다")
-    void paginatesAndReportsHasNext() {
-      List<Outing> outings = new java.util.ArrayList<>();
-      for (int i = 0; i < 3; i++) {
-        outings.add(Outing.builder()
+    @DisplayName("리포지토리가 돌려준 Page 메타데이터를 그대로 응답에 담는다")
+    void reflectsRepositoryPageMetadata() {
+      List<Outing> pageContent = new java.util.ArrayList<>();
+      for (int i = 0; i < 2; i++) {
+        pageContent.add(Outing.builder()
             .id(800L + i)
             .code("PAGECODE" + i)
             .student(student())
@@ -1267,9 +1296,12 @@ class OutingServiceTest {
             .status(OutingStatus.PENDING)
             .build());
       }
-      given(outingRepository.findByTeacherIdAndOutingDateBetweenOrderByOutingDateAscStartTimeAsc(
-          TEACHER_ID, TODAY, TODAY))
-          .willReturn(outings);
+      // DB가 size=2로 이미 자른 3건 중 첫 페이지라고 가정 — 슬라이싱 자체는 이제 DB 책임이라
+      // 서비스는 Page가 돌려준 메타데이터를 그대로 옮기기만 하는지 검증한다.
+      given(outingRepository.findTeacherReceivedPage(
+          eq(TEACHER_ID), eq(TODAY), eq(TODAY), isNull(), isNull(), eq(TODAY), eq(NOW),
+          any(Pageable.class)))
+          .willReturn(new PageImpl<>(pageContent, PageRequest.of(0, 2), 3));
 
       PageResponse<OutingResponse> response = outingService.getReceivedOutings(
           TEACHER_ID, OutingQueryPeriod.TODAY,
@@ -1279,6 +1311,135 @@ class OutingServiceTest {
       assertThat(response.totalElements()).isEqualTo(3);
       assertThat(response.totalPages()).isEqualTo(2);
       assertThat(response.hasNext()).isTrue();
+    }
+  }
+
+  @Nested
+  @DisplayName("getActiveOutings")
+  class GetActiveOutings {
+
+    private Outing departedOuting(Long id, LocalDateTime departedAt, String profileImageKey) {
+      User departedStudent = User.builder()
+          .id(STUDENT_ID)
+          .gbsw(Gbsw.builder()
+              .type(GbswType.STUDENT)
+              .name("홍길동")
+              .phoneNumber("01011112222")
+              .grade(3)
+              .classNo(4)
+              .number(12)
+              .build())
+          .loginId("student1")
+          .passwordHash("hash")
+          .name("길동이")
+          .phoneNumber("01011112222")
+          .profileImageKey(profileImageKey)
+          .build();
+      return Outing.builder()
+          .id(id)
+          .code("ACTIVECODE" + id)
+          .student(departedStudent)
+          .teacher(teacher())
+          .reason("치과 진료")
+          .outingDate(TODAY)
+          .timeSlot(OutingTimeSlot.LUNCH)
+          .startTime(LocalTime.of(12, 30))
+          .endTime(LocalTime.of(13, 40))
+          .status(OutingStatus.DEPARTED)
+          .departedAt(departedAt)
+          .build();
+    }
+
+    @Test
+    @DisplayName("DEPARTED 상태만 조회하고, departedAt 오름차순 + id 보조 정렬을 요청한다")
+    void queriesDepartedStatusWithDepartedAtAndIdSort() {
+      Outing outing = departedOuting(900L, LocalDateTime.of(2026, 8, 10, 12, 31), null);
+      ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+      given(outingRepository.findByStatus(eq(OutingStatus.DEPARTED), pageableCaptor.capture()))
+          .willReturn(new PageImpl<>(List.of(outing), PageRequest.of(0, 20), 1));
+
+      PageResponse<OutingActiveResponse> response = outingService.getActiveOutings(0, 20);
+
+      assertThat(response.content()).hasSize(1);
+      assertThat(response.content().get(0).code()).isEqualTo("ACTIVECODE900");
+      List<org.springframework.data.domain.Sort.Order> orders =
+          pageableCaptor.getValue().getSort().stream().toList();
+      assertThat(orders).extracting(org.springframework.data.domain.Sort.Order::getProperty)
+          .containsExactly("departedAt", "id");
+    }
+
+    @Test
+    @DisplayName("결과 없을 때 빈 배열을 반환한다(null 아님)")
+    void returnsEmptyListNotNullWhenNoActiveOutings() {
+      given(outingRepository.findByStatus(eq(OutingStatus.DEPARTED), any(Pageable.class)))
+          .willReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
+
+      PageResponse<OutingActiveResponse> response = outingService.getActiveOutings(0, 20);
+
+      assertThat(response.content()).isNotNull().isEmpty();
+    }
+
+    @Test
+    @DisplayName("프로필 이미지 키가 없으면 studentProfileImageUrl은 null이다")
+    void nullProfileImageUrlWhenKeyMissing() {
+      Outing outing = departedOuting(901L, LocalDateTime.of(2026, 8, 10, 12, 31), null);
+      given(outingRepository.findByStatus(eq(OutingStatus.DEPARTED), any(Pageable.class)))
+          .willReturn(new PageImpl<>(List.of(outing), PageRequest.of(0, 20), 1));
+
+      PageResponse<OutingActiveResponse> response = outingService.getActiveOutings(0, 20);
+
+      assertThat(response.content().get(0).studentProfileImageUrl()).isNull();
+    }
+
+    @Test
+    @DisplayName("프로필 이미지 키가 있으면 presigned URL을 생성한다")
+    void generatesProfileImageUrlWhenKeyPresent() {
+      Outing outing =
+          departedOuting(902L, LocalDateTime.of(2026, 8, 10, 12, 31), "profile/1/abc.jpg");
+      given(outingRepository.findByStatus(eq(OutingStatus.DEPARTED), any(Pageable.class)))
+          .willReturn(new PageImpl<>(List.of(outing), PageRequest.of(0, 20), 1));
+      given(r2FileService.generateDownloadUrl("profile/1/abc.jpg"))
+          .willReturn("https://r2.example.com/profile/1/abc.jpg?X-Amz-Signature=...");
+
+      PageResponse<OutingActiveResponse> response = outingService.getActiveOutings(0, 20);
+
+      assertThat(response.content().get(0).studentProfileImageUrl())
+          .isEqualTo("https://r2.example.com/profile/1/abc.jpg?X-Amz-Signature=...");
+    }
+
+    @Test
+    @DisplayName("리포지토리가 돌려준 Page 메타데이터를 그대로 응답에 담는다")
+    void reflectsRepositoryPageMetadata() {
+      List<Outing> pageContent = List.of(
+          departedOuting(903L, LocalDateTime.of(2026, 8, 10, 8, 0), null),
+          departedOuting(904L, LocalDateTime.of(2026, 8, 10, 8, 30), null));
+      given(outingRepository.findByStatus(eq(OutingStatus.DEPARTED), any(Pageable.class)))
+          .willReturn(new PageImpl<>(pageContent, PageRequest.of(0, 2), 3));
+
+      PageResponse<OutingActiveResponse> response = outingService.getActiveOutings(0, 2);
+
+      assertThat(response.content()).hasSize(2);
+      assertThat(response.totalElements()).isEqualTo(3);
+      assertThat(response.totalPages()).isEqualTo(2);
+      assertThat(response.hasNext()).isTrue();
+    }
+
+    @Test
+    @DisplayName("page가 음수면 거부한다")
+    void rejectsWhenPageNegative() {
+      assertThatThrownBy(() -> outingService.getActiveOutings(-1, 20))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.INVALID_PAGE_PARAMS);
+    }
+
+    @Test
+    @DisplayName("size가 100을 초과하면 거부한다")
+    void rejectsWhenSizeTooLarge() {
+      assertThatThrownBy(() -> outingService.getActiveOutings(0, 101))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.INVALID_PAGE_PARAMS);
     }
   }
 
@@ -1361,6 +1522,20 @@ class OutingServiceTest {
 
       OutingResponse response =
           outingService.getOutingDetail(adminUserId, OUTING_CODE, TODAY, NOW);
+
+      assertThat(response.code()).isEqualTo(OUTING_CODE);
+    }
+
+    @Test
+    @DisplayName("TEACHER 역할이면 담당 아니어도 조회할 수 있다(#96)")
+    void allowsAnyTeacherRole() {
+      Long otherTeacherUserId = 66L;
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing()));
+      given(userRoleRepository.findRoleCodesByUserId(otherTeacherUserId))
+          .willReturn(List.of("TEACHER"));
+
+      OutingResponse response =
+          outingService.getOutingDetail(otherTeacherUserId, OUTING_CODE, TODAY, NOW);
 
       assertThat(response.code()).isEqualTo(OUTING_CODE);
     }

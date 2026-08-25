@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.remake.gone.common.response.ApiResponse;
 import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.common.security.UserPrincipal;
+import com.remake.gone.outing.dto.OutingActiveResponse;
 import com.remake.gone.outing.dto.OutingApplyRequest;
 import com.remake.gone.outing.dto.OutingLocationRequest;
 import com.remake.gone.outing.dto.OutingRejectRequest;
@@ -421,6 +422,37 @@ class OutingControllerTest {
 
       assertThat(response.success()).isTrue();
       assertThat(response.data().content()).isEmpty();
+    }
+  }
+
+  @Nested
+  @DisplayName("GET /api/v1/outings/active")
+  class GetActiveOutings {
+
+    @Test
+    @DisplayName("쿼리 파라미터를 그대로 서비스에 전달한다")
+    void passesParamsToService() {
+      OutingActiveResponse expected = new OutingActiveResponse(
+          "8A1zx9202n", "길동이", null, "홍길동", 3, 4,
+          "치과 진료", OutingTimeSlot.LUNCH, LocalDateTime.of(2026, 8, 14, 12, 31), "13:40");
+      given(outingService.getActiveOutings(0, 20))
+          .willReturn(PageResponse.of(List.of(expected), 0, 20));
+
+      ApiResponse<PageResponse<OutingActiveResponse>> response =
+          controller().getActiveOutings(0, 20);
+
+      assertThat(response.success()).isTrue();
+      assertThat(response.data().content()).containsExactly(expected);
+    }
+
+    @Test
+    @DisplayName("page/size를 생략하면 기본값(0, 20)이 적용된다")
+    void defaultsPageAndSize() throws Exception {
+      given(outingService.getActiveOutings(0, 20))
+          .willReturn(PageResponse.of(List.of(), 0, 20));
+
+      mockMvc.perform(get("/api/v1/outings/active"))
+          .andExpect(status().isOk());
     }
   }
 
