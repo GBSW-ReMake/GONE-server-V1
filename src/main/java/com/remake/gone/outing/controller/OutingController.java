@@ -36,7 +36,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 외출(Outing) 도메인 API 컨트롤러.
  *
  * <p>#29에서 신청, #30에서 승인, #31에서 거절, #41에서 조회(본인 신청/배정/단건 상세), #43에서
- * 출발/도착 보고 엔드포인트를 구현했다.
+ * 출발/도착 보고, #97에서 위치 핑 전송/동선 조회 엔드포인트를 구현했다.
  */
 @RestController
 @RequestMapping("/api/v1/outings")

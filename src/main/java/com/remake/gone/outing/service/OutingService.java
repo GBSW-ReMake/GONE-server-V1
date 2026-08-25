@@ -38,6 +38,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -471,13 +472,17 @@ public class OutingService {
       path.add(new OutingLocationPointResponse(
           outing.getDepartedLatitude(), outing.getDepartedLongitude(), outing.getDepartedAt()));
     }
-    outingLocationRepository.findByOutingIdOrderByRecordedAtAsc(outing.getId()).forEach(
+    outingLocationRepository.findByOutingIdOrderByRecordedAtAscIdAsc(outing.getId()).forEach(
         location -> path.add(new OutingLocationPointResponse(
             location.getLatitude(), location.getLongitude(), location.getRecordedAt())));
     if (outing.getReturnedAt() != null) {
       path.add(new OutingLocationPointResponse(
           outing.getReturnedLatitude(), outing.getReturnedLongitude(), outing.getReturnedAt()));
     }
+    // 핑 전송과 도착 보고가 거의 동시에 일어나면(#97 코드 리뷰 Medium 3번), 도착 좌표보다
+    // recordedAt이 늦은 핑이 조회 시점엔 이미 저장돼 있을 수 있다 — 응답 직전에 한 번 더
+    // recordedAt 기준으로 정렬해 "항상 오름차순" 불변식을 강제한다.
+    path.sort(Comparator.comparing(OutingLocationPointResponse::recordedAt));
 
     return new OutingLocationsResponse(outing.getCode(), outing.getStatus(), path);
   }
