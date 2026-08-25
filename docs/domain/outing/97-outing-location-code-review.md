@@ -10,10 +10,30 @@
 2개 파일을 모두 직접 읽고 검토했다.
 
 ## 요약
+- Critical: 없음
+- High: 1건(#1) — 반영 완료
+- Medium: 2건(#2, #3) — 반영 완료
+- Low: 3건(#4, #5, #6) — 반영 완료
+
+**반영 내역(2026-08-25):** 모든 항목이 기획서에 이미 명시된 요구사항을 그대로 채우거나
+(#1, #4, #5), 기존 컨벤션(동률 시 `id` 보조 정렬)과 이미 문서화된 응답 불변식("항상
+`recordedAt` 오름차순")을 지키는 방향의 구현 세부사항 수정(#2, #3)이라 별도 설계 변경
+승인 없이 즉시 반영했다.
+1. IDOR/세부 역할: `OutingLocationOwnershipIntegrationTest` 추가(학생 2명 + 외출증을 실
+   DB에 저장하고 `@SpringBootTest`로 비소유 학생 핑 403, 담당 아닌 TEACHER 조회 403,
+   DISCIPLINE 조회 성공을 검증).
+2. 정렬: `OutingLocationRepository.findByOutingIdOrderByRecordedAtAscIdAsc`로 `id`를
+   보조 정렬 키로 추가.
+3. 정렬 불변식: `getOutingLocations`가 `path` 조립 직후 `recordedAt` 기준으로 한 번 더
+   정렬해 경합 상황에서도 응답 계약을 강제.
+4. `OutingServiceTest.RecordLocationPing`에 연속 핑 저장 테스트 추가.
+5. `OutingControllerTest`에 `RecordLocationPing`/`GetOutingLocations` `@Nested` 추가.
+6. `OutingController` 클래스 Javadoc에 #97 언급 추가.
+
 엔드포인트 계약(경로/DTO/에러 코드/상태 코드), `validateLocationAccess`의 좁은 접근 규칙
 (담당 선생님 본인 + `DISCIPLINE`/`ADMIN`만 허용, 일반 `TEACHER` 배제)은 기획서와 정확히
-일치하게 구현되어 있다. 문제는 대부분 **기획서가 명시적으로 요구한 테스트 커버리지 일부가
-실제로는 빠졌다**는 점과, 정렬/동시성 관련 두 가지 엣지 케이스에서 나온다.
+일치하게 구현되어 있었다. 문제는 대부분 **기획서가 명시적으로 요구한 테스트 커버리지 일부가
+실제로는 빠졌다**는 점과, 정렬/동시성 관련 두 가지 엣지 케이스에서 나왔다.
 
 ---
 
