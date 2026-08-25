@@ -232,6 +232,30 @@ public class OutingController {
   }
 
   /**
+   * 특정 날짜(기본값 오늘)의 외출증 전체 현황을 조회합니다. {@code DISCIPLINE}/
+   * {@code TEACHER}/{@code ADMIN} 역할이 필요합니다(#98).
+   *
+   * @param date   조회할 날짜(생략 시 오늘)
+   * @param status 걸러볼 상태(생략 시 전부 반환)
+   * @param page   페이지 번호(0부터 시작, 생략 시 0)
+   * @param size   페이지 크기(1~100, 생략 시 20)
+   * @return 조건에 맞는 외출증의 페이지네이션된 목록
+   */
+  @GetMapping
+  @PreAuthorize("hasAnyRole('DISCIPLINE', 'TEACHER', 'ADMIN')")
+  public ApiResponse<PageResponse<OutingResponse>> getDailyOverview(
+      @RequestParam(required = false) @DateTimeFormat(pattern = "yyyyMMdd") LocalDate date,
+      @RequestParam(required = false) OutingQueryStatus status,
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "20") int size
+  ) {
+    LocalDateTime now = LocalDateTime.now(KST);
+    PageResponse<OutingResponse> response = outingService.getDailyOverview(
+        date, status, page, size, now.toLocalDate(), now.toLocalTime());
+    return ApiResponse.success(response, "외출증 현황을 조회했습니다.");
+  }
+
+  /**
    * 외출증 단건을 상세 조회합니다. 신청 학생 본인, 지정된 담당 선생님, 또는
    * {@code DISCIPLINE}/{@code ADMIN} 역할 보유자만 조회할 수 있으며, 소유권/세부 역할 판단은
    * 서비스에서 합니다(#41).
