@@ -43,9 +43,12 @@ public interface OutingRepository extends JpaRepository<Outing, Long> {
    * 조회합니다(#41 도입, #96에서 in-memory 슬라이싱 대신 DB {@code LIMIT/OFFSET}으로 전환).
    *
    * <p>{@code statusEq}/{@code wantExpired} 두 파라미터로 "유효 상태" 필터를 표현한다 — 이
-   * 도메인은 {@code PENDING}이 마감을 넘기면 DB 값은 그대로 둔 채 조회 시점에만
-   * {@code MISSED}로 표시하므로({@link OutingStatus} Javadoc 참고), 응답 DTO의 상태값과
-   * WHERE절이 직접 비교할 수 있는 단일 컬럼이 없다:
+   * 도메인은 {@code PENDING}이 마감을 넘기면 {@code OutingMissedScheduler}(#42)가 최대 1분
+   * 주기로 DB {@code status}를 실제로 {@code MISSED}로 갱신하므로, 마감 직후부터 스케줄러가
+   * 반영하기 전까지는 DB에 {@code PENDING}으로 남아있는 "빈틈" 구간이 생긴다({@link
+   * OutingStatus} Javadoc 참고). 응답 DTO의 유효 상태는 이 빈틈을 조회 시점에 실시간으로
+   * 메꿔 보여주므로, 필터도 "DB가 이미 MISSED" + "빈틈 구간(DB는 PENDING인데 마감 지남)"
+   * 둘 다 잡아야 한다:
    * <ul>
    *   <li>{@code statusFilter}가 없으면 {@code statusEq=null}, {@code wantExpired=null}
    *       (둘 다 무시, 전체 반환)</li>
@@ -53,8 +56,10 @@ public interface OutingRepository extends JpaRepository<Outing, Long> {
    *       {@code statusEq}=그 값, {@code wantExpired=null}(무시)</li>
    *   <li>{@code PENDING}(마감 전만)이면 {@code statusEq=PENDING},
    *       {@code wantExpired=false}</li>
-   *   <li>{@code MISSED}(마감 지난 PENDING만)면 {@code statusEq=PENDING},
-   *       {@code wantExpired=true}</li>
+   *   <li>{@code MISSED}(DB가 이미 MISSED이거나, 빈틈 구간에 있는 PENDING)면
+   *       {@code statusEq=null}, {@code wantExpired=true} — 이 쿼리 내부에서
+   *       {@code status = MISSED OR (status = PENDING AND 마감 지남)}으로 두 경우를 모두
+   *       처리하므로 {@code statusEq}로 미리 좁히지 않는다</li>
    * </ul>
    * 마감 판정 조건({@code outingDate}/{@code startTime} vs {@code today}/{@code now})은
    * {@link com.remake.gone.outing.utils.OutingTimeUtils#isPastDeadline}과 동일한 규칙을
@@ -64,8 +69,9 @@ public interface OutingRepository extends JpaRepository<Outing, Long> {
    * @param dateFrom    범위 시작일
    * @param dateTo      범위 종료일
    * @param statusEq    {@code status} 컬럼과 직접 비교할 값. {@code null}이면 무시
-   * @param wantExpired {@code statusEq=PENDING}일 때만 의미 있음 — {@code true}면 마감 지난
-   *                    건만, {@code false}면 마감 전인 건만. {@code null}이면 무시
+   * @param wantExpired {@code true}면 "유효 상태 MISSED"(DB가 이미 MISSED이거나 빈틈
+   *                    구간의 PENDING), {@code false}면 {@code statusEq=PENDING}과 결합해
+   *                    "마감 전 PENDING만". {@code null}이면 무시
    * @param today       "오늘" 날짜(KST) — 마감 판정 기준
    * @param now         "지금" 시각(KST) — 마감 판정 기준
    * @param pageable    페이지 번호/크기/정렬
@@ -78,8 +84,10 @@ public interface OutingRepository extends JpaRepository<Outing, Long> {
         AND (:statusEq IS NULL OR o.status = :statusEq)
         AND (:wantExpired IS NULL
              OR (:wantExpired = TRUE
-                 AND (o.outingDate < :today
-                      OR (o.outingDate = :today AND o.startTime <= :now)))
+                 AND (o.status = com.remake.gone.outing.enums.OutingStatus.MISSED
+                      OR (o.status = com.remake.gone.outing.enums.OutingStatus.PENDING
+                          AND (o.outingDate < :today
+                               OR (o.outingDate = :today AND o.startTime <= :now)))))
              OR (:wantExpired = FALSE
                  AND (o.outingDate > :today
                       OR (o.outingDate = :today AND o.startTime > :now))))
@@ -103,7 +111,7 @@ public interface OutingRepository extends JpaRepository<Outing, Long> {
    * @param dateFrom    범위 시작일
    * @param dateTo      범위 종료일
    * @param statusEq    {@code status} 컬럼과 직접 비교할 값. {@code null}이면 무시
-   * @param wantExpired {@code statusEq=PENDING}일 때만 의미 있음. {@code null}이면 무시
+   * @param wantExpired {@link #findStudentRequestsPage}와 동일한 의미. {@code null}이면 무시
    * @param today       "오늘" 날짜(KST) — 마감 판정 기준
    * @param now         "지금" 시각(KST) — 마감 판정 기준
    * @param pageable    페이지 번호/크기/정렬
@@ -116,8 +124,10 @@ public interface OutingRepository extends JpaRepository<Outing, Long> {
         AND (:statusEq IS NULL OR o.status = :statusEq)
         AND (:wantExpired IS NULL
              OR (:wantExpired = TRUE
-                 AND (o.outingDate < :today
-                      OR (o.outingDate = :today AND o.startTime <= :now)))
+                 AND (o.status = com.remake.gone.outing.enums.OutingStatus.MISSED
+                      OR (o.status = com.remake.gone.outing.enums.OutingStatus.PENDING
+                          AND (o.outingDate < :today
+                               OR (o.outingDate = :today AND o.startTime <= :now)))))
              OR (:wantExpired = FALSE
                  AND (o.outingDate > :today
                       OR (o.outingDate = :today AND o.startTime > :now))))
@@ -126,6 +136,42 @@ public interface OutingRepository extends JpaRepository<Outing, Long> {
       @Param("teacherId") Long teacherId,
       @Param("dateFrom") LocalDate dateFrom,
       @Param("dateTo") LocalDate dateTo,
+      @Param("statusEq") OutingStatus statusEq,
+      @Param("wantExpired") Boolean wantExpired,
+      @Param("today") LocalDate today,
+      @Param("now") LocalTime now,
+      Pageable pageable);
+
+  /**
+   * 특정 날짜의 외출증 전체(학생/선생님으로 좁히지 않음)를 DB 페이지네이션으로
+   * 조회합니다(#98, 관리용 하루 전체 현황). 필터 파라미터 의미는
+   * {@link #findStudentRequestsPage}와 동일하다 — 날짜만 범위가 아니라 단일 값(
+   * {@code =} 비교)이라는 점이 다르다.
+   *
+   * @param date        조회할 외출 날짜
+   * @param statusEq    {@code status} 컬럼과 직접 비교할 값. {@code null}이면 무시
+   * @param wantExpired {@link #findStudentRequestsPage}와 동일한 의미. {@code null}이면 무시
+   * @param today       "오늘" 날짜(KST) — 마감 판정 기준
+   * @param now         "지금" 시각(KST) — 마감 판정 기준
+   * @param pageable    페이지 번호/크기/정렬
+   * @return 조건에 맞는 외출증의 페이지
+   */
+  @Query("""
+      SELECT o FROM Outing o
+      WHERE o.outingDate = :date
+        AND (:statusEq IS NULL OR o.status = :statusEq)
+        AND (:wantExpired IS NULL
+             OR (:wantExpired = TRUE
+                 AND (o.status = com.remake.gone.outing.enums.OutingStatus.MISSED
+                      OR (o.status = com.remake.gone.outing.enums.OutingStatus.PENDING
+                          AND (o.outingDate < :today
+                               OR (o.outingDate = :today AND o.startTime <= :now)))))
+             OR (:wantExpired = FALSE
+                 AND (o.outingDate > :today
+                      OR (o.outingDate = :today AND o.startTime > :now))))
+      """)
+  Page<Outing> findByOutingDatePage(
+      @Param("date") LocalDate date,
       @Param("statusEq") OutingStatus statusEq,
       @Param("wantExpired") Boolean wantExpired,
       @Param("today") LocalDate today,

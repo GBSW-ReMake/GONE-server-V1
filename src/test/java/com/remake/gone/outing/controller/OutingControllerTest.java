@@ -19,6 +19,7 @@ import com.remake.gone.outing.dto.OutingLocationRequest;
 import com.remake.gone.outing.dto.OutingRejectRequest;
 import com.remake.gone.outing.dto.OutingResponse;
 import com.remake.gone.outing.enums.OutingQueryPeriod;
+import com.remake.gone.outing.enums.OutingQueryStatus;
 import com.remake.gone.outing.enums.OutingStatus;
 import com.remake.gone.outing.enums.OutingTimeSlot;
 import com.remake.gone.outing.service.OutingService;
@@ -453,6 +454,51 @@ class OutingControllerTest {
 
       mockMvc.perform(get("/api/v1/outings/active"))
           .andExpect(status().isOk());
+    }
+  }
+
+  @Nested
+  @DisplayName("GET /api/v1/outings")
+  class GetDailyOverview {
+
+    @Test
+    @DisplayName("쿼리 파라미터를 그대로 서비스에 전달한다")
+    void passesParamsToService() {
+      given(outingService.getDailyOverview(
+          eq(LocalDate.of(2026, 8, 14)), eq(OutingQueryStatus.PENDING), eq(0), eq(20),
+          any(LocalDate.class), any(LocalTime.class)))
+          .willReturn(PageResponse.of(List.of(), 0, 20));
+
+      ApiResponse<PageResponse<OutingResponse>> response = controller().getDailyOverview(
+          LocalDate.of(2026, 8, 14), OutingQueryStatus.PENDING, 0, 20);
+
+      assertThat(response.success()).isTrue();
+      assertThat(response.data().content()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("date/status/page/size를 생략하면 기본값이 적용된다")
+    void defaultsParams() throws Exception {
+      given(outingService.getDailyOverview(
+          isNull(), isNull(), eq(0), eq(20), any(LocalDate.class), any(LocalTime.class)))
+          .willReturn(PageResponse.of(List.of(), 0, 20));
+
+      mockMvc.perform(get("/api/v1/outings"))
+          .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("date 형식이 yyyyMMdd가 아니면 400을 반환한다")
+    void returns400WhenDateFormatInvalid() throws Exception {
+      mockMvc.perform(get("/api/v1/outings").param("date", "not-a-date"))
+          .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("status 값이 정의되지 않은 값이면 400을 반환한다")
+    void returns400WhenStatusInvalid() throws Exception {
+      mockMvc.perform(get("/api/v1/outings").param("status", "NOT_A_STATUS"))
+          .andExpect(status().isBadRequest());
     }
   }
 

@@ -81,6 +81,12 @@ public class OutingService {
   private static final Sort ACTIVE_LIST_SORT =
       Sort.by(Sort.Order.asc("departedAt"), Sort.Order.asc("id"));
 
+  // getDailyOverview(#98) 정렬 기준 — 이미 특정 날짜 하루로 좁혀진 조회라 outingDate 정렬은
+  // 의미가 없고, 그 하루 안에서 이른 시간대가 먼저 보이도록 startTime 오름차순 + id 보조
+  // 정렬(동률 시 페이지 경계 안정성)을 쓴다.
+  private static final Sort DAILY_OVERVIEW_SORT =
+      Sort.by(Sort.Order.asc("startTime"), Sort.Order.asc("id"));
+
   private final OutingRepository outingRepository;
   private final UserRepository userRepository;
   private final UserRoleRepository userRoleRepository;
@@ -250,10 +256,19 @@ public class OutingService {
 
   /**
    * {@code statusFilter}(응답에 노출되는 유효 상태 기준)를 {@code status} 컬럼과 직접 비교
-   * 가능한 값({@code statusEq}) + 마감 여부 플래그({@code wantExpired})로 변환한다(#96). 이
-   * 변환이 필요한 이유는 {@link OutingRepository#findStudentRequestsPage}의 Javadoc 참고 —
-   * {@code PENDING}이 마감을 넘겨도 DB 값은 그대로 {@code PENDING}이라 단일 컬럼 비교로는
-   * "마감 전 PENDING만"과 "마감 지난 PENDING(MISSED로 표시)만"을 구분할 수 없다.
+   * 가능한 값({@code statusEq}) + 마감 여부 플래그({@code wantExpired})로 변환한다(#96,
+   * #98에서 MISSED 케이스 수정). 이 변환이 필요한 이유는
+   * {@link OutingRepository#findStudentRequestsPage}의 Javadoc 참고 — {@code PENDING}이
+   * 마감을 넘겨도 {@code OutingMissedScheduler}(#42)가 반영하기 전까지는 DB 값이 그대로
+   * {@code PENDING}이라, 단일 컬럼 비교로는 "마감 전 PENDING만"과 "유효 상태
+   * MISSED"(DB가 이미 MISSED이거나 그 반영 빈틈 구간의 PENDING)를 구분할 수 없다.
+   *
+   * <p>{@code MISSED}는 {@code statusEq}를 {@code null}로 둔다 — DB가 이미 MISSED인
+   * 행까지 같이 잡아야 해서, "DB status가 PENDING"이라는 제약을 미리 걸면 안 되기 때문이다
+   * (그 판단은 리포지토리 쿼리 안에서 {@code status = MISSED OR (status = PENDING AND
+   * 마감 지남)}으로 처리한다). 착수 전 {@code statusEq = PENDING}으로 구현했다가, 이미
+   * 스케줄러가 MISSED로 반영한 행이 필터에서 누락되는 걸 #98 QA에서 실제 서버로 확인하고
+   * 고쳤다.
    */
   private StatusFilterParams resolveStatusFilterParams(OutingQueryStatus statusFilter) {
     if (statusFilter == null) {
@@ -263,7 +278,7 @@ public class OutingService {
       return new StatusFilterParams(OutingStatus.PENDING, false);
     }
     if (statusFilter == OutingQueryStatus.MISSED) {
-      return new StatusFilterParams(OutingStatus.PENDING, true);
+      return new StatusFilterParams(null, true);
     }
     return new StatusFilterParams(statusFilter.toOutingStatus(), null);
   }
@@ -291,6 +306,34 @@ public class OutingService {
     Pageable pageable = PageRequest.of(page, size, ACTIVE_LIST_SORT);
     Page<Outing> outings = outingRepository.findByStatus(OutingStatus.DEPARTED, pageable);
     return PageResponse.of(outings.map(this::toActiveResponse));
+  }
+
+  /**
+   * 특정 날짜(기본값 오늘)의 외출증 전체 현황을 조회합니다(#98). 학생/선생님으로 좁히지
+   * 않고 그날 신청된 모든 외출증(대기/승인/거절/출발/도착/마감 포함)을 보여주는 관리용
+   * 조회라, {@code #96}(지금 나가있는 사람만)과 반대로 하루치 전체 흐름을 파악하는 용도다.
+   *
+   * @param date         조회할 외출 날짜. {@code null}이면 {@code today}를 사용
+   * @param statusFilter 걸러볼 상태(유효 상태 기준). {@code null}이면 전부 반환
+   * @param page         페이지 번호(0부터 시작)
+   * @param size         페이지 크기(1~100)
+   * @param today        "오늘" 날짜(KST) — {@code date} 기본값 + 유효 상태 계산에 사용
+   * @param now          "지금" 시각(KST) — 유효 상태 계산에 사용
+   * @return 조건에 맞는 외출증의 페이지네이션된 목록({@code startTime} 오름차순)
+   */
+  @Transactional(readOnly = true)
+  public PageResponse<OutingResponse> getDailyOverview(
+      LocalDate date, OutingQueryStatus statusFilter, int page, int size,
+      LocalDate today, LocalTime now) {
+    validatePageParams(page, size);
+    LocalDate targetDate = date != null ? date : today;
+    StatusFilterParams filter = resolveStatusFilterParams(statusFilter);
+    Pageable pageable = PageRequest.of(page, size, DAILY_OVERVIEW_SORT);
+    Page<Outing> outings = outingRepository.findByOutingDatePage(
+        targetDate, filter.statusEq(), filter.wantExpired(), today, now, pageable);
+    Page<OutingResponse> responses = outings.map(
+        outing -> toResponse(outing, outing.getStudent(), outing.getTeacher(), today, now));
+    return PageResponse.of(responses);
   }
 
   private OutingActiveResponse toActiveResponse(Outing outing) {
