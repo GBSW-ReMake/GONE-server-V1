@@ -1035,6 +1035,106 @@
       ]
     },
     {
+      "name": "위치 핑 전송",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{studentAccessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"latitude\": {{outingLatitude}},\n  \"longitude\": {{outingLongitude}}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/outings/{{outingCode}}/locations",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "outings",
+            "{{outingCode}}",
+            "locations"
+          ]
+        },
+        "description": "#97 신규 엔드포인트. DEPARTED 상태인 outingCode에 위치 핑을 전송합니다. 최소 간격 검증 없이 매번 저장되며, 학생 본인만 호출할 수 있습니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "위치/동선 조회",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{teacherAccessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/outings/{{outingCode}}/locations",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "outings",
+            "{{outingCode}}",
+            "locations"
+          ]
+        },
+        "description": "#97 신규 엔드포인트. 담당 선생님 본인 또는 DISCIPLINE/ADMIN이 위치 핑과 출발/도착 좌표를 시간순으로 합친 동선(path)을 조회합니다. 아래 예시는 담당 선생님 토큰 기준입니다."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 응답 확인\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"path는 recordedAt 오름차순\", function () {",
+              "    const body = pm.response.json();",
+              "    const recordedAts = body.data.path.map((p) => p.recordedAt);",
+              "    const sorted = [...recordedAts].sort();",
+              "    pm.expect(recordedAts).to.eql(sorted);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "에러 케이스",
       "item": [
         {
@@ -2738,6 +2838,342 @@
                   "",
                   "pm.test(\"OUTING_015\", function () {",
                   "    pm.expect(pm.response.json().code).to.eql(\"OUTING_015\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "위치 핑: 본인 외출증이 아니면 → 403 OUTING_007",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCode}}/locations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCode}}",
+                "locations"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": {{outingLatitude}},\n  \"longitude\": {{outingLongitude}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "무관한 계정({{accessToken}})으로 시도해 소유권 검사(OUTING_007)까지 도달하는지 확인한다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403 Forbidden, OUTING_007\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.code).to.eql(\"OUTING_007\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "위치 핑: DEPARTED 아닌 상태(APPROVED)에서 시도 → 409 OUTING_016",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCodeForDepartureError}}/locations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCodeForDepartureError}}",
+                "locations"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": {{outingLatitude}},\n  \"longitude\": {{outingLongitude}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "outingCodeForDepartureError는 APPROVED 상태를 유지한다 — DEPARTED가 아니므로 409 OUTING_016으로 거부돼야 한다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409 Conflict, OUTING_016\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.code).to.eql(\"OUTING_016\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "위치 핑: 존재하지 않는 code → 404",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/NOTEXISTCODE/locations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "NOTEXISTCODE",
+                "locations"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": {{outingLatitude}},\n  \"longitude\": {{outingLongitude}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"404 Not Found, OUTING_006\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.code).to.eql(\"OUTING_006\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "위치 핑: 좌표 범위 밖(latitude 999)으로 시도 → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCode}}/locations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCode}}",
+                "locations"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 999.0,\n  \"longitude\": {{outingLongitude}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Bean Validation(@DecimalMax(90))에서 걸러져야 합니다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request, COMMON_001\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.code).to.eql(\"COMMON_001\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "위치/동선 조회: 담당/권한 없는 사용자로 조회 시도 → 403 OUTING_007",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCode}}/locations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCode}}",
+                "locations"
+              ]
+            },
+            "description": "담당 선생님도 DISCIPLINE/ADMIN도 아닌 계정({{accessToken}})으로 조회하면 403 OUTING_007이어야 한다."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403 Forbidden, OUTING_007\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.code).to.eql(\"OUTING_007\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "위치/동선 조회: 존재하지 않는 code → 404",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/NOTEXISTCODE/locations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "NOTEXISTCODE",
+                "locations"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"404 Not Found, OUTING_006\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.code).to.eql(\"OUTING_006\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "위치/동선 조회: 인증 없이 시도 → 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{outingCode}}/locations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{outingCode}}",
+                "locations"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401 Unauthorized\", function () {",
+                  "    pm.response.to.have.status(401);",
                   "});"
                 ]
               }
@@ -4739,6 +5175,443 @@
                   "    const body = pm.response.json();",
                   "    const codes = body.data.content.map(o => o.code);",
                   "    pm.expect(codes).to.not.include(pm.environment.get(\"qa98Code\"));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "#97 위치/동선 조회 확인",
+      "item": [
+        {
+          "name": "1. 학생 로그인",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{studentLoginId}}\",\n  \"password\": \"{{studentPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const kstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);",
+                  "const fmt = (d) => {",
+                  "    const yyyy = d.getUTCFullYear();",
+                  "    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');",
+                  "    const dd = String(d.getUTCDate()).padStart(2, '0');",
+                  "    return `${yyyy}${mm}${dd}`;",
+                  "};",
+                  "pm.environment.set('qa97TodayDate', fmt(kstNow));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"studentAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));",
+                  "        pm.environment.set(\"studentUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "2. 선생님 로그인",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{teacherLoginId}}\",\n  \"password\": \"{{teacherPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"teacherAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));",
+                  "        pm.environment.set(\"teacherUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "3. 외출증 신청 (위치/동선 확인 대상 생성)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"#97 QA - 위치/동선 조회\",\n  \"outingDate\": \"{{qa97TodayDate}}\",\n  \"timeSlot\": \"DINNER\",\n  \"teacherUserId\": {{teacherUserId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings"
+              ]
+            },
+            "description": "응답의 `data.code`를 환경 변수 `qa97Code`에 저장합니다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data && body.data.code) {",
+                  "        pm.environment.set(\"qa97Code\", body.data.code);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "4. 외출증 승인",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{qa97Code}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{qa97Code}}",
+                "approve"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK, status는 APPROVED\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.data.status).to.eql(\"APPROVED\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "5. 출발 보고 (학교 반경 안)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": {{outingLatitude}},\n  \"longitude\": {{outingLongitude}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{qa97Code}}/depart",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{qa97Code}}",
+                "depart"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK, status는 DEPARTED\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.data.status).to.eql(\"DEPARTED\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "6. 위치 핑 전송 (1회차)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 36.1234,\n  \"longitude\": 128.4321\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{qa97Code}}/locations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{qa97Code}}",
+                "locations"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "7. 위치 핑 전송 (2회차, 연속 전송 확인)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 36.1230,\n  \"longitude\": 128.4325\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{qa97Code}}/locations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{qa97Code}}",
+                "locations"
+              ]
+            },
+            "description": "직전 요청과 최소 간격 없이 연속으로 보내도 둘 다 저장되는지 확인합니다(최소 간격 검증 미도입, 기획서 확정 사항)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "8. 위치/동선 조회 (선생님, path 조립 확인)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/outings/{{qa97Code}}/locations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "outings",
+                "{{qa97Code}}",
+                "locations"
+              ]
+            },
+            "description": "path가 출발 좌표(5번) → 핑1(6번) → 핑2(7번) 순으로, recordedAt 오름차순으로 조립되는지 확인합니다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK, path 3개(출발좌표+핑2개), recordedAt 오름차순\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.data.code).to.eql(pm.environment.get(\"qa97Code\"));",
+                  "    pm.expect(body.data.path.length).to.eql(3);",
+                  "    const recordedAts = body.data.path.map((p) => p.recordedAt);",
+                  "    const sorted = [...recordedAts].sort();",
+                  "    pm.expect(recordedAts).to.eql(sorted);",
                   "});"
                 ]
               }
