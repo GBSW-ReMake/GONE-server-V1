@@ -63,4 +63,13 @@ public interface OutingRepository extends JpaRepository<Outing, Long> {
    * @return 조건에 맞는 외출증 목록
    */
   List<Outing> findByStatus(OutingStatus status);
+
+  /**
+   * 주어진 상태에 해당하는 외출증을 {@code departedAt} 오름차순으로 조회합니다(#96, 지금 외출
+   * 중인 학생 목록 — 가장 오래 나가 있는 학생이 먼저 보이도록 정렬).
+   *
+   * @param status 조회할 상태
+   * @return 조건에 맞는 외출증 목록, {@code departedAt} 오름차순
+   */
+  List<Outing> findByStatusOrderByDepartedAtAsc(OutingStatus status);
 }
