@@ -11,12 +11,16 @@ import com.remake.gone.outing.dto.OutingActiveResponse;
 import com.remake.gone.outing.dto.OutingApplyRequest;
 import com.remake.gone.outing.dto.OutingLocationRequest;
 import com.remake.gone.outing.dto.OutingResponse;
+import com.remake.gone.outing.dto.OutingLocationPointResponse;
+import com.remake.gone.outing.dto.OutingLocationsResponse;
 import com.remake.gone.outing.entity.Outing;
+import com.remake.gone.outing.entity.OutingLocation;
 import com.remake.gone.outing.enums.OutingQueryPeriod;
 import com.remake.gone.outing.enums.OutingQueryStatus;
 import com.remake.gone.outing.enums.OutingStatus;
 import com.remake.gone.outing.enums.OutingTimeSlot;
 import com.remake.gone.outing.exception.OutingErrorCode;
+import com.remake.gone.outing.repository.OutingLocationRepository;
 import com.remake.gone.outing.repository.OutingRepository;
 import com.remake.gone.outing.utils.GeoUtils;
 import com.remake.gone.outing.utils.OutingCodeGenerator;
@@ -33,6 +37,7 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.TemporalAdjusters;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -88,6 +93,7 @@ public class OutingService {
       Sort.by(Sort.Order.asc("startTime"), Sort.Order.asc("id"));
 
   private final OutingRepository outingRepository;
+  private final OutingLocationRepository outingLocationRepository;
   private final UserRepository userRepository;
   private final UserRoleRepository userRoleRepository;
   private final R2FileService r2FileService;
@@ -415,6 +421,76 @@ public class OutingService {
 
     return toResponse(
         outing, outing.getStudent(), outing.getTeacher(), now.toLocalDate(), now.toLocalTime());
+  }
+
+  /**
+   * 학생 본인이 외출 중({@code DEPARTED}) 위치 핑을 전송합니다(#97).
+   *
+   * @param studentUserId 핑을 전송하는 학생 사용자 ID (Access Token에서 추출됨)
+   * @param code          핑을 전송할 외출증의 외부 식별자 코드
+   * @param request       현재 위치 좌표
+   * @param now           "지금" 시각(KST) — {@code recordedAt}으로 그대로 저장(클라이언트
+   *                      시각을 신뢰하지 않는 이유는 {@link OutingLocation} 참고)
+   */
+  @Transactional
+  public void recordLocationPing(
+      Long studentUserId, String code, OutingLocationRequest request, LocalDateTime now) {
+    Outing outing = outingRepository.findByCode(code)
+        .orElseThrow(() -> new CustomException(OutingErrorCode.OUTING_NOT_FOUND));
+    validateOwnership(studentUserId, outing);
+    if (outing.getStatus() != OutingStatus.DEPARTED) {
+      throw new CustomException(OutingErrorCode.NOT_DEPARTED_STATUS);
+    }
+    // depart/return과 달리 학교 반경 검증을 하지 않는다 — 핑은 "외출 중"을 계속 기록하는
+    // 것이라 학교 밖에 있는 게 정상이다.
+    outingLocationRepository.save(OutingLocation.builder()
+        .outing(outing)
+        .latitude(request.latitude())
+        .longitude(request.longitude())
+        .recordedAt(now)
+        .build());
+  }
+
+  /**
+   * 외출증의 위치/동선을 조회합니다(#97). 담당 선생님 본인, 또는 {@code DISCIPLINE}/
+   * {@code ADMIN}만 조회할 수 있습니다(전체 {@code TEACHER}는 아님 — 위치는 상태보다 민감한
+   * 정보라 {@link #validateDetailAccess}보다 좁게 가져간다).
+   *
+   * @param callerUserId 조회를 요청한 사용자 ID (Access Token에서 추출됨)
+   * @param code         조회할 외출증의 외부 식별자 코드
+   * @return 출발 좌표 → 위치 핑(시간순) → 도착 좌표 순으로 합성된 동선
+   */
+  @Transactional(readOnly = true)
+  public OutingLocationsResponse getOutingLocations(Long callerUserId, String code) {
+    Outing outing = outingRepository.findByCode(code)
+        .orElseThrow(() -> new CustomException(OutingErrorCode.OUTING_NOT_FOUND));
+    validateLocationAccess(callerUserId, outing);
+
+    List<OutingLocationPointResponse> path = new ArrayList<>();
+    if (outing.getDepartedAt() != null) {
+      path.add(new OutingLocationPointResponse(
+          outing.getDepartedLatitude(), outing.getDepartedLongitude(), outing.getDepartedAt()));
+    }
+    outingLocationRepository.findByOutingIdOrderByRecordedAtAsc(outing.getId()).forEach(
+        location -> path.add(new OutingLocationPointResponse(
+            location.getLatitude(), location.getLongitude(), location.getRecordedAt())));
+    if (outing.getReturnedAt() != null) {
+      path.add(new OutingLocationPointResponse(
+          outing.getReturnedLatitude(), outing.getReturnedLongitude(), outing.getReturnedAt()));
+    }
+
+    return new OutingLocationsResponse(outing.getCode(), outing.getStatus(), path);
+  }
+
+  private void validateLocationAccess(Long callerUserId, Outing outing) {
+    if (outing.getTeacher().getId().equals(callerUserId)) {
+      return;
+    }
+    List<String> roles = userRoleRepository.findRoleCodesByUserId(callerUserId);
+    if (roles.contains(DISCIPLINE_ROLE_CODE) || roles.contains(ADMIN_ROLE_CODE)) {
+      return;
+    }
+    throw new CustomException(OutingErrorCode.ACCESS_DENIED);
   }
 
   /**
