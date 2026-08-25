@@ -6,6 +6,7 @@ import com.remake.gone.common.security.UserPrincipal;
 import com.remake.gone.outing.dto.OutingActiveResponse;
 import com.remake.gone.outing.dto.OutingApplyRequest;
 import com.remake.gone.outing.dto.OutingLocationRequest;
+import com.remake.gone.outing.dto.OutingLocationsResponse;
 import com.remake.gone.outing.dto.OutingRejectRequest;
 import com.remake.gone.outing.dto.OutingResponse;
 import com.remake.gone.outing.enums.OutingQueryPeriod;
@@ -151,6 +152,47 @@ public class OutingController {
         ? "예정된 시간 외에 도착이 기록되었습니다."
         : "도착이 기록되었습니다.";
     return ApiResponse.success(response, message);
+  }
+
+  /**
+   * 학생 본인이 외출 중({@code DEPARTED}) 위치 핑을 전송합니다. STUDENT 역할만 전송할 수
+   * 있으며, 본인이 그 외출증의 학생인지는 서비스에서 소유권을 확인합니다(#97).
+   *
+   * @param principal 인증 필터가 Access Token에서 추출한 현재 사용자
+   * @param code      핑을 전송할 외출증의 외부 식별자 코드
+   * @param request   현재 위치 좌표
+   * @return 성공 여부만 담은 응답(매 핑마다 무거운 응답 불필요)
+   */
+  @PostMapping("/{code}/locations")
+  @PreAuthorize("hasRole('STUDENT')")
+  public ApiResponse<Void> recordLocationPing(
+      @AuthenticationPrincipal UserPrincipal principal,
+      @PathVariable String code,
+      @Valid @RequestBody OutingLocationRequest request
+  ) {
+    outingService.recordLocationPing(
+        principal.userId(), code, request, LocalDateTime.now(KST));
+    return ApiResponse.success(null, "위치가 저장되었습니다.");
+  }
+
+  /**
+   * 외출증의 위치/동선을 조회합니다. 담당 선생님 본인, 또는 {@code DISCIPLINE}/{@code ADMIN}
+   * 역할 보유자만 조회할 수 있으며(전체 {@code TEACHER}는 아님), 소유권/세부 역할 판단은
+   * 서비스에서 합니다(#97).
+   *
+   * @param principal 인증 필터가 Access Token에서 추출한 현재 사용자
+   * @param code      조회할 외출증의 외부 식별자 코드
+   * @return 출발 좌표 → 위치 핑(시간순) → 도착 좌표 순으로 합성된 동선
+   */
+  @GetMapping("/{code}/locations")
+  @PreAuthorize("isAuthenticated()")
+  public ApiResponse<OutingLocationsResponse> getOutingLocations(
+      @AuthenticationPrincipal UserPrincipal principal,
+      @PathVariable String code
+  ) {
+    OutingLocationsResponse response =
+        outingService.getOutingLocations(principal.userId(), code);
+    return ApiResponse.success(response, "위치 조회에 성공했습니다.");
   }
 
   /**
