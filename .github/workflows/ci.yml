@@ -172,6 +172,9 @@ jobs:
       OUTING_SCHOOL_LATITUDE: '0.0'
       OUTING_SCHOOL_LONGITUDE: '0.0'
       OUTING_SCHOOL_RADIUS_METERS: '200'
+      # ConductProperties(@NotNull @Positive) 검증을 통과시키기 위한 더미 값.
+      # contextLoads()는 실제 임계치 판정을 수행하지 않는다(#111).
+      CONDUCT_DEMERIT_THRESHOLD: '10'
 
     steps:
       - name: Code Checkout(코드 체크아웃)
