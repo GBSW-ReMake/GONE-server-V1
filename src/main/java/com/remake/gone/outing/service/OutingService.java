@@ -256,10 +256,19 @@ public class OutingService {
 
   /**
    * {@code statusFilter}(응답에 노출되는 유효 상태 기준)를 {@code status} 컬럼과 직접 비교
-   * 가능한 값({@code statusEq}) + 마감 여부 플래그({@code wantExpired})로 변환한다(#96). 이
-   * 변환이 필요한 이유는 {@link OutingRepository#findStudentRequestsPage}의 Javadoc 참고 —
-   * {@code PENDING}이 마감을 넘겨도 DB 값은 그대로 {@code PENDING}이라 단일 컬럼 비교로는
-   * "마감 전 PENDING만"과 "마감 지난 PENDING(MISSED로 표시)만"을 구분할 수 없다.
+   * 가능한 값({@code statusEq}) + 마감 여부 플래그({@code wantExpired})로 변환한다(#96,
+   * #98에서 MISSED 케이스 수정). 이 변환이 필요한 이유는
+   * {@link OutingRepository#findStudentRequestsPage}의 Javadoc 참고 — {@code PENDING}이
+   * 마감을 넘겨도 {@code OutingMissedScheduler}(#42)가 반영하기 전까지는 DB 값이 그대로
+   * {@code PENDING}이라, 단일 컬럼 비교로는 "마감 전 PENDING만"과 "유효 상태
+   * MISSED"(DB가 이미 MISSED이거나 그 반영 빈틈 구간의 PENDING)를 구분할 수 없다.
+   *
+   * <p>{@code MISSED}는 {@code statusEq}를 {@code null}로 둔다 — DB가 이미 MISSED인
+   * 행까지 같이 잡아야 해서, "DB status가 PENDING"이라는 제약을 미리 걸면 안 되기 때문이다
+   * (그 판단은 리포지토리 쿼리 안에서 {@code status = MISSED OR (status = PENDING AND
+   * 마감 지남)}으로 처리한다). 착수 전 {@code statusEq = PENDING}으로 구현했다가, 이미
+   * 스케줄러가 MISSED로 반영한 행이 필터에서 누락되는 걸 #98 QA에서 실제 서버로 확인하고
+   * 고쳤다.
    */
   private StatusFilterParams resolveStatusFilterParams(OutingQueryStatus statusFilter) {
     if (statusFilter == null) {
@@ -269,7 +278,7 @@ public class OutingService {
       return new StatusFilterParams(OutingStatus.PENDING, false);
     }
     if (statusFilter == OutingQueryStatus.MISSED) {
-      return new StatusFilterParams(OutingStatus.PENDING, true);
+      return new StatusFilterParams(null, true);
     }
     return new StatusFilterParams(statusFilter.toOutingStatus(), null);
   }

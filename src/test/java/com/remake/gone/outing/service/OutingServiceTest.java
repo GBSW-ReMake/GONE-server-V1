@@ -1146,11 +1146,14 @@ class OutingServiceTest {
     }
 
     @Test
-    @DisplayName("status=MISSED로 필터링하면 statusEq=PENDING, wantExpired=true로 조회한다")
+    @DisplayName("status=MISSED로 필터링하면 statusEq=null, wantExpired=true로 조회한다")
     void statusFilterMissedResolvesToExpired() {
+      // statusEq를 null로 둬야 DB에 이미 MISSED로 반영된 행도 리포지토리 쿼리가 놓치지
+      // 않는다(#98에서 수정 — statusEq=PENDING으로 좁히면 스케줄러가 이미 처리한 행이
+      // 빠진다).
       Outing pastDeadline = outingWithStatus(OutingStatus.PENDING, TODAY, LocalTime.of(8, 0));
       given(outingRepository.findStudentRequestsPage(
-          eq(STUDENT_ID), eq(TODAY), eq(TODAY), eq(OutingStatus.PENDING), eq(true),
+          eq(STUDENT_ID), eq(TODAY), eq(TODAY), isNull(), eq(true),
           eq(TODAY), eq(NOW), any(Pageable.class)))
           .willReturn(new PageImpl<>(List.of(pastDeadline), PageRequest.of(0, 20), 1));
 
@@ -1506,11 +1509,12 @@ class OutingServiceTest {
     }
 
     @Test
-    @DisplayName("status=MISSED로 필터링하면 statusEq=PENDING, wantExpired=true로 조회한다")
+    @DisplayName("status=MISSED로 필터링하면 statusEq=null, wantExpired=true로 조회한다")
     void statusFilterMissedResolvesToExpired() {
+      // statusEq=null이어야 DB에 이미 MISSED로 반영된 행도 놓치지 않는다(#98에서 수정).
       Outing pastDeadline = dailyOuting(1001L, OutingStatus.PENDING, LocalTime.of(8, 0));
       given(outingRepository.findByOutingDatePage(
-          eq(TODAY), eq(OutingStatus.PENDING), eq(true), eq(TODAY), eq(NOW),
+          eq(TODAY), isNull(), eq(true), eq(TODAY), eq(NOW),
           any(Pageable.class)))
           .willReturn(new PageImpl<>(List.of(pastDeadline), PageRequest.of(0, 20), 1));
 
