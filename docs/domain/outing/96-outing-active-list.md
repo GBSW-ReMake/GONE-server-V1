@@ -57,7 +57,7 @@
 **권한**: `DISCIPLINE`, `TEACHER`, `ADMIN` 중 하나(`@PreAuthorize`)
 
 **요청**
-```
+```http
 GET /api/v1/outings/active?page=0&size=20
 ```
 - `page`: 선택, 기본값 `0`

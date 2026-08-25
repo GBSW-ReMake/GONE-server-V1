@@ -1,7 +1,10 @@
 # #96 외출증 실시간 목록 조회 API — 코드 리뷰 결과
 
 관련 기획서: [96-outing-active-list.md](./96-outing-active-list.md)
-리뷰 대상: `git diff dev...feat/#96-outing-active-list` (커밋 `a15640f`~`3122129`, 7개)
+리뷰 대상: `git diff dev...3122129` (커밋 `a15640f`~`3122129`, 7개 — 브랜치 이름으로
+`git diff dev...feat/#96-outing-active-list`를 실행하면 이 리뷰 이후 추가된 커밋(이
+리뷰 결과 문서 자체, QA 문서 등 총 9개 커밋)까지 포함되어 재현되지 않으므로, 실제
+리뷰 시점의 커밋 SHA로 고정해 남긴다)
 
 ## 리뷰 범위/방법
 - 기획서(`96-outing-active-list.md`)에 기록된 설계 판단(DB 레벨 페이지네이션 전환,
