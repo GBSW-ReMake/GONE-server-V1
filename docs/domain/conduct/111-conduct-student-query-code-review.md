@@ -4,8 +4,7 @@
 
 ## 리뷰 결과
 
-### 1. N+1 쿼리 — `getStudentRecords` 페이지 조회 시 teacher·category 지연 로딩
-**심각도**: 🔴 Critical
+### 1. 🔴 Critical — `getStudentRecords` 페이지 조회 시 teacher·category N+1 쿼리
 
 **문제**: `ConductRecordRepository.findByStudentWithFilters`가 반환하는 `Page<ConductRecord>`에서 `teacher`·`category` 관계가 `FetchType.LAZY`로 선언되어 있다. `ConductStudentRecordResponse.from(record)` 변환 시 `record.getTeacher().getId()`·`record.getCategory().getId()`를 호출하면, 항목당 teacher 1건·category 1건 추가 쿼리가 발생한다. `size=100` 요청 시 1(목록) + 100(teacher) + 100(category) = 최대 201개 쿼리가 발생하며, 기획서의 "DB 레벨 페이지네이션" 의도와 역배된다.
 
@@ -21,8 +20,7 @@
 
 ---
 
-### 2. LazyInitializationException 위험 — 트랜잭션 내 DTO 변환
-**심각도**: ℹ️ INFO
+### 2. ℹ️ INFO — LazyInitializationException 위험 — 트랜잭션 내 DTO 변환
 
 **에이전트 지적**: Controller에서 변환 시도 시 트랜잭션 외에서 Lazy 로딩 예외가 발생할 수 있다.
 
@@ -30,8 +28,7 @@
 
 ---
 
-### 3. 날짜 형식 오류 응답
-**심각도**: ℹ️ INFO
+### 3. ℹ️ INFO — 날짜 형식 오류 응답
 
 **에이전트 지적**: `dateFrom`에 `2026-08-01`처럼 형식 오류 값이 오면 `CONDUCT_008`이 아니라 공통 `DateTimeParseException` 400으로 처리된다.
 
