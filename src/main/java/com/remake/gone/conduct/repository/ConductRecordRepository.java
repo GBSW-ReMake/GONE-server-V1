@@ -44,6 +44,8 @@ public interface ConductRecordRepository extends JpaRepository<ConductRecord, Lo
    * @return 필터링된 기록 페이지
    */
   @Query("SELECT r FROM ConductRecord r "
+      + "LEFT JOIN FETCH r.teacher "
+      + "LEFT JOIN FETCH r.category "
       + "WHERE r.student.id = :studentUserId "
       + "AND (:type IS NULL OR r.type = :type) "
       + "AND (:dateFrom IS NULL OR CAST(r.createdAt AS LocalDate) >= :dateFrom) "
