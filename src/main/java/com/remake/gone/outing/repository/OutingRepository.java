@@ -133,6 +133,40 @@ public interface OutingRepository extends JpaRepository<Outing, Long> {
       Pageable pageable);
 
   /**
+   * 특정 날짜의 외출증 전체(학생/선생님으로 좁히지 않음)를 DB 페이지네이션으로
+   * 조회합니다(#98, 관리용 하루 전체 현황). 필터 파라미터 의미는
+   * {@link #findStudentRequestsPage}와 동일하다 — 날짜만 범위가 아니라 단일 값(
+   * {@code =} 비교)이라는 점이 다르다.
+   *
+   * @param date        조회할 외출 날짜
+   * @param statusEq    {@code status} 컬럼과 직접 비교할 값. {@code null}이면 무시
+   * @param wantExpired {@code statusEq=PENDING}일 때만 의미 있음. {@code null}이면 무시
+   * @param today       "오늘" 날짜(KST) — 마감 판정 기준
+   * @param now         "지금" 시각(KST) — 마감 판정 기준
+   * @param pageable    페이지 번호/크기/정렬
+   * @return 조건에 맞는 외출증의 페이지
+   */
+  @Query("""
+      SELECT o FROM Outing o
+      WHERE o.outingDate = :date
+        AND (:statusEq IS NULL OR o.status = :statusEq)
+        AND (:wantExpired IS NULL
+             OR (:wantExpired = TRUE
+                 AND (o.outingDate < :today
+                      OR (o.outingDate = :today AND o.startTime <= :now)))
+             OR (:wantExpired = FALSE
+                 AND (o.outingDate > :today
+                      OR (o.outingDate = :today AND o.startTime > :now))))
+      """)
+  Page<Outing> findByOutingDatePage(
+      @Param("date") LocalDate date,
+      @Param("statusEq") OutingStatus statusEq,
+      @Param("wantExpired") Boolean wantExpired,
+      @Param("today") LocalDate today,
+      @Param("now") LocalTime now,
+      Pageable pageable);
+
+  /**
    * 주어진 상태에 해당하는 외출증을 전부 조회합니다(#42, {@code MISSED} 반영 스케줄러 대상
    * 조회). 스케줄러는 페이지네이션 없이 대상 전체를 훑어야 하므로 {@link List}를 반환하는
    * 이 메서드를 그대로 둔다.
