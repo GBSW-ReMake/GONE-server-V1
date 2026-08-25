@@ -9,9 +9,10 @@ import org.springframework.http.HttpStatus;
  * <p>코드 네이밍 규칙: {@code OUTING_NNN} (NNN은 3자리 순번). #29에서
  * {@code 001}/{@code 002}/{@code 003}/{@code 011}/{@code 012}를, #30(승인)/#31(거절)에서
  * {@code 004}~{@code 006}을, #41(조회)에서 {@code 007}/{@code 013}~{@code 015}를, #42
- * (마감 차단)에서 {@code 008}을 채웠다(승인/거절이 같은 원인 체계를 공유해 코드를 그대로
- * 재사용한다). 번호는 사전 예약이 아니라 실제 구현되는 순서대로 그 시점에 비어있는 다음
- * 번호를 쓴다 — 출발/도착/위치 관련 코드는 그 이슈(#43)가 실제로 구현될 때 확정한다.
+ * (마감 차단)에서 {@code 008}을, #43(출발/도착 보고)에서 {@code 009}/{@code 010}을, #97
+ * (위치 핑/동선 조회)에서 {@code 016}을 채웠다(승인/거절이 같은 원인 체계를 공유해 코드를
+ * 그대로 재사용한다). 번호는 사전 예약이 아니라 실제 구현되는 순서대로 그 시점에 비어있는
+ * 다음 번호를 쓴다.
  *
  * @see ErrorCode
  */
@@ -68,7 +69,12 @@ public enum OutingErrorCode implements ErrorCode {
   /** 현재 시각이 학교 운영시간({@code OutingTimeSlot.CUSTOM_WINDOW_START}~
    *  {@code CUSTOM_WINDOW_END}, 08:40~20:30) 밖입니다(#43). */
   OUTSIDE_OPERATING_HOURS(
-      HttpStatus.BAD_REQUEST, "OUTING_010", "학교 운영시간(08:40~20:30) 외에는 출발/도착을 보고할 수 없습니다.");
+      HttpStatus.BAD_REQUEST, "OUTING_010", "학교 운영시간(08:40~20:30) 외에는 출발/도착을 보고할 수 없습니다."),
+
+  /** 위치 핑 전송 시점에 그 외출증이 DEPARTED 상태가 아닙니다(#97). 아직 출발 전이거나
+   *  이미 도착 처리된 경우 — "이미 처리됨"(OUTING_005)과 원인이 달라 코드를 분리한다. */
+  NOT_DEPARTED_STATUS(
+      HttpStatus.CONFLICT, "OUTING_016", "그 외출증이 DEPARTED 상태가 아닙니다.");
 
   private final HttpStatus httpStatus;
   private final String code;
