@@ -50,7 +50,7 @@ public interface ConductRecordRepository extends JpaRepository<ConductRecord, Lo
       + "AND (:type IS NULL OR r.type = :type) "
       + "AND (:dateFrom IS NULL OR CAST(r.createdAt AS LocalDate) >= :dateFrom) "
       + "AND (:dateTo IS NULL OR CAST(r.createdAt AS LocalDate) <= :dateTo) "
-      + "ORDER BY r.createdAt DESC")
+      + "ORDER BY r.createdAt DESC, r.id DESC")
   Page<ConductRecord> findByStudentWithFilters(
       @Param("studentUserId") Long studentUserId,
       @Param("type") ConductType type,
