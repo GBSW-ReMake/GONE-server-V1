@@ -68,7 +68,7 @@
 
 ## 발견 사항
 
-### 1. 🟡 Medium — 기획서에 명시된 완료 조건("Postman 컬렉션 반영")이 diff에 반영되지 않음
+### 1. 🟡 Medium — 기획서에 명시된 완료 조건("Postman 컬렉션 반영")이 diff에 반영되지 않음 (해결됨, 커밋 `db1763a`)
 
 **문제**: `docs/domain/outing/98-outing-daily-status.md:126-130`의 "완료 조건(Definition of
 Done)"은 "로컬 빌드/테스트 통과", "CI 통과"와 나란히 "Postman 컬렉션 반영"을 명시한다.
@@ -94,5 +94,19 @@ Done)"은 "로컬 빌드/테스트 통과", "CI 통과"와 나란히 "Postman �
    정확성과는 무관한 항목이라 이번 코드 리뷰를 막을 필요는 없지만, 기획서 스스로 정한
    완료 조건이므로 PR을 올리기 전에는 반드시 처리해야 한다.
 
+**반영 결과(15단계, 커밋 `db1763a`)**: 방안 1을 택해 최상위에 `GET /api/v1/outings`
+요청, 에러 케이스 4건(401/403/date 400/page 400), `#98 오늘 전체 현황 조회 확인` 검증
+폴더(신청→오늘 조회→status 필터 2종→날짜 필터)를 직접 추가했다. newman으로 로컬
+실서버 대상 end-to-end 실행해 11개 assertion 전부 통과를 확인한 뒤 Postman 워크스페이스에
+API로 push했다.
+
 ## 요약
-Critical/High 없음. Medium 1건(Postman 컬렉션 미반영). Low 없음.
+Critical/High 없음. Medium 1건(Postman 컬렉션 미반영 — 해결됨). Low 없음.
+
+## 부록 — QA 중 발견된 별도 Critical 버그(9단계 리뷰 시점엔 발견 못 함)
+10단계 실서버 QA에서 `status=MISSED` 필터가 `OutingMissedScheduler`(#42)가 이미 DB에
+반영한 행을 놓치는 회귀를 발견했다(#96에서 도입된 공용 패턴의 결함, 이미 머지된
+`/me/requests`·`/me/received`에도 영향). 이 리뷰(9단계) 시점에는 정적 코드 대조만으로는
+잡히지 않았다 — `resolveStatusFilterParams`/JPQL이 문법적으로는 일관되게 재사용되고
+있어서 "재사용이 올바른가"만 확인했지, 재사용된 원본 로직 자체의 결함까지는 잡아내지
+못했다. 상세는 [98-outing-daily-status-QA.md](./98-outing-daily-status-QA.md) 참고.
