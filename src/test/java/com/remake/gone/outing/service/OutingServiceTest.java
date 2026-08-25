@@ -2,6 +2,7 @@ package com.remake.gone.outing.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -19,13 +20,16 @@ import com.remake.gone.outing.config.OutingProperties;
 import com.remake.gone.outing.dto.OutingActiveResponse;
 import com.remake.gone.outing.dto.OutingApplyRequest;
 import com.remake.gone.outing.dto.OutingLocationRequest;
+import com.remake.gone.outing.dto.OutingLocationsResponse;
 import com.remake.gone.outing.dto.OutingResponse;
 import com.remake.gone.outing.entity.Outing;
+import com.remake.gone.outing.entity.OutingLocation;
 import com.remake.gone.outing.enums.OutingQueryPeriod;
 import com.remake.gone.outing.enums.OutingQueryStatus;
 import com.remake.gone.outing.enums.OutingStatus;
 import com.remake.gone.outing.enums.OutingTimeSlot;
 import com.remake.gone.outing.exception.OutingErrorCode;
+import com.remake.gone.outing.repository.OutingLocationRepository;
 import com.remake.gone.outing.repository.OutingRepository;
 import com.remake.gone.role.repository.UserRoleRepository;
 import com.remake.gone.user.entity.User;
@@ -66,6 +70,9 @@ class OutingServiceTest {
 
   @Mock
   private OutingRepository outingRepository;
+
+  @Mock
+  private OutingLocationRepository outingLocationRepository;
 
   @Mock
   private UserRepository userRepository;
@@ -1704,6 +1711,247 @@ class OutingServiceTest {
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(OutingErrorCode.ACCESS_DENIED);
+    }
+  }
+
+  @Nested
+  @DisplayName("recordLocationPing")
+  class RecordLocationPing {
+
+    private static final String OUTING_CODE = "8A1zx9202n";
+
+    private Outing departedOuting() {
+      return Outing.builder()
+          .id(500L)
+          .code(OUTING_CODE)
+          .student(student())
+          .teacher(teacher())
+          .reason("치과 진료")
+          .outingDate(TODAY)
+          .timeSlot(OutingTimeSlot.LUNCH)
+          .startTime(LocalTime.of(12, 30))
+          .endTime(LocalTime.of(13, 40))
+          .status(OutingStatus.DEPARTED)
+          .build();
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 code면 거부한다")
+    void rejectsWhenOutingNotFound() {
+      given(outingRepository.findByCode("NOPE")).willReturn(Optional.empty());
+
+      assertThatThrownBy(() -> outingService.recordLocationPing(
+          STUDENT_ID, "NOPE", new OutingLocationRequest(36.0, 128.0),
+          LocalDateTime.of(2026, 8, 10, 13, 0)))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.OUTING_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("본인 외출증이 아니면 거부한다")
+    void rejectsWhenNotOwner() {
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(departedOuting()));
+      Long otherStudentId = 99L;
+
+      assertThatThrownBy(() -> outingService.recordLocationPing(
+          otherStudentId, OUTING_CODE, new OutingLocationRequest(36.0, 128.0),
+          LocalDateTime.of(2026, 8, 10, 13, 0)))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.ACCESS_DENIED);
+    }
+
+    @Test
+    @DisplayName("DEPARTED 상태가 아니면 거부한다")
+    void rejectsWhenNotDeparted() {
+      Outing outing = departedOuting();
+      outing.setStatus(OutingStatus.APPROVED);
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+
+      assertThatThrownBy(() -> outingService.recordLocationPing(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(36.0, 128.0),
+          LocalDateTime.of(2026, 8, 10, 13, 0)))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.NOT_DEPARTED_STATUS);
+    }
+
+    @Test
+    @DisplayName("학교 반경 밖 좌표도 그대로 저장한다(핑은 학교 반경을 검증하지 않는다)")
+    void savesPingEvenOutsideSchoolRadius() {
+      Outing outing = departedOuting();
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      LocalDateTime now = LocalDateTime.of(2026, 8, 10, 13, 0);
+      ArgumentCaptor<OutingLocation> captor = ArgumentCaptor.forClass(OutingLocation.class);
+
+      outingService.recordLocationPing(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(37.5, 129.5), now);
+
+      verify(outingLocationRepository).save(captor.capture());
+      OutingLocation saved = captor.getValue();
+      assertThat(saved.getOuting()).isEqualTo(outing);
+      assertThat(saved.getLatitude()).isEqualTo(37.5);
+      assertThat(saved.getLongitude()).isEqualTo(129.5);
+      assertThat(saved.getRecordedAt()).isEqualTo(now);
+    }
+  }
+
+  @Nested
+  @DisplayName("getOutingLocations")
+  class GetOutingLocations {
+
+    private static final String OUTING_CODE = "8A1zx9202n";
+
+    private Outing outing(OutingStatus status) {
+      return Outing.builder()
+          .id(500L)
+          .code(OUTING_CODE)
+          .student(student())
+          .teacher(teacher())
+          .reason("치과 진료")
+          .outingDate(TODAY)
+          .timeSlot(OutingTimeSlot.LUNCH)
+          .startTime(LocalTime.of(12, 30))
+          .endTime(LocalTime.of(13, 40))
+          .status(status)
+          .build();
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 code면 거부한다")
+    void rejectsWhenOutingNotFound() {
+      given(outingRepository.findByCode("NOPE")).willReturn(Optional.empty());
+
+      assertThatThrownBy(() -> outingService.getOutingLocations(TEACHER_ID, "NOPE"))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.OUTING_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("담당 선생님 본인이면 조회할 수 있다")
+    void allowsAssignedTeacher() {
+      Outing outing = outing(OutingStatus.DEPARTED);
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(outingLocationRepository.findByOutingIdOrderByRecordedAtAsc(outing.getId()))
+          .willReturn(List.of());
+
+      OutingLocationsResponse response = outingService.getOutingLocations(TEACHER_ID, OUTING_CODE);
+
+      assertThat(response.code()).isEqualTo(OUTING_CODE);
+    }
+
+    @Test
+    @DisplayName("DISCIPLINE 역할이면 담당 아니어도 조회할 수 있다")
+    void allowsDisciplineRole() {
+      Long disciplineUserId = 77L;
+      Outing outing = outing(OutingStatus.DEPARTED);
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(userRoleRepository.findRoleCodesByUserId(disciplineUserId))
+          .willReturn(List.of("DISCIPLINE"));
+      given(outingLocationRepository.findByOutingIdOrderByRecordedAtAsc(outing.getId()))
+          .willReturn(List.of());
+
+      OutingLocationsResponse response =
+          outingService.getOutingLocations(disciplineUserId, OUTING_CODE);
+
+      assertThat(response.code()).isEqualTo(OUTING_CODE);
+    }
+
+    @Test
+    @DisplayName("ADMIN 역할이면 담당 아니어도 조회할 수 있다")
+    void allowsAdminRole() {
+      Long adminUserId = 88L;
+      Outing outing = outing(OutingStatus.DEPARTED);
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(userRoleRepository.findRoleCodesByUserId(adminUserId)).willReturn(List.of("ADMIN"));
+      given(outingLocationRepository.findByOutingIdOrderByRecordedAtAsc(outing.getId()))
+          .willReturn(List.of());
+
+      OutingLocationsResponse response = outingService.getOutingLocations(adminUserId, OUTING_CODE);
+
+      assertThat(response.code()).isEqualTo(OUTING_CODE);
+    }
+
+    @Test
+    @DisplayName("담당 아닌 일반 TEACHER 역할은 거부한다(위치는 상세 조회보다 좁게 허용)")
+    void rejectsUnassignedTeacherRole() {
+      Long otherTeacherUserId = 66L;
+      Outing outing = outing(OutingStatus.DEPARTED);
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(userRoleRepository.findRoleCodesByUserId(otherTeacherUserId))
+          .willReturn(List.of("TEACHER"));
+
+      assertThatThrownBy(() -> outingService.getOutingLocations(otherTeacherUserId, OUTING_CODE))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.ACCESS_DENIED);
+    }
+
+    @Test
+    @DisplayName("관계 없는 사용자면 거부한다")
+    void rejectsUnrelatedUser() {
+      Long unrelatedUserId = 99L;
+      Outing outing = outing(OutingStatus.DEPARTED);
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(userRoleRepository.findRoleCodesByUserId(unrelatedUserId)).willReturn(List.of());
+
+      assertThatThrownBy(() -> outingService.getOutingLocations(unrelatedUserId, OUTING_CODE))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(OutingErrorCode.ACCESS_DENIED);
+    }
+
+    @Test
+    @DisplayName("출발 좌표 → 위치 핑(시간순) → 도착 좌표 순으로 동선을 합성한다")
+    void composesFullPath() {
+      Outing outing = outing(OutingStatus.RETURNED);
+      LocalDateTime departedAt = LocalDateTime.of(2026, 8, 10, 12, 31);
+      LocalDateTime returnedAt = LocalDateTime.of(2026, 8, 10, 13, 35);
+      outing.setDepartedAt(departedAt);
+      outing.setDepartedLatitude(36.0);
+      outing.setDepartedLongitude(128.0);
+      outing.setReturnedAt(returnedAt);
+      outing.setReturnedLatitude(36.1);
+      outing.setReturnedLongitude(128.1);
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+
+      OutingLocation ping1 = OutingLocation.builder()
+          .outing(outing).latitude(36.02).longitude(128.02)
+          .recordedAt(LocalDateTime.of(2026, 8, 10, 12, 45)).build();
+      OutingLocation ping2 = OutingLocation.builder()
+          .outing(outing).latitude(36.05).longitude(128.05)
+          .recordedAt(LocalDateTime.of(2026, 8, 10, 13, 10)).build();
+      given(outingLocationRepository.findByOutingIdOrderByRecordedAtAsc(outing.getId()))
+          .willReturn(List.of(ping1, ping2));
+
+      OutingLocationsResponse response = outingService.getOutingLocations(TEACHER_ID, OUTING_CODE);
+
+      assertThat(response.status()).isEqualTo(OutingStatus.RETURNED);
+      assertThat(response.path()).extracting("latitude", "recordedAt").containsExactly(
+          tuple(36.0, departedAt),
+          tuple(36.02, ping1.getRecordedAt()),
+          tuple(36.05, ping2.getRecordedAt()),
+          tuple(36.1, returnedAt));
+    }
+
+    @Test
+    @DisplayName("아직 도착 전(DEPARTED)이면 도착 좌표 없이 출발 좌표 + 핑만 담는다")
+    void omitsReturnedPointWhileStillDeparted() {
+      Outing outing = outing(OutingStatus.DEPARTED);
+      LocalDateTime departedAt = LocalDateTime.of(2026, 8, 10, 12, 31);
+      outing.setDepartedAt(departedAt);
+      outing.setDepartedLatitude(36.0);
+      outing.setDepartedLongitude(128.0);
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(outingLocationRepository.findByOutingIdOrderByRecordedAtAsc(outing.getId()))
+          .willReturn(List.of());
+
+      OutingLocationsResponse response = outingService.getOutingLocations(TEACHER_ID, OUTING_CODE);
+
+      assertThat(response.path()).hasSize(1);
+      assertThat(response.path().get(0).recordedAt()).isEqualTo(departedAt);
     }
   }
 }
