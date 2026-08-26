@@ -1953,6 +1953,63 @@ class OutingServiceTest {
     }
 
     @Test
+    @DisplayName("도착 좌표보다 늦은 핑이 있어도 recordedAt 오름차순으로 정렬한다")
+    void sortsPingRecordedAfterReturnedAt() {
+      Outing outing = outing(OutingStatus.RETURNED);
+      LocalDateTime departedAt = LocalDateTime.of(2026, 8, 10, 12, 31);
+      LocalDateTime returnedAt = LocalDateTime.of(2026, 8, 10, 13, 35);
+      outing.setDepartedAt(departedAt);
+      outing.setDepartedLatitude(36.0);
+      outing.setDepartedLongitude(128.0);
+      outing.setReturnedAt(returnedAt);
+      outing.setReturnedLatitude(36.1);
+      outing.setReturnedLongitude(128.1);
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+
+      // 도착 보고와 거의 동시에 저장된 핑 — recordedAt이 returnedAt보다 늦다.
+      LocalDateTime latePingAt = returnedAt.plusSeconds(1);
+      OutingLocation latePing = OutingLocation.builder()
+          .outing(outing).latitude(36.09).longitude(128.09)
+          .recordedAt(latePingAt).build();
+      given(outingLocationRepository.findByOutingIdOrderByRecordedAtAscIdAsc(outing.getId()))
+          .willReturn(List.of(latePing));
+
+      OutingLocationsResponse response = outingService.getOutingLocations(TEACHER_ID, OUTING_CODE);
+
+      assertThat(response.path()).extracting("recordedAt")
+          .containsExactly(departedAt, returnedAt, latePingAt);
+    }
+
+    @Test
+    @DisplayName("출발/도착과 recordedAt이 같은 핑은 출발 뒤, 도착 앞에 둔다(안정 정렬)")
+    void keepsStableOrderOnTimestampTies() {
+      Outing outing = outing(OutingStatus.RETURNED);
+      LocalDateTime sameMoment = LocalDateTime.of(2026, 8, 10, 12, 31);
+      LocalDateTime returnedAt = LocalDateTime.of(2026, 8, 10, 13, 35);
+      outing.setDepartedAt(sameMoment);
+      outing.setDepartedLatitude(36.0);
+      outing.setDepartedLongitude(128.0);
+      outing.setReturnedAt(returnedAt);
+      outing.setReturnedLatitude(36.1);
+      outing.setReturnedLongitude(128.1);
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+
+      OutingLocation tiedWithDeparture = OutingLocation.builder()
+          .outing(outing).latitude(36.01).longitude(128.01)
+          .recordedAt(sameMoment).build();
+      OutingLocation tiedWithReturn = OutingLocation.builder()
+          .outing(outing).latitude(36.09).longitude(128.09)
+          .recordedAt(returnedAt).build();
+      given(outingLocationRepository.findByOutingIdOrderByRecordedAtAscIdAsc(outing.getId()))
+          .willReturn(List.of(tiedWithDeparture, tiedWithReturn));
+
+      OutingLocationsResponse response = outingService.getOutingLocations(TEACHER_ID, OUTING_CODE);
+
+      assertThat(response.path()).extracting("latitude")
+          .containsExactly(36.0, 36.01, 36.09, 36.1);
+    }
+
+    @Test
     @DisplayName("아직 도착 전(DEPARTED)이면 도착 좌표 없이 출발 좌표 + 핑만 담는다")
     void omitsReturnedPointWhileStillDeparted() {
       Outing outing = outing(OutingStatus.DEPARTED);
