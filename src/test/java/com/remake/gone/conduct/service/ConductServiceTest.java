@@ -14,6 +14,7 @@ import com.remake.gone.conduct.dto.ConductCancelRequest;
 import com.remake.gone.conduct.dto.ConductCategoryResponse;
 import com.remake.gone.conduct.dto.ConductGrantRequest;
 import com.remake.gone.conduct.dto.ConductRecordResponse;
+import com.remake.gone.conduct.dto.ConductStaffSummaryResponse;
 import com.remake.gone.conduct.dto.ConductStudentRecordResponse;
 import com.remake.gone.conduct.dto.ConductSummaryResponse;
 import com.remake.gone.conduct.entity.ConductCategory;
@@ -735,6 +736,157 @@ class ConductServiceTest {
       assertThatThrownBy(() ->
           conductService.getStudentRecords(
               studentUserId, null,
+              LocalDate.of(2026, 8, 31), LocalDate.of(2026, 8, 1), 0, 20))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(ConductErrorCode.INVALID_DATE_RANGE);
+    }
+  }
+
+  @Nested
+  @DisplayName("getStaffSummary")
+  class GetStaffSummary {
+
+    private final Long studentUserId = 101L;
+
+    @Test
+    @DisplayName("학생 존재·역할 확인 후 누적 점수를 집계해 반환한다")
+    void returnsStaffSummaryWithStudentInfo() {
+      User student = User.builder().id(studentUserId).name("길동이").build();
+      given(userRepository.findById(studentUserId)).willReturn(Optional.of(student));
+      given(userRoleRepository.findRoleCodesByUserId(studentUserId))
+          .willReturn(List.of("STUDENT"));
+      given(conductRecordRepository.sumPointsByStudentAndType(
+          studentUserId, ConductType.MERIT, ConductStatus.ACTIVE)).willReturn(6);
+      given(conductRecordRepository.sumPointsByStudentAndType(
+          studentUserId, ConductType.DEMERIT, ConductStatus.ACTIVE)).willReturn(-4);
+      given(conductProperties.demeritThreshold()).willReturn(10);
+
+      ConductStaffSummaryResponse result = conductService.getStaffSummary(studentUserId);
+
+      assertThat(result.studentUserId()).isEqualTo(studentUserId);
+      assertThat(result.studentNickname()).isEqualTo("길동이");
+      assertThat(result.totalMeritPoints()).isEqualTo(6);
+      assertThat(result.totalDemeritPoints()).isEqualTo(-4);
+      assertThat(result.netScore()).isEqualTo(2);
+      assertThat(result.overDemeritThreshold()).isFalse();
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 studentUserId이면 CONDUCT_005 예외를 던진다")
+    void throwsWhenStudentNotFound() {
+      given(userRepository.findById(studentUserId)).willReturn(Optional.empty());
+
+      assertThatThrownBy(() -> conductService.getStaffSummary(studentUserId))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(ConductErrorCode.STUDENT_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("대상이 STUDENT 역할이 아니면 CONDUCT_006 예외를 던진다")
+    void throwsWhenNotStudentRole() {
+      User teacher = User.builder().id(studentUserId).name("김선생").build();
+      given(userRepository.findById(studentUserId)).willReturn(Optional.of(teacher));
+      given(userRoleRepository.findRoleCodesByUserId(studentUserId))
+          .willReturn(List.of("TEACHER"));
+
+      assertThatThrownBy(() -> conductService.getStaffSummary(studentUserId))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(ConductErrorCode.NOT_STUDENT_ROLE);
+    }
+  }
+
+  @Nested
+  @DisplayName("getRecords")
+  class GetRecords {
+
+    private final Long studentUserId = 101L;
+
+    private ConductRecord sampleRecord() {
+      return ConductRecord.builder()
+          .id(501L)
+          .student(User.builder().id(studentUserId).name("길동이").build())
+          .teacher(User.builder().id(42L).name("김선생").build())
+          .category(ConductCategory.builder()
+              .id(5L).label("지각").type(ConductType.DEMERIT).points(-1).build())
+          .type(ConductType.DEMERIT)
+          .points(-1)
+          .detail("3교시 10분 지각")
+          .status(ConductStatus.ACTIVE)
+          .createdAt(LocalDateTime.of(2026, 8, 1, 9, 0))
+          .version(0L)
+          .build();
+    }
+
+    @Test
+    @DisplayName("studentUserId 없이 전체 학생 이력을 페이지네이션해 반환한다")
+    void returnsAllStudentsRecordsWhenNoFilter() {
+      ConductRecord record = sampleRecord();
+      given(conductRecordRepository.findWithFilters(
+          null, null, null, null, PageRequest.of(0, 20)))
+          .willReturn(new PageImpl<>(List.of(record), PageRequest.of(0, 20), 1));
+
+      PageResponse<ConductRecordResponse> result =
+          conductService.getRecords(null, null, null, null, 0, 20);
+
+      assertThat(result.content()).hasSize(1);
+      assertThat(result.content().get(0).studentUserId()).isEqualTo(studentUserId);
+      assertThat(result.totalElements()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("studentUserId를 지정하면 해당 학생의 이력만 반환한다")
+    void returnsFilteredRecordsByStudentUserId() {
+      ConductRecord record = sampleRecord();
+      given(conductRecordRepository.findWithFilters(
+          studentUserId, null, null, null, PageRequest.of(0, 20)))
+          .willReturn(new PageImpl<>(List.of(record), PageRequest.of(0, 20), 1));
+
+      PageResponse<ConductRecordResponse> result =
+          conductService.getRecords(studentUserId, null, null, null, 0, 20);
+
+      assertThat(result.content()).hasSize(1);
+      assertThat(result.content().get(0).studentUserId()).isEqualTo(studentUserId);
+    }
+
+    @Test
+    @DisplayName("page가 음수이면 CONDUCT_007 예외를 던진다")
+    void throwsWhenPageIsNegative() {
+      assertThatThrownBy(() ->
+          conductService.getRecords(null, null, null, null, -1, 20))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(ConductErrorCode.INVALID_PAGE);
+    }
+
+    @Test
+    @DisplayName("size가 100 초과이면 CONDUCT_007 예외를 던진다")
+    void throwsWhenSizeExceedsMax() {
+      assertThatThrownBy(() ->
+          conductService.getRecords(null, null, null, null, 0, 101))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(ConductErrorCode.INVALID_PAGE);
+    }
+
+    @Test
+    @DisplayName("dateFrom만 제공하면 CONDUCT_008 예외를 던진다")
+    void throwsWhenOnlyDateFromProvided() {
+      assertThatThrownBy(() ->
+          conductService.getRecords(null, null, LocalDate.of(2026, 8, 1), null, 0, 20))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(ConductErrorCode.INVALID_DATE_RANGE);
+    }
+
+    @Test
+    @DisplayName("dateFrom이 dateTo보다 이후이면 CONDUCT_008 예외를 던진다")
+    void throwsWhenDateFromAfterDateTo() {
+      assertThatThrownBy(() ->
+          conductService.getRecords(
+              null, null,
               LocalDate.of(2026, 8, 31), LocalDate.of(2026, 8, 1), 0, 20))
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
