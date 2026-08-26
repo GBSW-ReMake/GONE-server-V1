@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -15,7 +16,9 @@ import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.common.security.UserPrincipal;
 import com.remake.gone.outing.dto.OutingActiveResponse;
 import com.remake.gone.outing.dto.OutingApplyRequest;
+import com.remake.gone.outing.dto.OutingLocationPointResponse;
 import com.remake.gone.outing.dto.OutingLocationRequest;
+import com.remake.gone.outing.dto.OutingLocationsResponse;
 import com.remake.gone.outing.dto.OutingRejectRequest;
 import com.remake.gone.outing.dto.OutingResponse;
 import com.remake.gone.outing.enums.OutingQueryPeriod;
@@ -520,6 +523,75 @@ class OutingControllerTest {
 
       ApiResponse<OutingResponse> response =
           controller().getOutingDetail(new UserPrincipal(STUDENT_ID), code);
+
+      assertThat(response.success()).isTrue();
+      assertThat(response.data()).isEqualTo(expected);
+    }
+  }
+
+  @Nested
+  @DisplayName("POST /api/v1/outings/{code}/locations")
+  class RecordLocationPing {
+
+    @Test
+    @DisplayName("principal의 userId, code, 좌표를 그대로 서비스에 전달한다")
+    void passesPrincipalCodeAndRequestToService() {
+      String code = "8A1zx9202n";
+      OutingLocationRequest request = new OutingLocationRequest(36.1234, 128.4321);
+
+      ApiResponse<Void> response =
+          controller().recordLocationPing(new UserPrincipal(STUDENT_ID), code, request);
+
+      verify(outingService).recordLocationPing(
+          eq(STUDENT_ID), eq(code), eq(request), any(LocalDateTime.class));
+      assertThat(response.success()).isTrue();
+      assertThat(response.message()).isEqualTo("위치가 저장되었습니다.");
+    }
+
+    @Test
+    @DisplayName("latitude가 없으면 400을 반환한다")
+    void returns400WhenLatitudeMissing() throws Exception {
+      mockMvc.perform(post("/api/v1/outings/8A1zx9202n/locations")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content("{\"longitude\": 128.4321}"))
+          .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("latitude가 범위(-90~90) 밖이면 400을 반환한다")
+    void returns400WhenLatitudeOutOfRange() throws Exception {
+      mockMvc.perform(post("/api/v1/outings/8A1zx9202n/locations")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content("{\"latitude\": 999.0, \"longitude\": 128.4321}"))
+          .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("longitude가 범위(-180~180) 밖이면 400을 반환한다")
+    void returns400WhenLongitudeOutOfRange() throws Exception {
+      mockMvc.perform(post("/api/v1/outings/8A1zx9202n/locations")
+              .contentType(MediaType.APPLICATION_JSON)
+              .content("{\"latitude\": 36.1234, \"longitude\": 181.0}"))
+          .andExpect(status().isBadRequest());
+    }
+  }
+
+  @Nested
+  @DisplayName("GET /api/v1/outings/{code}/locations")
+  class GetOutingLocations {
+
+    @Test
+    @DisplayName("principal의 userId와 code를 그대로 서비스에 전달한다")
+    void passesPrincipalAndCodeToService() {
+      String code = "8A1zx9202n";
+      OutingLocationsResponse expected = new OutingLocationsResponse(
+          code, OutingStatus.DEPARTED,
+          List.of(new OutingLocationPointResponse(
+              36.1234, 128.4321, LocalDateTime.of(2026, 8, 14, 12, 31))));
+      given(outingService.getOutingLocations(TEACHER_ID, code)).willReturn(expected);
+
+      ApiResponse<OutingLocationsResponse> response =
+          controller().getOutingLocations(new UserPrincipal(TEACHER_ID), code);
 
       assertThat(response.success()).isTrue();
       assertThat(response.data()).isEqualTo(expected);
