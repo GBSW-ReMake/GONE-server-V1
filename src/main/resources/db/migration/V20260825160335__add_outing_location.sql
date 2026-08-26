@@ -4,7 +4,7 @@ CREATE TABLE outing_location (
     outing_id BIGINT NOT NULL,
     latitude DOUBLE NOT NULL,
     longitude DOUBLE NOT NULL,
-    recorded_at DATETIME NOT NULL,
+    recorded_at DATETIME(6) NOT NULL,
     FOREIGN KEY (outing_id) REFERENCES outing(id),
     KEY idx_outing_location_outing_recorded (outing_id, recorded_at)
 );
