@@ -43,10 +43,24 @@
 | ADMIN(담당 아니어도) | ADMIN 토큰 | 200, 담당 선생님과 동일 응답 | ✅ |
 | 존재하지 않는 code | 담당 토큰, 임의 code | 404 `OUTING_006` | ✅ |
 | `path` 정렬/조립 | 출발좌표(17:14:25) → 핑1(17:45:32) → 핑2(17:45:58) | `recordedAt` 오름차순, 출발좌표가 항상 첫 점 | ✅ |
+| `path`에 도착좌표 포함(RETURNED) | 출발좌표(12:00) → 핑(12:30) → 도착좌표(13:00) | `recordedAt` 오름차순, 도착좌표가 항상 마지막 점 | ✅ |
 
 ## 발견된 문제
 없음. 코드 리뷰(9단계)에서 지적된 High 1건/Medium 2건/Low 3건은 모두 코드 리뷰 단계에서
 이미 반영 완료된 상태로 QA에 들어왔고, 이번 실서버 검증에서 별도로 발견된 문제는 없다.
+
+## 코드래빗 PR 리뷰 반영(2026-08-26)
+PR #116에 대한 CodeRabbit 리뷰 3건을 반영하고, 그중 GET 응답 도착좌표 순서 건은 위
+`path`에 도착좌표 포함(RETURNED) 행으로 실서버 재검증했다.
+- Major: `outing_location.recorded_at`이 `DATETIME`(fsp=0)이라 도착 보고와 근접한 시각에
+  기록된 핑이 초 단위로 잘려 `recordedAt` 정렬이 뒤바뀔 수 있는 문제 → `recorded_at`을
+  `DATETIME(6)`으로, 기존 `outing.departed_at`/`returned_at`도 별도 마이그레이션으로
+  `DATETIME(6)`으로 맞춤.
+- Minor: 위 표에 RETURNED 상태 + 도착좌표 케이스가 없던 것 → 실서버에 RETURNED 외출증
+  (출발 12:00 → 핑 12:30 → 도착 13:00) 픽스처를 만들어 재검증, 위 표에 행 추가.
+- Nitpick: `OutingServiceTest.composesFullPath`가 이미 정렬된 데이터만 써서 `path.sort(...)`
+  없이도 통과하던 문제 → 도착 시각보다 늦게 기록된 핑 케이스, 타임스탬프 동률 시 안정
+  정렬 케이스 2건을 유닛 테스트에 추가.
 
 ## 남은 절차
 - 15단계: Postman 컬렉션에 `POST/GET /api/v1/outings/{code}/locations` 반영
