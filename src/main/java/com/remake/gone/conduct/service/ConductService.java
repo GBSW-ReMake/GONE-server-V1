@@ -9,6 +9,7 @@ import com.remake.gone.conduct.dto.ConductCancelRequest;
 import com.remake.gone.conduct.dto.ConductCategoryResponse;
 import com.remake.gone.conduct.dto.ConductGrantRequest;
 import com.remake.gone.conduct.dto.ConductRecordResponse;
+import com.remake.gone.conduct.dto.ConductStaffSummaryResponse;
 import com.remake.gone.conduct.dto.ConductStudentRecordResponse;
 import com.remake.gone.conduct.dto.ConductSummaryResponse;
 import com.remake.gone.conduct.entity.ConductCategory;
@@ -235,6 +236,79 @@ public class ConductService {
     return new PageResponse<>(
         recordPage.getContent().stream()
             .map(ConductStudentRecordResponse::from)
+            .toList(),
+        recordPage.getNumber(),
+        recordPage.getSize(),
+        recordPage.getTotalElements(),
+        recordPage.getTotalPages(),
+        recordPage.hasNext()
+    );
+  }
+
+  /**
+   * 특정 학생의 누적 상/벌점 요약을 반환합니다.
+   *
+   * <p>전체 기간 기준으로 {@code ACTIVE} 상태인 기록만 집계합니다.
+   * 교사·선도부·관리자가 특정 학생을 지정해 조회할 때 사용합니다.
+   *
+   * @param studentUserId 조회 대상 학생 사용자 ID
+   * @return 총 상점·벌점·순 점수·임계치 초과 여부(학생 식별 정보 포함)
+   */
+  @Transactional(readOnly = true)
+  public ConductStaffSummaryResponse getStaffSummary(Long studentUserId) {
+    User student = userRepository.findById(studentUserId)
+        .orElseThrow(() -> new CustomException(ConductErrorCode.STUDENT_NOT_FOUND));
+    List<String> roles = userRoleRepository.findRoleCodesByUserId(studentUserId);
+    if (!roles.contains(STUDENT_ROLE_CODE)) {
+      throw new CustomException(ConductErrorCode.NOT_STUDENT_ROLE);
+    }
+    int totalMeritPoints = conductRecordRepository.sumPointsByStudentAndType(
+        studentUserId, ConductType.MERIT, ConductStatus.ACTIVE);
+    int totalDemeritPoints = conductRecordRepository.sumPointsByStudentAndType(
+        studentUserId, ConductType.DEMERIT, ConductStatus.ACTIVE);
+    int netScore = totalMeritPoints + totalDemeritPoints;
+    int threshold = conductProperties.demeritThreshold();
+    boolean overThreshold = Math.abs(totalDemeritPoints) >= threshold;
+    return new ConductStaffSummaryResponse(
+        student.getId(), student.getName(),
+        totalMeritPoints, totalDemeritPoints, netScore, threshold, overThreshold);
+  }
+
+  /**
+   * 전체·특정 학생의 상/벌점 이력을 필터·페이지네이션해 반환합니다.
+   *
+   * <p>취소된 기록({@code CANCELED})도 포함합니다. {@code studentUserId}가 {@code null}이면
+   * 전체 학생을 대상으로 조회합니다.
+   *
+   * @param studentUserId 조회 대상 학생 사용자 ID({@code null}이면 전체)
+   * @param type          종류 필터({@code null}이면 전체)
+   * @param dateFrom      조회 시작일({@code null}이면 전체 기간)
+   * @param dateTo        조회 종료일({@code null}이면 전체 기간)
+   * @param page          페이지 번호(0부터 시작)
+   * @param size          페이지 크기(1~100)
+   * @return 페이지네이션된 이력 목록
+   */
+  @Transactional(readOnly = true)
+  public PageResponse<ConductRecordResponse> getRecords(
+      Long studentUserId,
+      ConductType type,
+      LocalDate dateFrom,
+      LocalDate dateTo,
+      int page,
+      int size) {
+    if (page < 0 || size < 1 || size > 100) {
+      throw new CustomException(ConductErrorCode.INVALID_PAGE);
+    }
+    boolean hasFrom = dateFrom != null;
+    boolean hasTo = dateTo != null;
+    if (hasFrom != hasTo || (hasFrom && dateFrom.isAfter(dateTo))) {
+      throw new CustomException(ConductErrorCode.INVALID_DATE_RANGE);
+    }
+    Page<ConductRecord> recordPage = conductRecordRepository.findWithFilters(
+        studentUserId, type, dateFrom, dateTo, PageRequest.of(page, size));
+    return new PageResponse<>(
+        recordPage.getContent().stream()
+            .map(ConductRecordResponse::from)
             .toList(),
         recordPage.getNumber(),
         recordPage.getSize(),

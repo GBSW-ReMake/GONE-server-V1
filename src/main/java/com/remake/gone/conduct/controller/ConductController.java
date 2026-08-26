@@ -8,6 +8,7 @@ import com.remake.gone.conduct.dto.ConductCancelRequest;
 import com.remake.gone.conduct.dto.ConductCategoryResponse;
 import com.remake.gone.conduct.dto.ConductGrantRequest;
 import com.remake.gone.conduct.dto.ConductRecordResponse;
+import com.remake.gone.conduct.dto.ConductStaffSummaryResponse;
 import com.remake.gone.conduct.dto.ConductStudentRecordResponse;
 import com.remake.gone.conduct.dto.ConductSummaryResponse;
 import com.remake.gone.conduct.enums.ConductType;
@@ -34,7 +35,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 상/벌점(Conduct) 도메인 API 컨트롤러.
  *
  * <p>#92에서 카테고리 목록 조회, #94에서 상/벌점 부여, #107에서 정정·취소,
- * #111에서 학생 본인 조회 엔드포인트를 구현했다.
+ * #111에서 학생 본인 조회, #117에서 교사·선도부·관리자 조회 엔드포인트를 구현했다.
  */
 @RestController
 @RequestMapping("/api/v1/conduct-records")
@@ -156,6 +157,52 @@ public class ConductController {
     return ApiResponse.success(
         conductService.getStudentRecords(
             principal.userId(), type, dateFrom, dateTo, page, size),
+        "상/벌점 이력을 조회했습니다.");
+  }
+
+  /**
+   * 특정 학생의 누적 상/벌점 요약을 조회합니다.
+   *
+   * <p>전체 기간 기준 총 상점·벌점·순 점수와 벌점 임계치 초과 여부를 반환합니다.
+   * 교사·선도부·관리자가 사용합니다.
+   *
+   * @param studentUserId 조회할 학생의 사용자 ID
+   * @return 누적 점수 요약(학생 식별 정보 포함)
+   */
+  @GetMapping("/summary")
+  @PreAuthorize("hasRole('TEACHER') or hasRole('DISCIPLINE') or hasRole('ADMIN')")
+  public ApiResponse<ConductStaffSummaryResponse> getStaffSummary(
+      @RequestParam Long studentUserId) {
+    return ApiResponse.success(
+        conductService.getStaffSummary(studentUserId),
+        "누적 점수를 조회했습니다.");
+  }
+
+  /**
+   * 전체·특정 학생의 상/벌점 이력을 조회합니다.
+   *
+   * <p>취소된 기록도 포함하며, {@code studentUserId}·{@code type}·기간 필터와
+   * 페이지네이션을 지원합니다. 교사·선도부·관리자가 사용합니다.
+   *
+   * @param studentUserId 특정 학생만 조회할 때의 학생 사용자 ID(생략 시 전체 학생)
+   * @param type          종류 필터({@code MERIT}/{@code DEMERIT}, 생략 시 전체)
+   * @param dateFrom      조회 시작일({@code yyyyMMdd}, {@code dateTo}와 함께 써야 함)
+   * @param dateTo        조회 종료일({@code yyyyMMdd}, {@code dateFrom}과 함께 써야 함)
+   * @param page          페이지 번호(기본값 {@code 0})
+   * @param size          페이지 크기(기본값 {@code 20}, 1~100)
+   * @return 페이지네이션된 이력 목록
+   */
+  @GetMapping
+  @PreAuthorize("hasRole('TEACHER') or hasRole('DISCIPLINE') or hasRole('ADMIN')")
+  public ApiResponse<PageResponse<ConductRecordResponse>> getRecords(
+      @RequestParam(required = false) Long studentUserId,
+      @RequestParam(required = false) ConductType type,
+      @RequestParam(required = false) @DateTimeFormat(pattern = "yyyyMMdd") LocalDate dateFrom,
+      @RequestParam(required = false) @DateTimeFormat(pattern = "yyyyMMdd") LocalDate dateTo,
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "20") int size) {
+    return ApiResponse.success(
+        conductService.getRecords(studentUserId, type, dateFrom, dateTo, page, size),
         "상/벌점 이력을 조회했습니다.");
   }
 }
