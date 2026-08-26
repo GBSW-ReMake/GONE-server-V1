@@ -872,6 +872,26 @@ class ConductServiceTest {
     }
 
     @Test
+    @DisplayName("size가 0이면 CONDUCT_007 예외를 던진다")
+    void throwsWhenSizeIsZero() {
+      assertThatThrownBy(() ->
+          conductService.getRecords(null, null, null, null, 0, 0))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(ConductErrorCode.INVALID_PAGE);
+    }
+
+    @Test
+    @DisplayName("dateTo만 제공하면 CONDUCT_008 예외를 던진다")
+    void throwsWhenOnlyDateToProvided() {
+      assertThatThrownBy(() ->
+          conductService.getRecords(null, null, null, LocalDate.of(2026, 8, 31), 0, 20))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(ConductErrorCode.INVALID_DATE_RANGE);
+    }
+
+    @Test
     @DisplayName("dateFrom만 제공하면 CONDUCT_008 예외를 던진다")
     void throwsWhenOnlyDateFromProvided() {
       assertThatThrownBy(() ->
