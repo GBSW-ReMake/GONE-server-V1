@@ -57,4 +57,34 @@ public interface ConductRecordRepository extends JpaRepository<ConductRecord, Lo
       @Param("dateFrom") LocalDate dateFrom,
       @Param("dateTo") LocalDate dateTo,
       Pageable pageable);
+
+  /**
+   * 전체·특정 학생의 상/벌점 이력을 필터·페이지네이션해 반환합니다.
+   *
+   * <p>{@code studentUserId}가 {@code null}이면 전체 학생을 대상으로 조회합니다.
+   * {@code type}, {@code dateFrom}, {@code dateTo}가 {@code null}이면 해당 조건을 적용하지
+   * 않습니다. 결과는 부여 일시·기록 ID 내림차순으로 정렬됩니다.
+   *
+   * @param studentUserId 대상 학생 사용자 ID({@code null}이면 전체)
+   * @param type          종류 필터({@code null}이면 전체)
+   * @param dateFrom      조회 시작일 필터({@code null}이면 제한 없음)
+   * @param dateTo        조회 종료일 필터({@code null}이면 제한 없음)
+   * @param pageable      페이지네이션 정보
+   * @return 필터링된 기록 페이지
+   */
+  @Query("SELECT r FROM ConductRecord r "
+      + "LEFT JOIN FETCH r.teacher "
+      + "LEFT JOIN FETCH r.category "
+      + "LEFT JOIN FETCH r.student "
+      + "WHERE (:studentUserId IS NULL OR r.student.id = :studentUserId) "
+      + "AND (:type IS NULL OR r.type = :type) "
+      + "AND (:dateFrom IS NULL OR CAST(r.createdAt AS LocalDate) >= :dateFrom) "
+      + "AND (:dateTo IS NULL OR CAST(r.createdAt AS LocalDate) <= :dateTo) "
+      + "ORDER BY r.createdAt DESC, r.id DESC")
+  Page<ConductRecord> findWithFilters(
+      @Param("studentUserId") Long studentUserId,
+      @Param("type") ConductType type,
+      @Param("dateFrom") LocalDate dateFrom,
+      @Param("dateTo") LocalDate dateTo,
+      Pageable pageable);
 }
