@@ -219,12 +219,14 @@ class ConductRequestServiceTest {
     @Test
     @DisplayName("PENDING 요청을 취소하면 CANCELED 상태로 전환되고 canceledAt이 세팅된다")
     void cancelsPendingRequest() {
-      given(conductRequestRepository.findById(requestId)).willReturn(Optional.of(pendingRequest()));
+      ConductRequest pending = pendingRequest();
+      given(conductRequestRepository.findById(requestId)).willReturn(Optional.of(pending));
 
       ConductRequestResponse result =
           conductRequestService.cancelRequest(requesterUserId, requestId);
 
       assertThat(result.status()).isEqualTo(ConductRequestStatus.CANCELED);
+      assertThat(pending.getCanceledAt()).isNotNull();
     }
 
     @Test
