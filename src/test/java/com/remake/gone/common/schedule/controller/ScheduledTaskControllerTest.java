@@ -151,4 +151,15 @@ class ScheduledTaskControllerTest {
         .andExpect(jsonPath("$.success").value(true));
     assertThat(scheduledTaskRepository.existsById(id)).isFalse();
   }
+
+  @Test
+  @DisplayName("존재하지 않는 id를 삭제하면 404 SCHEDULE_002를 반환한다")
+  void returns404ForDeleteMissingTask() throws Exception {
+    String token = jwtProvider.createAccessToken(1L, Set.of("ADMIN"));
+
+    mockMvc.perform(delete("/api/v1/scheduled-tasks/999999999")
+            .header("Authorization", "Bearer " + token))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("SCHEDULE_002"));
+  }
 }
