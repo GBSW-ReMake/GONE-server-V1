@@ -7,12 +7,14 @@
 
 ## 요약
 - Critical: 없음
-- High: 1건(#1) — 반영 완료
+- High: 3건(#1 — 반영 완료, #4/#5 — 실제 handler 구현체가 없어 재현·검증 불가능, #99로
+  보류 확정)
 - Medium: 1건(#2) — 반영 완료
 - Low: 1건(#3) — 기획서에 이미 문서화된 의도된 트레이드오프, 조치 불필요
 
 **반영 내역(2026-09-01):** #1/#2 모두 승인된 기획서의 계약(엔드포인트/스키마/정책)을 바꾸는
-변경이 아니라 구현 세부사항의 결함 수정이라 별도 재승인 없이 즉시 반영했다.
+변경이 아니라 구현 세부사항의 결함 수정이라 별도 재승인 없이 즉시 반영했다. #4/#5는
+CodeRabbit PR 리뷰(2회차 포함)에서 추가로 발견됐고, 아래 각 항목에서 보류 근거를 남긴다.
 
 ---
 
@@ -90,6 +92,54 @@ ScheduledTask(...))`로 새 행을 등록한다. `ScheduledTask`는
 전제(보스 확인, 2026-08-28)임을 근거로 claim 로직/분산 락을 지금 도입하지 않기로(YAGNI)
 이미 결정했다. 다중 인스턴스 전환이 실제로 결정되면 그 시점에 이 이슈로 돌아와
 재검토하기로 문서화되어 있다.
+
+---
+
+### 4. 🟠 High — `execute()`에서 handler 실행과 실패 기록이 같은 물리 트랜잭션을 공유함
+(CodeRabbit PR 리뷰)
+
+**문제**: `ScheduledTaskExecutor.execute()`는 `REQUIRES_NEW`로 트랜잭션 하나를 열고 그 안에서
+`handler.handle()` 호출과 실패 시 `task.markFailed(...)` 기록을 함께 처리한다.
+`handler.handle()` 내부에서 호출하는 다른 `@Transactional(REQUIRED)` 서비스가 예외를 던지면,
+Spring이 이 물리 트랜잭션 전체를 rollback-only로 표시할 수 있다 — 그러면 catch 블록의
+`markFailed(...)` 기록까지 함께 롤백되고, 트랜잭션 커밋 시점에 `UnexpectedRollbackException`이
+(catch 블록 밖에서) 던져져 같은 폴링 틱의 나머지 task까지 스킵될 수 있다.
+
+**해결 방안**:
+1. handler 실행과 실패 기록을 별도 물리 트랜잭션으로 분리한다 — self-invocation 문제 때문에
+   `Runner`/`Executor`를 분리한 것과 같은 이유로 새 빈(예: 결과 기록 전용 컴포넌트)이
+   필요하다. 근본적으로 고치지만 구조 변경 비용이 있다.
+2. 지금은 보류하고 #99가 실제 handler를 구현하는 시점에 같이 고친다. **채택.**
+
+**반영**: 방안 2 채택 — 실제 `ScheduledTaskHandler` 구현체가 없어 재현·검증이 불가능하다.
+#99가 handler를 구현하는 시점에 트랜잭션 분리와 함께 고치기로 보류 확정(보스 확인,
+2026-09-01). 기획서 "아직 결정 안 된 것" 절과 [#99 이슈
+코멘트](https://github.com/GBSW-ReMake/GONE-server-V1/issues/99#issuecomment-5488635442)에
+추적 기록을 남겼다.
+
+---
+
+### 5. 🟠 High — `cancel()`과 `execute()` 사이에 원자적 보호가 없어 취소된 task의 handler가
+실행될 수 있음 (CodeRabbit PR 리뷰 2회차)
+
+**문제**: `execute()`는 `task.getStatus() == PENDING`을 확인한 뒤 `handler.handle(...)`을
+호출하는데, 이 사이에 `ScheduledTaskService.cancel()`이 별도 트랜잭션에서 같은 행을 지우고
+먼저 커밋할 수 있다. `execute()`는 이미 메모리에 읽어둔 `task` 객체를 그대로 쓰기 때문에,
+DB에서 방금 취소(삭제)된 task라도 `handler.handle()`이 실행될 수 있다 — 예를 들어 학생이
+막 복귀 버튼을 눌러 `OUTING_TIMEOUT` task가 취소된 직후에, 이미 폴링이 집어간 같은 task의
+`handler.handle()`이 실행되면서 "복귀하셨나요?" 알림이 한 번 더 나갈 수 있다.
+
+**해결 방안**:
+1. `handler.handle()` 호출 직전에 `UPDATE ... WHERE id=? AND status='PENDING'` 같은 원자적
+   claim으로 상태를 바꾼 뒤, 영향받은 행이 0개면 취소/선점된 것으로 보고 건너뛴다 —
+   근본적으로 막지만 `cancel()`/`ScheduledTaskRepository`에 claim 전용 메서드를 새로 만들어야
+   한다.
+2. 지금은 보류하고 #99에서 4번 항목(트랜잭션 분리)과 함께 고친다. 두 문제 모두
+   `execute()`의 실행 경계를 다시 설계해야 하는 같은 종류의 작업이라 같이 처리하는 게
+   효율적이다. **채택.**
+
+**반영**: 방안 2 채택 — 4번과 마찬가지로 실제 handler가 없어 이 레이스를 재현할 방법이
+없다. #99에서 4번과 함께 처리하기로 보류 확정(보스 확인, 2026-09-01).
 
 ---
 
