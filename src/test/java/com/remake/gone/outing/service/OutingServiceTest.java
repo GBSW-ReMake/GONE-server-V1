@@ -12,10 +12,13 @@ import static org.mockito.Mockito.verify;
 
 import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.common.response.PageResponse;
+import com.remake.gone.common.schedule.service.ScheduledTaskService;
 import com.remake.gone.file.service.R2FileService;
 import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.enums.GbswType;
 import com.remake.gone.gbsw.exception.GbswErrorCode;
+import com.remake.gone.notification.enums.NotificationType;
+import com.remake.gone.notification.service.NotificationService;
 import com.remake.gone.outing.config.OutingProperties;
 import com.remake.gone.outing.dto.OutingActiveResponse;
 import com.remake.gone.outing.dto.OutingApplyRequest;
@@ -34,6 +37,7 @@ import com.remake.gone.outing.repository.OutingRepository;
 import com.remake.gone.role.repository.UserRoleRepository;
 import com.remake.gone.user.entity.User;
 import com.remake.gone.user.repository.UserRepository;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -85,6 +89,12 @@ class OutingServiceTest {
 
   @Mock
   private OutingProperties outingProperties;
+
+  @Mock
+  private NotificationService notificationService;
+
+  @Mock
+  private ScheduledTaskService scheduledTaskService;
 
   @InjectMocks
   private OutingService outingService;
@@ -635,6 +645,11 @@ class OutingServiceTest {
       assertThat(outing.getDepartedLatitude()).isEqualTo(SCHOOL_LATITUDE);
       assertThat(outing.getDepartedLongitude()).isEqualTo(SCHOOL_LONGITUDE);
       verify(outingRepository).saveAndFlush(outing);
+      // 복귀 리마인더(#99) 등록 — 예정 종료 시각(outingDate + endTime)에 최초 실행되도록 예약한다.
+      verify(scheduledTaskService).schedule(
+          "OUTING_TIMEOUT", outing.getId(),
+          LocalDateTime.of(outing.getOutingDate(), outing.getEndTime()),
+          Duration.ofMinutes(5), Duration.ofHours(3));
     }
 
     @Test
@@ -843,6 +858,8 @@ class OutingServiceTest {
       assertThat(outing.getReturnedLatitude()).isEqualTo(SCHOOL_LATITUDE);
       assertThat(outing.getReturnedLongitude()).isEqualTo(SCHOOL_LONGITUDE);
       verify(outingRepository).saveAndFlush(outing);
+      // 복귀 리마인더(#99) 취소 — 더 이상 감시할 필요가 없어졌으므로 예약을 정리한다.
+      verify(scheduledTaskService).cancel("OUTING_TIMEOUT", outing.getId());
     }
 
     @Test
@@ -951,6 +968,78 @@ class OutingServiceTest {
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(OutingErrorCode.ALREADY_PROCESSED);
+    }
+  }
+
+  @Nested
+  @DisplayName("checkAndNotifyTimeout")
+  class CheckAndNotifyTimeout {
+
+    private static final Long OUTING_ID = 500L;
+    private static final Long DISCIPLINE_USER_ID_1 = 77L;
+    private static final Long DISCIPLINE_USER_ID_2 = 78L;
+
+    private Outing departedOuting() {
+      return Outing.builder()
+          .id(OUTING_ID)
+          .code("8A1zx9202n")
+          .student(student())
+          .teacher(teacher())
+          .reason("치과 진료")
+          .outingDate(TODAY)
+          .timeSlot(OutingTimeSlot.LUNCH)
+          .startTime(LocalTime.of(12, 30))
+          .endTime(LocalTime.of(13, 40))
+          .status(OutingStatus.DEPARTED)
+          .build();
+    }
+
+    @Test
+    @DisplayName("outing이 존재하지 않으면 RETURNED_OR_MISSING을 반환하고 알림을 보내지 않는다")
+    void returnsReturnedOrMissingWhenOutingNotFound() {
+      given(outingRepository.findById(OUTING_ID)).willReturn(Optional.empty());
+
+      OutingService.TimeoutCheckResult result =
+          outingService.checkAndNotifyTimeout(OUTING_ID, LocalDateTime.of(2026, 8, 10, 14, 0));
+
+      assertThat(result).isEqualTo(OutingService.TimeoutCheckResult.RETURNED_OR_MISSING);
+      verify(notificationService, times(0)).send(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("이미 RETURNED 상태면 RETURNED_OR_MISSING을 반환하고 알림을 보내지 않는다")
+    void returnsReturnedOrMissingWhenAlreadyReturned() {
+      Outing outing = departedOuting();
+      outing.setStatus(OutingStatus.RETURNED);
+      given(outingRepository.findById(OUTING_ID)).willReturn(Optional.of(outing));
+
+      OutingService.TimeoutCheckResult result =
+          outingService.checkAndNotifyTimeout(OUTING_ID, LocalDateTime.of(2026, 8, 10, 14, 0));
+
+      assertThat(result).isEqualTo(OutingService.TimeoutCheckResult.RETURNED_OR_MISSING);
+      verify(notificationService, times(0)).send(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("DEPARTED 상태면 학생/담당 선생님/DISCIPLINE 역할 전원에게 알림을 보내고 CONTINUE를 반환한다")
+    void notifiesEveryoneAndContinuesWhenStillDeparted() {
+      Outing outing = departedOuting();
+      given(outingRepository.findById(OUTING_ID)).willReturn(Optional.of(outing));
+      given(userRoleRepository.findUserIdsByRoleCode("DISCIPLINE"))
+          .willReturn(List.of(DISCIPLINE_USER_ID_1, DISCIPLINE_USER_ID_2));
+
+      OutingService.TimeoutCheckResult result =
+          outingService.checkAndNotifyTimeout(OUTING_ID, LocalDateTime.of(2026, 8, 10, 14, 0));
+
+      assertThat(result).isEqualTo(OutingService.TimeoutCheckResult.CONTINUE);
+      verify(notificationService).send(
+          eq(outing.getStudent().getId()), any(), any(), eq(NotificationType.OUTING));
+      verify(notificationService).send(
+          eq(outing.getTeacher().getId()), any(), any(), eq(NotificationType.OUTING));
+      verify(notificationService).send(
+          eq(DISCIPLINE_USER_ID_1), any(), any(), eq(NotificationType.OUTING));
+      verify(notificationService).send(
+          eq(DISCIPLINE_USER_ID_2), any(), any(), eq(NotificationType.OUTING));
     }
   }
 
@@ -1719,6 +1808,14 @@ class OutingServiceTest {
   class RecordLocationPing {
 
     private static final String OUTING_CODE = "8A1zx9202n";
+    private static final double SCHOOL_LATITUDE = 36.0;
+    private static final double SCHOOL_LONGITUDE = 128.0;
+
+    private void givenSchoolPropertiesOk() {
+      given(outingProperties.schoolLatitude()).willReturn(SCHOOL_LATITUDE);
+      given(outingProperties.schoolLongitude()).willReturn(SCHOOL_LONGITUDE);
+      given(outingProperties.schoolRadiusMeters()).willReturn(200);
+    }
 
     private Outing departedOuting() {
       return Outing.builder()
@@ -1810,6 +1907,76 @@ class OutingServiceTest {
           STUDENT_ID, OUTING_CODE, new OutingLocationRequest(36.01, 128.01), secondPingAt);
 
       verify(outingLocationRepository, times(2)).save(any(OutingLocation.class));
+    }
+
+    @Test
+    @DisplayName("학교 반경 안에서 핑을 보내면 도착 확인 알림을 보낸다")
+    void notifiesWhenPingIsWithinSchoolRadius() {
+      Outing outing = departedOuting();
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      givenSchoolPropertiesOk();
+
+      outingService.recordLocationPing(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          LocalDateTime.of(2026, 8, 10, 13, 0));
+
+      verify(notificationService).send(
+          eq(STUDENT_ID), any(), any(), eq(NotificationType.OUTING));
+    }
+
+    @Test
+    @DisplayName("학교 반경 밖에서 핑을 보내면 알림을 보내지 않는다")
+    void doesNotNotifyWhenPingIsOutsideSchoolRadius() {
+      Outing outing = departedOuting();
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      givenSchoolPropertiesOk();
+
+      // 학교(36.0, 128.0)에서 위도 1도(약 111km) 떨어진 지점 — 반경 200m를 훨씬 벗어난다.
+      outingService.recordLocationPing(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(37.0, SCHOOL_LONGITUDE),
+          LocalDateTime.of(2026, 8, 10, 13, 0));
+
+      verify(notificationService, times(0)).send(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("스로틀 간격(5분) 안에 반경 안에서 다시 핑을 보내면 알림을 또 보내지 않는다")
+    void doesNotResendNotificationWithinThrottleInterval() {
+      Outing outing = departedOuting();
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      givenSchoolPropertiesOk();
+      LocalDateTime firstPingAt = LocalDateTime.of(2026, 8, 10, 13, 0, 0);
+      LocalDateTime secondPingAt = firstPingAt.plusMinutes(4);
+
+      outingService.recordLocationPing(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          firstPingAt);
+      outingService.recordLocationPing(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          secondPingAt);
+
+      verify(notificationService, times(1)).send(
+          eq(STUDENT_ID), any(), any(), eq(NotificationType.OUTING));
+    }
+
+    @Test
+    @DisplayName("스로틀 간격(5분)이 지난 후 반경 안에서 다시 핑을 보내면 알림을 또 보낸다")
+    void resendsNotificationAfterThrottleInterval() {
+      Outing outing = departedOuting();
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      givenSchoolPropertiesOk();
+      LocalDateTime firstPingAt = LocalDateTime.of(2026, 8, 10, 13, 0, 0);
+      LocalDateTime secondPingAt = firstPingAt.plusMinutes(5);
+
+      outingService.recordLocationPing(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          firstPingAt);
+      outingService.recordLocationPing(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          secondPingAt);
+
+      verify(notificationService, times(2)).send(
+          eq(STUDENT_ID), any(), any(), eq(NotificationType.OUTING));
     }
   }
 
