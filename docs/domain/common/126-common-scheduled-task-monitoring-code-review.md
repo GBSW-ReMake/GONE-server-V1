@@ -43,6 +43,16 @@ Spring Data JPA 버전에서는 작동하지 않는다는 게 드러났다** —
 [QA 결과 문서](./126-common-scheduled-task-monitoring-QA.md) 참고. 회귀 방지로 컨트롤러
 테스트에 "존재하지 않는 id 삭제 → 404" 케이스를 추가했다.
 
+**추가 검증(CodeRabbit PR 리뷰, 2026-09-01)**: CodeRabbit이 Hibernate 7.4.1 실제 소스코드를
+근거로 "`findById` 후 `delete(task)` 사이에도 여전히 레이스가 있다 — 동시 요청 중 하나가
+먼저 지우면 나머지 하나가 `StaleStateException`(Spring이 `ObjectOptimisticLockingFailureException`으로
+번역, 409)을 받을 수 있어 404가 보장되지 않는다"고 지적했다. 실제로 재현해서 검증한 결과,
+**이 프로젝트의 `ScheduledTask`(버전 필드 없는 엔티티)에서는 해당하지 않았다** — 이미 지워진
+행을 가리키는 stale 엔티티로 `scheduledTaskRepository.delete(entity)`를 호출해도 예외 없이
+조용히 성공했다(별도 검증용 테스트로 직접 재현·확인, 커밋하지 않고 삭제). `deleteById()`에
+이어 이번에도 일반적인 ORM 이론과 이 프로젝트의 실제 버전/매핑 조합의 런타임 동작이 달랐다
+— CodeRabbit이 제안한 "단일 원자적 DELETE 쿼리로 변경" 수정은 적용하지 않았다.
+
 ---
 
 ### 2. 🟠 High — `/api/v1/scheduled-tasks/**`가 `SecurityConfig`의 인증 필요 경로에서 빠짐

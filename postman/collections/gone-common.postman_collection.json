@@ -48,6 +48,47 @@
             }
           ],
           "response": []
+        },
+        {
+          "name": "학생 로그인 (에러 케이스용)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{studentLoginId}}\",\n  \"password\": \"{{studentPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "login"]
+            },
+            "description": "\"에러 케이스 > ADMIN 아닌 역할로 목록 조회\"가 쓰는 `studentAccessToken`을 채웁니다. 다른 컬렉션(outing/conduct/schoolcamp)의 사전 준비가 이미 이 값을 채웠다면 다시 실행할 필요 없지만, 이 컬렉션만 독립적으로 실행해도 되도록 여기 자체적으로 둡니다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"studentAccessToken\", body.data.accessToken);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": []
         }
       ]
     },
