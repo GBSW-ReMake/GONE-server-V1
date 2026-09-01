@@ -6,6 +6,7 @@ import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -64,4 +65,23 @@ public interface ScheduledTaskRepository extends JpaRepository<ScheduledTask, Lo
    * @return 해당 상태의 task 개수
    */
   long countByStatus(ScheduledTaskStatus status);
+
+  /**
+   * {@link ScheduledTaskExecutor}가 실제로 {@code handler.handle()}을 호출하기 직전에
+   * task를 원자적으로 "claim"합니다(#99 코드 리뷰 보류 항목 (b) 대응). {@code status=PENDING}인
+   * 행만 대상으로 하는 단일 {@code UPDATE}라 "조회 후 별도 UPDATE" 방식과 달리 두 단계
+   * 사이에 다른 트랜잭션이 끼어들 여지가 없다 — {@code returnOuting}의 {@code cancel()}이
+   * 이 UPDATE보다 먼저 커밋되어 행을 지웠다면 갱신 대상이 0건이 되어 claim이 실패한다.
+   *
+   * @param id     claim할 task의 ID
+   * @param status claim 대상으로 인정할 상태(항상 {@code PENDING})
+   * @param now    claim 시각 — {@code lastAttemptedAt}에 기록해 "이 실행 시도가 있었다"는
+   *               흔적을 남긴다
+   * @return 갱신된 행 수. 0이면 이미 취소되었거나 상태가 바뀐 것이라 handler를 호출하면 안 된다.
+   */
+  @Modifying
+  @Query("update ScheduledTask t set t.lastAttemptedAt = :now "
+      + "where t.id = :id and t.status = :status")
+  int claim(@Param("id") Long id, @Param("status") ScheduledTaskStatus status,
+      @Param("now") LocalDateTime now);
 }
