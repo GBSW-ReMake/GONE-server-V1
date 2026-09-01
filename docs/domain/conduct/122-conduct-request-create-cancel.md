@@ -273,6 +273,47 @@ CANCELED — 요청자가 취소함
 
 ---
 
+## 선행 UX 흐름: 배정 담당자(교사) 검색
+
+`POST /api/v1/conduct-requests` body의 `assigneeUserId`는 필수값이다. 그러나 현재
+`GET /api/v1/users/search`는 이름으로만 전체 사용자를 검색하며 역할 필터가 없어, 선도부가
+교사/관리자 ID를 알 방법이 없다. 프론트엔드에서 요청 생성 화면을 구현하려면 다음 흐름이
+필요하다.
+
+### 화면 흐름
+
+```
+[선도부 요청 생성 화면]
+  학생 선택  → GET /api/v1/users/search?query={name}              (기존 API 활용)
+  교사 선택  → GET /api/v1/users/search?query={name}&role=TEACHER  (신규 파라미터 필요)
+  카테고리   → GET /api/v1/conduct-records/categories             (기존 API 활용)
+  사유 입력  → (자유 입력)
+  제출       → POST /api/v1/conduct-requests
+```
+
+### 필요 API 변경 (`GET /api/v1/users/search`)
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `query` | `String` | 필수 | 실명 부분 일치 검색어 |
+| `role` | `String` | 선택 | `TEACHER` / `ADMIN` / `STUDENT` — 생략 시 전체 |
+
+- `role` 파라미터가 없으면 기존 동작 그대로 유지 (하위 호환).
+- TEACHER로 필터링 시 교사 계정만 반환 → 선도부가 드롭다운/리스트에서 선택.
+- 응답 DTO는 기존 `UserSearchResponse`를 재사용한다(추가 필드 불필요).
+
+### 구현 범위 (별도 이슈로 분리)
+
+이 변경은 `user` 도메인이므로 이슈 #122와 별도 이슈로 분리해 구현한다. `UserRepository`에
+역할 코드 조인 쿼리를 추가하고 `UserService.search`에 `role` 분기를 추가하는 것이 전부라
+공수가 작다.
+
+> **이슈 #122 구현 시점에는 이 API가 없다.** 서버 검증 로직(`assigneeUserId` TEACHER/ADMIN
+> 역할 확인)은 이미 구현되어 있으므로 서버 측 정합성은 보장된다. 프론트엔드에서 요청 생성
+> 화면을 붙이기 전에 교사 검색 이슈를 먼저 완료해야 한다.
+
+---
+
 ## 리스크 및 고려사항
 
 - **소유권 체크 누락**: 다른 선도부가 남의 요청을 취소하는 IDOR이 가장 위험한 실수 지점.
