@@ -35,7 +35,23 @@ public enum ConductErrorCode implements ErrorCode {
   INVALID_PAGE(HttpStatus.BAD_REQUEST, "CONDUCT_007", "페이지 파라미터가 유효하지 않습니다."),
 
   /** 날짜 범위 파라미터가 유효하지 않습니다. */
-  INVALID_DATE_RANGE(HttpStatus.BAD_REQUEST, "CONDUCT_008", "날짜 범위 파라미터가 유효하지 않습니다.");
+  INVALID_DATE_RANGE(HttpStatus.BAD_REQUEST, "CONDUCT_008", "날짜 범위 파라미터가 유효하지 않습니다."),
+
+  /** 상/벌점 요청을 찾을 수 없습니다. */
+  REQUEST_NOT_FOUND(HttpStatus.NOT_FOUND, "CONDUCT_009", "상/벌점 요청을 찾을 수 없습니다."),
+
+  /** 본인이 등록한 요청만 취소할 수 있습니다. */
+  REQUEST_CANCEL_FORBIDDEN(HttpStatus.FORBIDDEN, "CONDUCT_010", "본인이 등록한 요청만 취소할 수 있습니다."),
+
+  /** PENDING 상태의 요청만 취소할 수 있습니다. */
+  REQUEST_NOT_CANCELLABLE(HttpStatus.CONFLICT, "CONDUCT_011", "PENDING 상태의 요청만 취소할 수 있습니다."),
+
+  /** 배정 대상자를 찾을 수 없습니다. */
+  ASSIGNEE_NOT_FOUND(HttpStatus.NOT_FOUND, "CONDUCT_012", "배정 대상자를 찾을 수 없습니다."),
+
+  /** 배정 대상자가 TEACHER 또는 ADMIN 역할이 아닙니다. */
+  ASSIGNEE_INVALID_ROLE(HttpStatus.BAD_REQUEST, "CONDUCT_013",
+      "배정 대상자가 TEACHER 또는 ADMIN 역할이 아닙니다.");
 
   private final HttpStatus httpStatus;
   private final String code;
