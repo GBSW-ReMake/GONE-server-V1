@@ -11,6 +11,7 @@ import com.remake.gone.common.schedule.exception.ScheduleErrorCode;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -81,15 +82,19 @@ public class ScheduledTaskAdminService {
   }
 
   /**
-   * 작업을 상태와 무관하게 삭제합니다.
+   * 작업을 상태와 무관하게 삭제합니다. {@code existsById} 확인과 {@code deleteById} 사이에
+   * 다른 요청(예: 도메인 코드의 {@code ScheduledTaskService.cancel()})이 같은 행을 먼저
+   * 지우고 커밋하는 레이스가 있을 수 있어, 존재 확인 대신 삭제 자체를 시도하고 Spring Data가
+   * 던지는 {@link EmptyResultDataAccessException}을 잡아 {@code TASK_NOT_FOUND}로 변환한다.
    *
    * @param id 삭제할 작업의 PK
    */
   @Transactional
   public void delete(Long id) {
-    if (!scheduledTaskRepository.existsById(id)) {
+    try {
+      scheduledTaskRepository.deleteById(id);
+    } catch (EmptyResultDataAccessException e) {
       throw new CustomException(ScheduleErrorCode.TASK_NOT_FOUND);
     }
-    scheduledTaskRepository.deleteById(id);
   }
 }

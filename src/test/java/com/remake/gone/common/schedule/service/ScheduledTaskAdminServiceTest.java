@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 
 import com.remake.gone.common.exception.CustomException;
@@ -26,6 +26,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -165,23 +166,21 @@ class ScheduledTaskAdminServiceTest {
     @Test
     @DisplayName("존재하면 상태와 무관하게 삭제한다")
     void deletesRegardlessOfStatus() {
-      given(scheduledTaskRepository.existsById(TASK_ID)).willReturn(true);
-
       scheduledTaskAdminService.delete(TASK_ID);
 
       verify(scheduledTaskRepository).deleteById(TASK_ID);
     }
 
     @Test
-    @DisplayName("존재하지 않는 id면 TASK_NOT_FOUND 예외를 던지고 삭제를 시도하지 않는다")
+    @DisplayName("존재하지 않는 id면(동시 삭제 레이스 포함) TASK_NOT_FOUND 예외를 던진다")
     void rejectsMissingTask() {
-      given(scheduledTaskRepository.existsById(TASK_ID)).willReturn(false);
+      doThrow(new EmptyResultDataAccessException(1))
+          .when(scheduledTaskRepository).deleteById(TASK_ID);
 
       assertThatThrownBy(() -> scheduledTaskAdminService.delete(TASK_ID))
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(ScheduleErrorCode.TASK_NOT_FOUND);
-      verify(scheduledTaskRepository, never()).deleteById(any());
     }
   }
 }
