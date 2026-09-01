@@ -127,7 +127,8 @@ HTTP 상태 코드: `200 OK`
 Repository에 사용자 ID와 `Pageable`을 전달하는 DB 페이지네이션 메서드를 추가한다.
 
 ```java
-Page<Notification> findByUserId(Long userId, Pageable pageable);
+@Query("select n from Notification n where n.user.id = :userId")
+Page<Notification> findByUserId(@Param("userId") Long userId, Pageable pageable);
 ```
 
 호출부에서 다음 정렬을 지정한다.

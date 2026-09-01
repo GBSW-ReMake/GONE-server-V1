@@ -1,24 +1,38 @@
 package com.remake.gone.notification.service;
 
+import com.remake.gone.common.exception.CustomException;
+import com.remake.gone.common.response.PageResponse;
+import com.remake.gone.notification.dto.NotificationResponse;
 import com.remake.gone.notification.entity.Notification;
 import com.remake.gone.notification.enums.NotificationType;
+import com.remake.gone.notification.exception.NotificationErrorCode;
 import com.remake.gone.notification.repository.NotificationRepository;
 import com.remake.gone.user.entity.User;
 import com.remake.gone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 알림 저장을 전담하는 공통 발송 모듈.
+ * 알림 저장과 조회를 처리하는 서비스.
  *
  * <p>다른 도메인은 이 빈을 주입받아 {@link #send}만 호출하면 알림 저장이 끝난다. 저장 실패는
  * 그대로 예외로 전파한다 — 알림 저장은 이 모듈의 핵심 책임이라, 호출자(향후 {@code outing}/
  * {@code schoolcamp}) 트랜잭션과 함께 롤백되는 게 맞는 동작이다(마스터 기획서 "정책 가정"
- * 참고). FCM 발송(2단계), 조회/읽음 처리 API(후속 이슈)는 이 이슈 범위 밖이다.
+ * 참고). FCM 발송(후속 이슈)은 이 이슈 범위 밖이다.
  */
 @Service
 @RequiredArgsConstructor
 public class NotificationService {
+
+  private static final int MIN_PAGE_SIZE = 1;
+  private static final int MAX_PAGE_SIZE = 100;
+  private static final Sort LIST_QUERY_SORT = Sort.by(
+      Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
 
   private final NotificationRepository notificationRepository;
   private final UserRepository userRepository;
@@ -45,5 +59,29 @@ public class NotificationService {
         .isRead(false)
         .build();
     notificationRepository.save(notification);
+  }
+
+  /**
+   * 현재 사용자가 받은 알림을 최신순으로 페이지 조회합니다.
+   *
+   * @param userId 현재 인증 사용자 ID
+   * @param page   페이지 번호(0부터 시작)
+   * @param size   페이지 크기(1~100)
+   * @return 페이지네이션된 알림 목록
+   */
+  @Transactional(readOnly = true)
+  public PageResponse<NotificationResponse> getNotifications(Long userId, int page, int size) {
+    validatePageParams(page, size);
+    Pageable pageable = PageRequest.of(page, size, LIST_QUERY_SORT);
+    Page<NotificationResponse> notifications = notificationRepository
+        .findByUserId(userId, pageable)
+        .map(NotificationResponse::from);
+    return PageResponse.of(notifications);
+  }
+
+  private void validatePageParams(int page, int size) {
+    if (page < 0 || size < MIN_PAGE_SIZE || size > MAX_PAGE_SIZE) {
+      throw new CustomException(NotificationErrorCode.INVALID_PAGE_PARAMS);
+    }
   }
 }
