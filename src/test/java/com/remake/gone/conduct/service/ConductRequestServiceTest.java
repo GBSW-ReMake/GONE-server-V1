@@ -117,6 +117,18 @@ class ConductRequestServiceTest {
     }
 
     @Test
+    @DisplayName("존재하지 않는 카테고리 ID이면 CONDUCT_004 예외를 던진다")
+    void throwsWhenCategoryNotFound() {
+      given(conductCategoryRepository.findById(categoryId)).willReturn(Optional.empty());
+
+      assertThatThrownBy(
+          () -> conductRequestService.createRequest(requesterUserId, createRequest()))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(ConductErrorCode.CATEGORY_NOT_FOUND_OR_INACTIVE);
+    }
+
+    @Test
     @DisplayName("비활성 카테고리이면 CONDUCT_004 예외를 던진다")
     void throwsWhenCategoryInactive() {
       ConductCategory inactive = ConductCategory.builder()

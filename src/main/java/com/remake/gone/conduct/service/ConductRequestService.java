@@ -1,5 +1,6 @@
 package com.remake.gone.conduct.service;
 
+import com.remake.gone.common.exception.CommonErrorCode;
 import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.conduct.dto.ConductRequestCreateRequest;
 import com.remake.gone.conduct.dto.ConductRequestResponse;
@@ -64,7 +65,7 @@ public class ConductRequestService {
     }
 
     User requester = userRepository.findById(requesterUserId)
-        .orElseThrow(() -> new CustomException(ConductErrorCode.STUDENT_NOT_FOUND));
+        .orElseThrow(() -> new CustomException(CommonErrorCode.NOT_FOUND));
 
     ConductRequest conductRequest = ConductRequest.builder()
         .requester(requester)
