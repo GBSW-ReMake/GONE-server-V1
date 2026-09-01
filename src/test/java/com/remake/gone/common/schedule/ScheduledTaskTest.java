@@ -1,5 +1,6 @@
 package com.remake.gone.common.schedule;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -9,8 +10,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@link ScheduledTask} 생성 시점의 {@code interval} 검증에 대한 단위 테스트. 다른 상태
- * 전이(markDone/markSucceeded/markFailed)는 {@link ScheduledTaskExecutorTest}가 다룬다.
+ * {@link ScheduledTask} 생성 시점의 {@code interval} 검증과 {@code retry()}(#126)에 대한
+ * 단위 테스트. 다른 상태 전이(markDone/markSucceeded/markFailed)는
+ * {@link ScheduledTaskExecutorTest}가 다룬다.
  */
 class ScheduledTaskTest {
 
@@ -44,5 +46,22 @@ class ScheduledTaskTest {
     assertThatThrownBy(
         () -> new ScheduledTask("TYPE", 1L, SCHEDULED_AT, Duration.ofMillis(500), null))
         .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  @DisplayName("retry()는 상태를 PENDING으로, 실패 이력을 초기화하고 nextAttemptAt을 넘긴 시각으로 되돌린다")
+  void retryResetsStateToPending() {
+    ScheduledTask task = new ScheduledTask("TYPE", 1L, SCHEDULED_AT, Duration.ofMinutes(1), null);
+    RetryPolicy policy = RetryPolicy.DEFAULT;
+    task.markFailed(SCHEDULED_AT, "boom", policy.maxFailureCount(),
+        policy.baseBackoff(), policy.maxBackoff());
+    LocalDateTime retryAt = SCHEDULED_AT.plusHours(1);
+
+    task.retry(retryAt);
+
+    assertThat(task.getStatus()).isEqualTo(ScheduledTaskStatus.PENDING);
+    assertThat(task.getFailureCount()).isZero();
+    assertThat(task.getLastError()).isNull();
+    assertThat(task.getNextAttemptAt()).isEqualTo(retryAt);
   }
 }
