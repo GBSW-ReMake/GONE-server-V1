@@ -50,6 +50,13 @@ public class ScheduledTaskExecutor {
     if (task == null || task.getStatus() != ScheduledTaskStatus.PENDING) {
       return;
     }
+    // cap(end_at)을 이미 넘겼으면 handler.handle()을 아예 호출하지 않고 바로 종료한다 —
+    // 더 기다려도 의미가 없는 시점이 지났으므로, 핸들러가 부수 효과(알림 발송 등)를 굳이
+    // 한 번 더 실행할 필요가 없다.
+    if (task.isPastCap(now)) {
+      task.markDone(now);
+      return;
+    }
     ScheduledTaskHandler handler = handlers.get(task.getTaskType());
     if (handler == null) {
       // 매핑이 없다는 건 배포 실수(핸들러 등록을 빠뜨림)일 가능성이 높다 — 다음 폴링
@@ -59,26 +66,14 @@ public class ScheduledTaskExecutor {
     }
     try {
       boolean done = handler.handle(task.getReferenceId());
-      // 셋 중 하나라도 참이면 더 이상 재실행하지 않는다: (1) 핸들러가 스스로 "끝났다"고
-      // 판단, (2) end_at(cap)을 넘겨 더 기다려도 의미가 없음, (3) 애초에 1회성 작업이라
-      // 재실행 개념이 없음.
-      if (done || task.isPastCap(now) || task.isOneShot()) {
+      // 둘 중 하나라도 참이면 더 이상 재실행하지 않는다: (1) 핸들러가 스스로 "끝났다"고
+      // 판단, (2) 애초에 1회성 작업이라 재실행 개념이 없음. cap 판정은 위에서 이미 끝났다.
+      if (done || task.isOneShot()) {
         task.markDone(now);
       } else {
         task.markSucceeded(now);
       }
     } catch (Exception e) {
-      // cap(end_at)을 이미 넘긴 상태에서 실패했다면 재시도하지 않는다 — cap은 "이 시각을
-      // 넘기면 무조건 종료"라는 뜻이라(기획서 "cap" 정의 참고), 실패 경로에서도 재시도
-      // 대신 종료로 취급해야 성공 경로(위 isPastCap 분기)와 의미가 일관된다. 이 체크가
-      // 없으면 cap을 넘긴 task가 실패할 때마다 maxFailureCount에 도달할 때까지 계속
-      // 재시도(백오프)하다가 FAILED로 격리돼, cap의 "무조건 종료" 의도를 벗어난다.
-      if (task.isPastCap(now)) {
-        task.markDone(now);
-        log.warn("ScheduledTask 실행 실패, cap을 넘겨 재시도 없이 종료(id={}, taskType={}, "
-                + "referenceId={})", task.getId(), task.getTaskType(), task.getReferenceId(), e);
-        return;
-      }
       RetryPolicy retryPolicy = handler.retryPolicy();
       // 핸들러 내부 예외(알림 저장 실패, DB 순간 장애 등)를 여기서 잡아 트랜잭션을 정상
       // 커밋시킨다 — markFailed가 기록한 실패 카운트/다음 시도 시각까지 함께 저장돼야 다음

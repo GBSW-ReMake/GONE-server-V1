@@ -96,16 +96,16 @@ class ScheduledTaskExecutorTest {
     }
 
     @Test
-    @DisplayName("cap(end_at)을 넘겼으면 반환값과 무관하게 DONE 처리한다")
-    void marksDoneWhenPastCap() {
+    @DisplayName("cap(end_at)을 이미 넘겼으면 handler.handle()을 호출하지 않고 바로 DONE 처리한다")
+    void marksDoneWithoutCallingHandlerWhenPastCap() {
       ScheduledTask task = task(Duration.ofMinutes(1), Duration.ofMinutes(30));
       LocalDateTime afterCap = NOW.plusHours(1);
       given(scheduledTaskRepository.findById(TASK_ID)).willReturn(Optional.of(task));
-      given(handler.handle(REFERENCE_ID)).willReturn(false);
 
       executor.execute(TASK_ID, afterCap);
 
       assertThat(task.getStatus()).isEqualTo(ScheduledTaskStatus.DONE);
+      verify(handler, never()).handle(anyLong());
     }
   }
 
@@ -157,20 +157,6 @@ class ScheduledTaskExecutorTest {
 
       assertThat(task.getStatus()).isEqualTo(ScheduledTaskStatus.FAILED);
       assertThat(task.getFailureCount()).isEqualTo(2);
-    }
-
-    @Test
-    @DisplayName("cap(end_at)을 이미 넘긴 상태에서 예외가 나면 재시도하지 않고 DONE 처리한다")
-    void marksDoneInsteadOfRetryingWhenPastCap() {
-      ScheduledTask task = task(Duration.ofMinutes(1), Duration.ofMinutes(30));
-      LocalDateTime afterCap = NOW.plusHours(1);
-      given(scheduledTaskRepository.findById(TASK_ID)).willReturn(Optional.of(task));
-      given(handler.handle(REFERENCE_ID)).willThrow(new IllegalStateException("boom"));
-
-      executor.execute(TASK_ID, afterCap);
-
-      assertThat(task.getStatus()).isEqualTo(ScheduledTaskStatus.DONE);
-      assertThat(task.getFailureCount()).isZero();
     }
   }
 

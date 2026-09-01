@@ -85,8 +85,8 @@ CREATE TABLE scheduled_task (
 컬럼별 역할:
 - `scheduled_at`: 최초 실행 예정 시각. 등록 이후 값이 바뀌지 않는다.
 - `interval_seconds`: 성공 실행 후 재실행 간격. `NULL`이면 1회성 작업이다.
-- `end_at`: 발송 상한 시각(cap). 이 시각을 지나면 다음 성공 실행에서 무조건 `DONE`
-  처리한다.
+- `end_at`: 발송 상한 시각(cap). 이 시각을 지나면 폴링이 다음에 이 task를 집어갈 때
+  `handler.handle()`을 호출하지 않고 곧바로 `DONE` 처리한다.
 - `next_attempt_at`: 폴링이 조회 기준으로 삼는 컬럼이다. 최초 등록 시 `scheduled_at`과
   같은 값으로 시작하고, 매 실행(성공/실패) 후 다시 계산한다(아래 "실행 결과 반영" 참고).
 - `last_executed_at`: 마지막으로 **성공**한 실행 시각. 실패한 시도는 갱신하지 않는다.
@@ -510,6 +510,13 @@ public class ScheduledTaskExecutor {
     if (task == null || task.getStatus() != ScheduledTaskStatus.PENDING) {
       return; // 조회 이후 취소되거나 이미 처리됨
     }
+    // cap(end_at)을 이미 넘겼으면 handler.handle()을 아예 호출하지 않고 바로 종료한다
+    // (보스 확인, 2026-09-01) — 더 기다려도 의미가 없는 시점이 지났으므로, 핸들러가 부수
+    // 효과(알림 발송 등)를 굳이 한 번 더 실행할 필요가 없다.
+    if (task.isPastCap(now)) {
+      task.markDone(now);
+      return;
+    }
     // task_type 문자열과 정확히 같은 빈 이름으로 등록된 핸들러를 찾는다(예: "OUTING_TIMEOUT").
     // 매핑이 없다는 건 배포 실수(핸들러 등록을 빠뜨림)일 가능성이 높아 경고만 남기고
     // 넘어간다 — 다음 폴링 틱에서 다시 같은 경고가 반복되므로 로그로 바로 드러난다.
@@ -522,26 +529,14 @@ public class ScheduledTaskExecutor {
       // 실제 도메인 로직은 전부 handler.handle() 안에 있다 — Executor는 그 결과를
       // 보고 "이 task를 어떻게 할지"만 결정한다(끝낼지/다시 예약할지/실패로 기록할지).
       boolean done = handler.handle(task.getReferenceId());
-      // 셋 중 하나라도 참이면 더 이상 재실행하지 않는다: (1) 핸들러가 스스로 "끝났다"고
-      // 판단, (2) end_at(cap)을 넘겨 더 기다려도 의미가 없음, (3)애초에 1회성 작업이라
-      // 재실행 개념이 없음.
-      if (done || task.isPastCap(now) || task.isOneShot()) {
+      // 둘 중 하나라도 참이면 더 이상 재실행하지 않는다: (1) 핸들러가 스스로 "끝났다"고
+      // 판단, (2) 애초에 1회성 작업이라 재실행 개념이 없음. cap 판정은 위에서 이미 끝났다.
+      if (done || task.isOneShot()) {
         task.markDone(now);
       } else {
         task.markSucceeded(now);
       }
     } catch (Exception e) {
-      // cap(end_at)을 이미 넘긴 상태에서 실패했다면 재시도하지 않는다 — cap은 "이 시각을
-      // 넘기면 무조건 종료"라는 뜻이라, 실패 경로에서도 재시도 대신 종료로 취급해야
-      // 성공 경로(위 isPastCap 분기)와 의미가 일관된다. 이 체크가 없으면 cap을 넘긴
-      // task가 실패할 때마다 maxFailureCount에 도달할 때까지 계속 재시도(백오프)하다가
-      // FAILED로 격리돼, cap의 "무조건 종료" 의도를 벗어난다.
-      if (task.isPastCap(now)) {
-        task.markDone(now);
-        log.warn("ScheduledTask 실행 실패, cap을 넘겨 재시도 없이 종료(id={}, taskType={}, "
-                + "referenceId={})", task.getId(), task.getTaskType(), task.getReferenceId(), e);
-        return;
-      }
       // 재시도 정책은 이 handler(=task_type)가 정의한 값을 쓴다 — 오버라이드하지
       // 않았으면 RetryPolicy.DEFAULT(5회, 30초~30분)가 그대로 적용된다.
       RetryPolicy retryPolicy = handler.retryPolicy();
