@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.CreationTimestamp;
 
 /**
  * 범용 이벤트 스케줄 엔티티(#120). {@code common/schedule} 패키지가 도메인 무관하게 다루는
@@ -67,6 +68,7 @@ public class ScheduledTask {
   @Column(nullable = false, length = 20)
   private ScheduledTaskStatus status;
 
+  @CreationTimestamp
   @Column(name = "created_at", nullable = false, updatable = false)
   private LocalDateTime createdAt;
 
