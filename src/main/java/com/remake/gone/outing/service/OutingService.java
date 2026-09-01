@@ -3,9 +3,12 @@ package com.remake.gone.outing.service;
 import com.remake.gone.common.exception.CommonErrorCode;
 import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.common.response.PageResponse;
+import com.remake.gone.common.schedule.ScheduledTaskService;
 import com.remake.gone.file.service.R2FileService;
 import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.exception.GbswErrorCode;
+import com.remake.gone.notification.enums.NotificationType;
+import com.remake.gone.notification.service.NotificationService;
 import com.remake.gone.outing.config.OutingProperties;
 import com.remake.gone.outing.dto.OutingActiveResponse;
 import com.remake.gone.outing.dto.OutingApplyRequest;
@@ -31,6 +34,7 @@ import com.remake.gone.role.repository.UserRoleRepository;
 import com.remake.gone.user.entity.User;
 import com.remake.gone.user.repository.UserRepository;
 import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -41,6 +45,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -75,6 +81,16 @@ public class OutingService {
   private static final int MIN_PAGE_SIZE = 1;
   private static final int MAX_PAGE_SIZE = 100;
 
+  // 복귀 리마인더(#99) — #120 ScheduledTaskService에 등록하는 task_type 문자열.
+  private static final String OUTING_TIMEOUT_TASK_TYPE = "OUTING_TIMEOUT";
+  // 시간 초과 알림 재발송 간격/발송 상한(가정값, 운영해보고 조정 가능 — #99 기획서
+  // "아직 결정 안 된 것" 참고).
+  private static final Duration TIMEOUT_REMINDER_INTERVAL = Duration.ofMinutes(5);
+  private static final Duration TIMEOUT_REMINDER_CAP = Duration.ofHours(3);
+  // 위치 기반 복귀 리마인더(#99) 스로틀 간격 — 재발송 간격과 값은 같지만 서로 다른 감지
+  // 경로(시간 초과 vs 위치 핑)라 별도 상수로 분리해뒀다.
+  private static final Duration LOCATION_REMINDER_INTERVAL = Duration.ofMinutes(5);
+
   // getMyRequests/getReceivedOutings 조회 정렬 기준(#41 도입, #96에서 DB 페이지네이션으로
   // 전환하며 id를 보조 정렬 키로 추가) — outingDate/startTime이 같은 두 건이 존재할 수 있어
   // (예: 거절된 뒤 같은 시간대로 재신청) 페이지 경계에서 순서가 흔들리지 않도록 한다.
@@ -99,6 +115,14 @@ public class OutingService {
   private final UserRoleRepository userRoleRepository;
   private final R2FileService r2FileService;
   private final OutingProperties outingProperties;
+  private final NotificationService notificationService;
+  private final ScheduledTaskService scheduledTaskService;
+
+  // 위치 기반 복귀 리마인더(#99) 마지막 발송 시각 스로틀. outingId별로 관리하며, 서버
+  // 재시작으로 초기화돼도 문제없다 — 최악의 경우 재시작 직후 핑 한 번에 대해 스로틀이
+  // 리셋되어 알림이 한 번 더 갈 뿐이다(#99 기획서 참고).
+  private final ConcurrentMap<Long, LocalDateTime> lastLocationReminderAt =
+      new ConcurrentHashMap<>();
 
   /**
    * 학생이 정해진 시간대(프리셋) 또는 직접 입력한 시간대(커스텀)에 외출증을 신청한다.
@@ -422,6 +446,50 @@ public class OutingService {
 
     return toResponse(
         outing, outing.getStudent(), outing.getTeacher(), now.toLocalDate(), now.toLocalTime());
+  }
+
+  /** {@link #checkAndNotifyTimeout}의 결과 — #120 {@code ScheduledTaskHandler}가 재실행
+   * 여부를 판단하는 데 그대로 쓴다. */
+  public enum TimeoutCheckResult {
+    /** 이미 복귀했거나(RETURNED 등) outing이 사라졌음 — 더 이상 감시할 필요 없음. */
+    RETURNED_OR_MISSING,
+    /** 아직 DEPARTED 상태라 알림을 보냈고, 다음 간격에 다시 확인해야 함. */
+    CONTINUE
+  }
+
+  /**
+   * 외출 종료 시각이 지났는데 아직 복귀({@code RETURNED}) 처리되지 않은 학생에게 리마인더
+   * 알림을 보냅니다(#99). {@code OutingTimeoutScheduledTaskHandler}(#120 {@code
+   * ScheduledTaskHandler} 구현체)가 #120 폴링 루프에서 호출합니다 — 스케줄링 방식과 무관한
+   * 순수 도메인 로직이라 별도 단위 테스트로 검증합니다.
+   *
+   * @param outingId 확인할 외출증의 내부 PK
+   * @param now      "지금" 시각(KST)
+   * @return 더 이상 재실행할 필요가 없으면 {@link TimeoutCheckResult#RETURNED_OR_MISSING},
+   *     다음 간격에 다시 확인해야 하면 {@link TimeoutCheckResult#CONTINUE}
+   */
+  @Transactional
+  public TimeoutCheckResult checkAndNotifyTimeout(Long outingId, LocalDateTime now) {
+    Optional<Outing> found = outingRepository.findById(outingId);
+    if (found.isEmpty() || found.get().getStatus() != OutingStatus.DEPARTED) {
+      return TimeoutCheckResult.RETURNED_OR_MISSING;
+    }
+    Outing outing = found.get();
+    User student = outing.getStudent();
+    notificationService.send(student.getId(),
+        "외출 시간이 지났습니다",
+        "예정된 복귀 시각이 지났습니다. 빨리 복귀해서 '도착' 버튼을 눌러주세요.",
+        NotificationType.OUTING);
+    notificationService.send(outing.getTeacher().getId(),
+        "학생 미복귀 알림",
+        student.getGbsw().getName() + " 학생이 아직 복귀하지 않았습니다 (외출증 " + outing.getCode() + ").",
+        NotificationType.OUTING);
+    userRoleRepository.findUserIdsByRoleCode(DISCIPLINE_ROLE_CODE).forEach(disciplineUserId ->
+        notificationService.send(disciplineUserId,
+            "학생 미복귀 알림",
+            student.getGbsw().getName() + " 학생이 아직 복귀하지 않았습니다 (외출증 " + outing.getCode() + ").",
+            NotificationType.OUTING));
+    return TimeoutCheckResult.CONTINUE;
   }
 
   /**
