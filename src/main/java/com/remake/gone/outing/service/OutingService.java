@@ -413,6 +413,14 @@ public class OutingService {
     outing.setDepartedLongitude(request.longitude());
     saveOrRejectAsAlreadyProcessed(outing);
 
+    // 복귀 리마인더(#99) 등록 — 같은 트랜잭션 안에서 호출해 outing 상태 변경과
+    // scheduled_task 등록이 원자적으로 함께 커밋/롤백된다(#120 ScheduledTaskService 참고).
+    // scheduledAt은 outing의 종료 예정 시각(외출 날짜 + 종료 시각)이다.
+    scheduledTaskService.schedule(
+        OUTING_TIMEOUT_TASK_TYPE, outing.getId(),
+        LocalDateTime.of(outing.getOutingDate(), outing.getEndTime()),
+        TIMEOUT_REMINDER_INTERVAL, TIMEOUT_REMINDER_CAP);
+
     return toResponse(
         outing, outing.getStudent(), outing.getTeacher(), now.toLocalDate(), now.toLocalTime());
   }
@@ -443,6 +451,12 @@ public class OutingService {
     outing.setReturnedLatitude(request.latitude());
     outing.setReturnedLongitude(request.longitude());
     saveOrRejectAsAlreadyProcessed(outing);
+
+    // 복귀 리마인더(#99) 취소 — outing 상태 변경과 같은 트랜잭션에서 원자적으로 처리된다.
+    scheduledTaskService.cancel(OUTING_TIMEOUT_TASK_TYPE, outing.getId());
+    // 위치 기반 리마인더(#99) 스로틀 정리 — 더 이상 필요 없는 항목을 남겨두면 메모리가
+    // 계속 늘어난다.
+    lastLocationReminderAt.remove(outing.getId());
 
     return toResponse(
         outing, outing.getStudent(), outing.getTeacher(), now.toLocalDate(), now.toLocalTime());
