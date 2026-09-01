@@ -1423,7 +1423,7 @@
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{teacherAccessToken}}"
+                "value": "Bearer {{discipline2AccessToken}}"
               }
             ],
             "url": {

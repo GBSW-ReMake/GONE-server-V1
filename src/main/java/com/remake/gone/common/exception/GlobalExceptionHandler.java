@@ -6,6 +6,7 @@ import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -153,6 +154,27 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(DataIntegrityViolationException.class)
   public ResponseEntity<ApiResponse<Void>> handleDataIntegrityViolation(
       DataIntegrityViolationException e) {
+    return ResponseEntity
+        .status(CommonErrorCode.CONFLICT.getStatus())
+        .body(ApiResponse.fail(
+            null,
+            CommonErrorCode.CONFLICT.getDefaultMessage(),
+            CommonErrorCode.CONFLICT.getCode()));
+  }
+
+  /**
+   * {@link ObjectOptimisticLockingFailureException} 처리.
+   *
+   * <p>{@code @Version} 낙관적 락 충돌 시 발생합니다. 예를 들어 동일한 PENDING 상태의
+   * ConductRequest에 두 요청이 동시에 취소를 시도하면, 나중에 커밋하는 트랜잭션에서 이 예외가
+   * 발생합니다. 서버 오류가 아닌 동시성 충돌이므로 {@code 409 Conflict}를 반환합니다.
+   *
+   * @param e 발생한 예외
+   * @return {@code 409 Conflict} 응답
+   */
+  @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+  public ResponseEntity<ApiResponse<Void>> handleOptimisticLockingFailure(
+      ObjectOptimisticLockingFailureException e) {
     return ResponseEntity
         .status(CommonErrorCode.CONFLICT.getStatus())
         .body(ApiResponse.fail(
