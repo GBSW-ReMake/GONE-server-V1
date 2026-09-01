@@ -1,5 +1,7 @@
-package com.remake.gone.common.schedule;
+package com.remake.gone.common.schedule.entity;
 
+import com.remake.gone.common.schedule.enums.ScheduledTaskStatus;
+import com.remake.gone.common.schedule.service.RetryPolicy;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -30,44 +32,57 @@ public class ScheduledTask {
 
   private static final int MAX_ERROR_LENGTH = 500;
 
+  /** PK. */
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
   private Long id;
 
+  /** 도메인을 구분하는 식별자(예: {@code "OUTING_TIMEOUT"}). 핸들러 빈 이름과 매핑된다. */
   @Column(name = "task_type", nullable = false, length = 50)
   private String taskType;
 
+  /** 이 task가 감시하는 도메인 엔티티의 PK(예: outing_id). */
   @Column(name = "reference_id", nullable = false)
   private Long referenceId;
 
+  /** 최초 실행 예정 시각. */
   @Column(name = "scheduled_at", nullable = false)
   private LocalDateTime scheduledAt;
 
+  /** 성공 실행 후 재실행 간격(초). {@code null}이면 1회성 작업 — {@link #isOneShot()} 참고. */
   @Column(name = "interval_seconds")
   private Integer intervalSeconds;
 
+  /** 발송 상한 시각({@code scheduledAt}에 cap을 더한 절대 시각). {@code null}이면 상한 없음. */
   @Column(name = "end_at")
   private LocalDateTime endAt;
 
+  /** 폴링이 "언제 다시 이 task를 집어갈지" 비교하는 기준 시각. */
   @Column(name = "next_attempt_at", nullable = false)
   private LocalDateTime nextAttemptAt;
 
+  /** 마지막으로 handler.handle()이 예외 없이 끝난(성공/종료) 시각. */
   @Column(name = "last_executed_at")
   private LocalDateTime lastExecutedAt;
 
+  /** 마지막으로 이 task를 처리 시도한 시각(성공/실패 무관). */
   @Column(name = "last_attempted_at")
   private LocalDateTime lastAttemptedAt;
 
+  /** 연속 실패 횟수. 성공하면 0으로 초기화된다. */
   @Column(name = "failure_count", nullable = false)
   private int failureCount;
 
+  /** 마지막 실패의 에러 메시지({@value #MAX_ERROR_LENGTH}자로 잘림). */
   @Column(name = "last_error", length = 500)
   private String lastError;
 
+  /** 실행 상태(PENDING/DONE/FAILED). */
   @Enumerated(EnumType.STRING)
   @Column(nullable = false, length = 20)
   private ScheduledTaskStatus status;
 
+  /** 이 예약이 최초 등록된 시각. */
   @CreationTimestamp
   @Column(name = "created_at", nullable = false, updatable = false)
   private LocalDateTime createdAt;

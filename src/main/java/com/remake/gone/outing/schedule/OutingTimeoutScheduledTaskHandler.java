@@ -1,6 +1,6 @@
 package com.remake.gone.outing.schedule;
 
-import com.remake.gone.common.schedule.ScheduledTaskHandler;
+import com.remake.gone.common.schedule.service.ScheduledTaskHandler;
 import com.remake.gone.outing.service.OutingService;
 import java.time.LocalDateTime;
 import java.time.ZoneId;

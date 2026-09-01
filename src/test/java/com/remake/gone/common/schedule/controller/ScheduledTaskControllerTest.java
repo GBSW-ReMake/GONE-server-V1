@@ -7,8 +7,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.remake.gone.common.schedule.ScheduledTask;
-import com.remake.gone.common.schedule.ScheduledTaskRepository;
+import com.remake.gone.common.schedule.entity.ScheduledTask;
+import com.remake.gone.common.schedule.repository.ScheduledTaskRepository;
 import com.remake.gone.common.security.JwtProvider;
 import java.time.Duration;
 import java.time.LocalDateTime;

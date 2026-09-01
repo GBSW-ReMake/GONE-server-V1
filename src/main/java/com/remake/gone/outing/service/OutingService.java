@@ -3,7 +3,7 @@ package com.remake.gone.outing.service;
 import com.remake.gone.common.exception.CommonErrorCode;
 import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.common.response.PageResponse;
-import com.remake.gone.common.schedule.ScheduledTaskService;
+import com.remake.gone.common.schedule.service.ScheduledTaskService;
 import com.remake.gone.file.service.R2FileService;
 import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.exception.GbswErrorCode;

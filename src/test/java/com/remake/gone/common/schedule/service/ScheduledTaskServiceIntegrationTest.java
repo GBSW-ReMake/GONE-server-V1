@@ -1,8 +1,11 @@
-package com.remake.gone.common.schedule;
+package com.remake.gone.common.schedule.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
+import com.remake.gone.common.schedule.entity.ScheduledTask;
+import com.remake.gone.common.schedule.enums.ScheduledTaskStatus;
+import com.remake.gone.common.schedule.repository.ScheduledTaskRepository;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;

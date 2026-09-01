@@ -1,5 +1,7 @@
-package com.remake.gone.common.schedule;
+package com.remake.gone.common.schedule.repository;
 
+import com.remake.gone.common.schedule.entity.ScheduledTask;
+import com.remake.gone.common.schedule.enums.ScheduledTaskStatus;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -31,7 +33,7 @@ public interface ScheduledTaskRepository extends JpaRepository<ScheduledTask, Lo
   void deleteByTaskTypeAndReferenceId(String taskType, Long referenceId);
 
   /**
-   * 지금 실행해야 할 task의 ID만 조회한다. 실제 실행은 {@link ScheduledTaskExecutor}가 건별
+   * 지금 실행해야 할 task의 ID만 조회한다. 실제 실행은 {@code ScheduledTaskExecutor}가 건별
    * 독립 트랜잭션에서 다시 조회해 처리한다 — 조회 시점과 실행 시점 사이에 취소({@code cancel})나
    * 다른 실행이 끼어들 수 있으므로, 오래된 스냅샷을 그대로 쓰지 않고 실행 직전에 항상 최신
    * 상태를 다시 읽는다.
@@ -67,7 +69,7 @@ public interface ScheduledTaskRepository extends JpaRepository<ScheduledTask, Lo
   long countByStatus(ScheduledTaskStatus status);
 
   /**
-   * {@link ScheduledTaskExecutor}가 실제로 {@code handler.handle()}을 호출하기 직전에
+   * {@code ScheduledTaskExecutor}가 실제로 {@code handler.handle()}을 호출하기 직전에
    * task를 원자적으로 "claim"합니다(#99 코드 리뷰 보류 항목 (b) 대응). {@code status=PENDING}인
    * 행만 대상으로 하는 단일 {@code UPDATE}라 "조회 후 별도 UPDATE" 방식과 달리 두 단계
    * 사이에 다른 트랜잭션이 끼어들 여지가 없다 — {@code returnOuting}의 {@code cancel()}이

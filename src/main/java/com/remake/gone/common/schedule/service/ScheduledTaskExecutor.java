@@ -1,4 +1,4 @@
-package com.remake.gone.common.schedule;
+package com.remake.gone.common.schedule.service;
 
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -7,7 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
- * {@link ScheduledTask} 하나를 claim → 실행 → 결과 기록의 세 단계로 나눠 처리한다. 트리거
+ * {@code ScheduledTask} 하나를 claim → 실행 → 결과 기록의 세 단계로 나눠 처리한다. 트리거
  * ({@link ScheduledTaskRunner})와 실제 실행을 분리해, 한 폴링 틱에서 처리하는 여러 건 중
  * 한 건의 실패가 다른 건에 영향을 주지 않게 한다.
  *

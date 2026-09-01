@@ -2,9 +2,9 @@ package com.remake.gone.common.schedule.controller;
 
 import com.remake.gone.common.response.ApiResponse;
 import com.remake.gone.common.response.PageResponse;
-import com.remake.gone.common.schedule.ScheduledTaskStatus;
 import com.remake.gone.common.schedule.dto.ScheduledTaskResponse;
 import com.remake.gone.common.schedule.dto.ScheduledTaskStatsResponse;
+import com.remake.gone.common.schedule.enums.ScheduledTaskStatus;
 import com.remake.gone.common.schedule.service.ScheduledTaskAdminService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
