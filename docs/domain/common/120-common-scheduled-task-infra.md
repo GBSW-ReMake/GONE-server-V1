@@ -161,6 +161,7 @@ public class ScheduledTask {
   @Column(nullable = false, length = 20)
   private ScheduledTaskStatus status;
 
+  @CreationTimestamp
   @Column(name = "created_at", nullable = false, updatable = false)
   private LocalDateTime createdAt;
 
@@ -170,7 +171,7 @@ public class ScheduledTask {
     this.referenceId = referenceId;
     this.scheduledAt = scheduledAt;
     // interval이 null이면 1회성 작업이다 — isOneShot()이 이 값을 기준으로 판단한다.
-    this.intervalSeconds = interval == null ? null : (int) interval.getSeconds();
+    this.intervalSeconds = toIntervalSeconds(interval);
     // cap은 "등록 시점부터 며칠/몇 시간"이 아니라 scheduledAt 기준 상대값이다.
     // 예: departOuting에서 cap=3시간이면 "종료 시각(scheduledAt)으로부터 3시간까지만 재발송".
     this.endAt = cap == null ? null : scheduledAt.plus(cap);
@@ -179,6 +180,26 @@ public class ScheduledTask {
     this.nextAttemptAt = scheduledAt;
     this.failureCount = 0;
     this.status = ScheduledTaskStatus.PENDING;
+  }
+
+  /**
+   * {@code interval}을 초 단위 정수로 좁힌다. {@code Duration.getSeconds()}는 1초 미만
+   * 나머지를 잘라버려서(예: 500ms → 0초) markSucceeded()가 즉시 다음 시도를 예약하는 결과를
+   * 낳을 수 있고, 초 단위 값이 int 범위를 넘으면 캐스팅 시 조용히 값이 깨진다 — 둘 다 호출
+   * 시점에 막는다.
+   */
+  private static Integer toIntervalSeconds(Duration interval) {
+    if (interval == null) {
+      return null;
+    }
+    if (interval.isNegative() || interval.isZero() || interval.getNano() != 0) {
+      throw new IllegalArgumentException(
+          "interval은 1초 이상의 정수초 단위 Duration이어야 합니다: " + interval);
+    }
+    if (interval.getSeconds() > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException("interval이 int 범위를 초과합니다: " + interval);
+    }
+    return (int) interval.getSeconds();
   }
 
   /** interval_seconds가 없으면(1회성 작업) 핸들러 반환값과 무관하게 한 번만 실행한다. */
@@ -191,7 +212,18 @@ public class ScheduledTask {
     return endAt != null && now.isAfter(endAt);
   }
 
-  public void markDone() {
+  /**
+   * 더 이상 재실행하지 않도록 상태를 종료 처리한다. markSucceeded()와 동일하게 시도/실행
+   * 시각을 남기고 실패 이력을 지운다 — 그렇지 않으면 실패를 몇 번 거친 뒤 성공해 DONE
+   * 처리된 task가 last_attempted_at/last_executed_at이 여전히 null이거나
+   * failure_count/last_error가 남아있는 채로 보여, 이 테이블만 보고 상태를 판단하려는
+   * 모니터링 취지(아래 "향후 모니터링과의 관계" 절)와 어긋난다.
+   */
+  public void markDone(LocalDateTime now) {
+    this.lastAttemptedAt = now;
+    this.lastExecutedAt = now;
+    this.failureCount = 0;
+    this.lastError = null;
     this.status = ScheduledTaskStatus.DONE;
   }
 
@@ -265,10 +297,14 @@ public interface ScheduledTaskRepository extends JpaRepository<ScheduledTask, Lo
 
   void deleteByTaskTypeAndReferenceId(String taskType, Long referenceId);
 
-  @Query("select t.id from ScheduledTask t where t.status = 'PENDING' and t.nextAttemptAt <= :now")
-  List<Long> findDueTaskIds(@Param("now") LocalDateTime now);
+  @Query("select t.id from ScheduledTask t where t.status = :status and t.nextAttemptAt <= :now")
+  List<Long> findDueTaskIds(
+      @Param("status") ScheduledTaskStatus status, @Param("now") LocalDateTime now);
 }
 ```
+`status`를 문자열 리터럴이 아니라 파라미터로 바인딩하는 이유: JPQL에서 enum 필드를 문자열
+리터럴과 직접 비교하는 동작은 Hibernate 구현에 따라 보장되지 않는다 — enum 파라미터
+바인딩이 타입 안전하고, 향후 Hibernate 버전이 바뀌어도 흔들리지 않는다.
 `findDueTaskIds`가 엔티티가 아니라 ID만 반환하는 이유: 실제 실행은 아래
 `ScheduledTaskExecutor`가 건별 독립 트랜잭션에서 다시 조회해 처리한다. 조회 시점과 실행
 시점 사이에 취소(`cancel`)나 다른 실행이 끼어들 수 있으므로, 오래된 스냅샷을 그대로
@@ -284,6 +320,34 @@ package com.remake.gone.common.schedule;
  * 간격으로 재시도한다(계산 로직은 {@code ScheduledTask.markFailed} 참고).
  */
 public record RetryPolicy(int maxFailureCount, Duration baseBackoff, Duration maxBackoff) {
+
+  /**
+   * ScheduledTask.markFailed가 이 값들을 검증 없이 그대로 계산에 쓴다 — 여기서 막지
+   * 않으면 maxFailureCount<=0은 첫 실패에 곧장 FAILED로 격리시키고, 0 이하이거나
+   * 소수점 초 단위인 backoff는 nextAttemptAt이 매 폴링마다 계속 due 상태이거나 과거로
+   * 계산되게 만든다.
+   */
+  public RetryPolicy {
+    if (maxFailureCount <= 0) {
+      throw new IllegalArgumentException("maxFailureCount는 1 이상이어야 합니다: " + maxFailureCount);
+    }
+    requirePositiveWholeSeconds(baseBackoff, "baseBackoff");
+    requirePositiveWholeSeconds(maxBackoff, "maxBackoff");
+    if (maxBackoff.compareTo(baseBackoff) < 0) {
+      throw new IllegalArgumentException(
+          "maxBackoff는 baseBackoff 이상이어야 합니다: baseBackoff=" + baseBackoff
+              + ", maxBackoff=" + maxBackoff);
+    }
+  }
+
+  private static void requirePositiveWholeSeconds(Duration duration, String name) {
+    if (duration == null) {
+      throw new IllegalArgumentException(name + "은 null일 수 없습니다");
+    }
+    if (duration.isNegative() || duration.isZero() || duration.getNano() != 0) {
+      throw new IllegalArgumentException(name + "은 1초 이상의 정수초 단위 Duration이어야 합니다: " + duration);
+    }
+  }
 
   /** 별도로 재정의하지 않는 모든 핸들러가 쓰는 기본값 — 5회 실패, 30초~30분 백오프. */
   public static final RetryPolicy DEFAULT =
@@ -353,9 +417,15 @@ public class ScheduledTaskService {
       // DONE/FAILED로 이미 끝난 이전 건이면 지운다 — 유니크 제약(task_type, referenceId)
       // 때문에 지우지 않고는 같은 대상을 다시 등록할 수 없다(위 "DONE/FAILED 정리 후
       // 재등록하는 이유" 참고).
+      // flush로 DELETE를 즉시 실행시킨다 — ScheduledTask는 GenerationType.IDENTITY라
+      // 아래 save()가 즉시 INSERT를 실행하는데(IDENTITY는 생성된 PK를 바로 알아야 해서
+      // Hibernate가 flush까지 미루지 못한다), flush 없이는 아직 DB에 남아있는 이 행과
+      // 유니크 제약(task_type, reference_id)이 충돌해 save()가 실패한다.
       scheduledTaskRepository.delete(existing.get());
+      scheduledTaskRepository.flush();
     }
-    scheduledTaskRepository.save(new ScheduledTask(taskType, referenceId, scheduledAt, interval, cap));
+    scheduledTaskRepository.save(
+        new ScheduledTask(taskType, referenceId, scheduledAt, interval, cap));
   }
 
   @Transactional
@@ -391,12 +461,14 @@ public class ScheduledTaskRunner {
   // 한 틱 처리가 10초를 넘겨도 다음 틱과 겹쳐 실행되지 않는다(#42와 동일한 안전 기본값).
   @Scheduled(fixedDelay = 10_000)
   public void run() {
-    LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
-    // 1) 지금 확인해야 할 task의 ID만 먼저 읽고, 2) ID 하나마다 Executor에게 실행을
-    // 맡긴다 — 이 둘을 하나로 합쳐 한 트랜잭션으로 처리하지 않는 이유는 아래
-    // ScheduledTaskExecutor 절 "왜 REQUIRES_NEW인지" 참고.
-    scheduledTaskRepository.findDueTaskIds(now)
-        .forEach(taskId -> scheduledTaskExecutor.execute(taskId, now));
+    // 조회 기준 시각은 한 번만 고정한다 — 이 틱에서 "무엇이 due인지"의 기준은 틱 시작
+    // 시점이어야 일관된다. 반면 각 task를 실제로 처리하는 시각(execute에 넘기는 now)은
+    // task마다 다시 구한다 — due 건이 많아 앞 task 처리가 오래 걸리면, 뒤 task는 틱 시작
+    // 시각보다 실제로 몇 초 늦게 처리되는데 그 stale한 시각으로 cap 판정/백오프를 계산하면
+    // 안 되기 때문이다.
+    LocalDateTime tickStartedAt = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
+    scheduledTaskRepository.findDueTaskIds(ScheduledTaskStatus.PENDING, tickStartedAt)
+        .forEach(taskId -> scheduledTaskExecutor.execute(taskId, LocalDateTime.now(ZoneId.of("Asia/Seoul"))));
   }
 }
 ```
@@ -420,10 +492,21 @@ public class ScheduledTaskExecutor {
   // 분리된다(자세한 이유는 아래 "왜 REQUIRES_NEW인지" 참고).
   @Transactional(propagation = Propagation.REQUIRES_NEW)
   public void execute(Long taskId, LocalDateTime now) {
-    // Runner가 넘긴 taskId로 다시 조회한다 — Runner가 findDueTaskIds로 읽은 시점과
-    // 지금 사이에 다른 요청(예: returnOuting → cancel)이 이 행을 지웠거나 이미 다른
-    // 스레드가 처리해 상태가 바뀌었을 수 있어, 그 경우 아무것도 하지 않고 조용히 끝낸다.
-    ScheduledTask task = scheduledTaskRepository.findById(taskId).orElse(null);
+    ScheduledTask task;
+    try {
+      // Runner가 넘긴 taskId로 다시 조회한다 — Runner가 findDueTaskIds로 읽은 시점과
+      // 지금 사이에 다른 요청(예: returnOuting → cancel)이 이 행을 지웠거나 이미 다른
+      // 스레드가 처리해 상태가 바뀌었을 수 있어, 그 경우 아무것도 하지 않고 조용히 끝낸다.
+      task = scheduledTaskRepository.findById(taskId).orElse(null);
+    } catch (Exception e) {
+      // 조회 자체가 실패하면(예: 일시적 DB 커넥션 문제) 이 task는 건드리지 않고 넘어간다 —
+      // next_attempt_at이 그대로라 다음 폴링 틱(10초 뒤)에 자동으로 다시 시도된다. 여기서
+      // 예외를 삼키지 않으면 Runner의 forEach가 중단돼 같은 틱에서 아직 처리 안 한 나머지
+      // task까지 이번 틱에서 스킵된다(아래 "왜 REQUIRES_NEW인지"가 보장하는 건별 격리가
+      // 조회 단계에는 적용되지 않기 때문).
+      log.error("ScheduledTask 조회 실패(id={})", taskId, e);
+      return;
+    }
     if (task == null || task.getStatus() != ScheduledTaskStatus.PENDING) {
       return; // 조회 이후 취소되거나 이미 처리됨
     }
@@ -443,11 +526,22 @@ public class ScheduledTaskExecutor {
       // 판단, (2) end_at(cap)을 넘겨 더 기다려도 의미가 없음, (3)애초에 1회성 작업이라
       // 재실행 개념이 없음.
       if (done || task.isPastCap(now) || task.isOneShot()) {
-        task.markDone();
+        task.markDone(now);
       } else {
         task.markSucceeded(now);
       }
     } catch (Exception e) {
+      // cap(end_at)을 이미 넘긴 상태에서 실패했다면 재시도하지 않는다 — cap은 "이 시각을
+      // 넘기면 무조건 종료"라는 뜻이라, 실패 경로에서도 재시도 대신 종료로 취급해야
+      // 성공 경로(위 isPastCap 분기)와 의미가 일관된다. 이 체크가 없으면 cap을 넘긴
+      // task가 실패할 때마다 maxFailureCount에 도달할 때까지 계속 재시도(백오프)하다가
+      // FAILED로 격리돼, cap의 "무조건 종료" 의도를 벗어난다.
+      if (task.isPastCap(now)) {
+        task.markDone(now);
+        log.warn("ScheduledTask 실행 실패, cap을 넘겨 재시도 없이 종료(id={}, taskType={}, "
+                + "referenceId={})", task.getId(), task.getTaskType(), task.getReferenceId(), e);
+        return;
+      }
       // 재시도 정책은 이 handler(=task_type)가 정의한 값을 쓴다 — 오버라이드하지
       // 않았으면 RetryPolicy.DEFAULT(5회, 30초~30분)가 그대로 적용된다.
       RetryPolicy retryPolicy = handler.retryPolicy();

@@ -25,7 +25,7 @@
 
 ### 1. Flyway 마이그레이션 실적용 확인
 서버 기동 로그에서 `scheduled_task` 테이블이 실제로 생성되고 스키마 버전이 최신임을 확인.
-```
+```text
 Current version of schema `gone`: 20260901104142
 Schema `gone` is up to date. No migration necessary.
 ```
