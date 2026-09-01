@@ -507,7 +507,9 @@ public class OutingService {
   }
 
   /**
-   * 학생 본인이 외출 중({@code DEPARTED}) 위치 핑을 전송합니다(#97).
+   * 학생 본인이 외출 중({@code DEPARTED}) 위치 핑을 전송합니다(#97). 핑이 학교 반경 안이면
+   * "도착 확인" 리마인더 알림을 함께 보냅니다(#99, 위치 기반 복귀 감지 — 종료 시각과
+   * 무관하게 학교 안에 있는데 도착 버튼을 안 누른 경우를 잡는다).
    *
    * @param studentUserId 핑을 전송하는 학생 사용자 ID (Access Token에서 추출됨)
    * @param code          핑을 전송할 외출증의 외부 식별자 코드
@@ -532,6 +534,23 @@ public class OutingService {
         .longitude(request.longitude())
         .recordedAt(now)
         .build());
+
+    // 위치 기반 복귀 리마인더(#99) — 핑이 올 때만 검사한다. 핑이 없으면 애초에 "아직 학교
+    // 밖" 상태로 볼 수밖에 없어 알림을 못 보내도 논리적 공백이 생기지 않는다.
+    double distance = GeoUtils.distanceMeters(
+        request.latitude(), request.longitude(),
+        outingProperties.schoolLatitude(), outingProperties.schoolLongitude());
+    if (distance <= outingProperties.schoolRadiusMeters()) {
+      LocalDateTime lastSent = lastLocationReminderAt.get(outing.getId());
+      if (lastSent == null
+          || Duration.between(lastSent, now).compareTo(LOCATION_REMINDER_INTERVAL) >= 0) {
+        notificationService.send(studentUserId,
+            "도착 확인이 필요해요",
+            "학교 반경 안에 계신 것 같아요. '도착' 버튼을 눌러주세요.",
+            NotificationType.OUTING);
+        lastLocationReminderAt.put(outing.getId(), now);
+      }
+    }
   }
 
   /**
