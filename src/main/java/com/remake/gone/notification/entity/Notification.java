@@ -26,8 +26,7 @@ import org.hibernate.annotations.CreationTimestamp;
  *
  * <p>{@code db/migration/V9__add_notification.sql}의 {@code notification} 테이블에 대응한다.
  * 저장은 {@link com.remake.gone.notification.service.NotificationService#send}가 전담하고,
- * 이 이슈(#59)에는 조회/읽음 처리 API가 없다 — {@link #isRead}는 후속 이슈가 그대로 재사용할
- * 수 있도록 미리 포함해둔 컬럼이다.
+ * 목록 조회와 읽음 처리에서 {@link #isRead}를 사용한다.
  */
 @Entity
 @Table(name = "notification")
