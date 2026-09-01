@@ -43,7 +43,12 @@ public class ScheduledTaskService {
       if (existing.get().getStatus() == ScheduledTaskStatus.PENDING) {
         return;
       }
+      // flush로 DELETE를 즉시 실행시킨다 — ScheduledTask는 GenerationType.IDENTITY라
+      // 아래 save()가 즉시 INSERT를 실행하는데(IDENTITY는 생성된 PK를 바로 알아야 해서
+      // Hibernate가 flush까지 미루지 못한다), flush 없이는 아직 DB에 남아있는 이 행과
+      // 유니크 제약(task_type, reference_id)이 충돌해 save()가 실패한다.
       scheduledTaskRepository.delete(existing.get());
+      scheduledTaskRepository.flush();
     }
     scheduledTaskRepository.save(
         new ScheduledTask(taskType, referenceId, scheduledAt, interval, cap));

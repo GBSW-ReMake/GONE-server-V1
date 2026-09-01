@@ -32,10 +32,21 @@ public class ScheduledTaskExecutor {
    */
   @Transactional(propagation = Propagation.REQUIRES_NEW)
   public void execute(Long taskId, LocalDateTime now) {
-    // Runner가 findDueTaskIds로 읽은 시점과 지금 사이에 다른 요청(예: returnOuting →
-    // cancel)이 이 행을 지웠거나 이미 처리해 상태가 바뀌었을 수 있어, 그 경우 아무것도 하지
-    // 않고 조용히 끝낸다.
-    ScheduledTask task = scheduledTaskRepository.findById(taskId).orElse(null);
+    ScheduledTask task;
+    try {
+      // Runner가 findDueTaskIds로 읽은 시점과 지금 사이에 다른 요청(예: returnOuting →
+      // cancel)이 이 행을 지웠거나 이미 처리해 상태가 바뀌었을 수 있어, 그 경우 아무것도
+      // 하지 않고 조용히 끝낸다.
+      task = scheduledTaskRepository.findById(taskId).orElse(null);
+    } catch (Exception e) {
+      // 조회 자체가 실패하면(예: 일시적 DB 커넥션 문제) 이 task는 건드리지 않고 넘어간다 —
+      // next_attempt_at이 그대로라 다음 폴링 틱(10초 뒤)에 자동으로 다시 시도된다. 여기서
+      // 예외를 삼키지 않으면 ScheduledTaskRunner의 forEach가 중단돼 같은 틱에서 아직 처리
+      // 안 한 나머지 task까지 이번 틱에서 스킵된다(클래스 Javadoc이 보장하는 "한 건의 실패가
+      // 다른 건에 영향을 주지 않는다"가 깨진다).
+      log.error("ScheduledTask 조회 실패(id={})", taskId, e);
+      return;
+    }
     if (task == null || task.getStatus() != ScheduledTaskStatus.PENDING) {
       return;
     }
