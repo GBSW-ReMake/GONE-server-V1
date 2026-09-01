@@ -185,6 +185,18 @@ public class ScheduledTask {
     this.nextAttemptAt = now.plusSeconds(backoffSeconds);
   }
 
+  /**
+   * 관리자가 FAILED task를 수동으로 재시도시킬 때 호출한다(#126). failureCount/lastError를
+   * 지우는 이유는 markSucceeded()와 동일하다 — 이번이 새로운 시도이므로 이전 실패 이력이
+   * 이후 backoff 계산에 영향을 주면 안 된다.
+   */
+  public void retry(LocalDateTime now) {
+    this.status = ScheduledTaskStatus.PENDING;
+    this.failureCount = 0;
+    this.lastError = null;
+    this.nextAttemptAt = now;
+  }
+
   private static String truncate(String message) {
     if (message == null) {
       return null;
