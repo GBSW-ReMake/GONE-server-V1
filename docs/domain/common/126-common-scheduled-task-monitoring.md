@@ -286,12 +286,17 @@ public class ScheduledTaskAdminService {
     return ScheduledTaskResponse.from(task);
   }
 
+  // existsById 후 deleteById를 별개로 호출하면 그 사이 다른 요청(예: 도메인 코드의
+  // ScheduledTaskService.cancel())이 같은 행을 먼저 지우는 레이스가 있다(코드 리뷰 High
+  // #1). deleteById를 바로 호출하고 Spring Data가 던지는
+  // EmptyResultDataAccessException을 잡아 TASK_NOT_FOUND로 변환하면 이 레이스가 사라진다.
   @Transactional
   public void delete(Long id) {
-    if (!scheduledTaskRepository.existsById(id)) {
+    try {
+      scheduledTaskRepository.deleteById(id);
+    } catch (EmptyResultDataAccessException e) {
       throw new CustomException(ScheduleErrorCode.TASK_NOT_FOUND);
     }
-    scheduledTaskRepository.deleteById(id);
   }
 }
 ```
