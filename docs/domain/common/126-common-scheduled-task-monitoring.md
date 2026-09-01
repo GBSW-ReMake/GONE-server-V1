@@ -286,17 +286,16 @@ public class ScheduledTaskAdminService {
     return ScheduledTaskResponse.from(task);
   }
 
-  // existsById 후 deleteById를 별개로 호출하면 그 사이 다른 요청(예: 도메인 코드의
-  // ScheduledTaskService.cancel())이 같은 행을 먼저 지우는 레이스가 있다(코드 리뷰 High
-  // #1). deleteById를 바로 호출하고 Spring Data가 던지는
-  // EmptyResultDataAccessException을 잡아 TASK_NOT_FOUND로 변환하면 이 레이스가 사라진다.
+  // 이 프로젝트가 쓰는 Spring Data JPA 버전에서 deleteById는 대상이 없어도 예외 없이
+  // 조용히 성공한다(10단계 QA에서 실서버로 확인 — 코드 리뷰 반영 시 가정했던
+  // "Spring Data 표준 동작"이 이 버전에는 해당하지 않았다). findById로 먼저 존재를
+  // 확인한 뒤 그 엔티티를 지운다 — 확인과 삭제 사이 다른 요청이 먼저 지우는 좁은
+  // 레이스가 있어도, 엔티티 기준 삭제는 대상이 이미 없으면 조용히 0행으로 끝나 안전하다.
   @Transactional
   public void delete(Long id) {
-    try {
-      scheduledTaskRepository.deleteById(id);
-    } catch (EmptyResultDataAccessException e) {
-      throw new CustomException(ScheduleErrorCode.TASK_NOT_FOUND);
-    }
+    ScheduledTask task = scheduledTaskRepository.findById(id)
+        .orElseThrow(() -> new CustomException(ScheduleErrorCode.TASK_NOT_FOUND));
+    scheduledTaskRepository.delete(task);
   }
 }
 ```
