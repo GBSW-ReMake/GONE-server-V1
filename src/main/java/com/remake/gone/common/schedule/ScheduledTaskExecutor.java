@@ -63,11 +63,22 @@ public class ScheduledTaskExecutor {
       // 판단, (2) end_at(cap)을 넘겨 더 기다려도 의미가 없음, (3) 애초에 1회성 작업이라
       // 재실행 개념이 없음.
       if (done || task.isPastCap(now) || task.isOneShot()) {
-        task.markDone();
+        task.markDone(now);
       } else {
         task.markSucceeded(now);
       }
     } catch (Exception e) {
+      // cap(end_at)을 이미 넘긴 상태에서 실패했다면 재시도하지 않는다 — cap은 "이 시각을
+      // 넘기면 무조건 종료"라는 뜻이라(기획서 "cap" 정의 참고), 실패 경로에서도 재시도
+      // 대신 종료로 취급해야 성공 경로(위 isPastCap 분기)와 의미가 일관된다. 이 체크가
+      // 없으면 cap을 넘긴 task가 실패할 때마다 maxFailureCount에 도달할 때까지 계속
+      // 재시도(백오프)하다가 FAILED로 격리돼, cap의 "무조건 종료" 의도를 벗어난다.
+      if (task.isPastCap(now)) {
+        task.markDone(now);
+        log.warn("ScheduledTask 실행 실패, cap을 넘겨 재시도 없이 종료(id={}, taskType={}, "
+                + "referenceId={})", task.getId(), task.getTaskType(), task.getReferenceId(), e);
+        return;
+      }
       RetryPolicy retryPolicy = handler.retryPolicy();
       // 핸들러 내부 예외(알림 저장 실패, DB 순간 장애 등)를 여기서 잡아 트랜잭션을 정상
       // 커밋시킨다 — markFailed가 기록한 실패 카운트/다음 시도 시각까지 함께 저장돼야 다음

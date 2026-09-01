@@ -87,7 +87,7 @@ public class ScheduledTask {
     this.referenceId = referenceId;
     this.scheduledAt = scheduledAt;
     // interval이 null이면 1회성 작업이다 — isOneShot()이 이 값을 기준으로 판단한다.
-    this.intervalSeconds = interval == null ? null : (int) interval.getSeconds();
+    this.intervalSeconds = toIntervalSeconds(interval);
     // cap은 "등록 시점부터 며칠/몇 시간"이 아니라 scheduledAt 기준 상대값이다.
     // 예: departOuting에서 cap=3시간이면 "종료 시각(scheduledAt)으로부터 3시간까지만 재발송".
     this.endAt = cap == null ? null : scheduledAt.plus(cap);
@@ -96,6 +96,26 @@ public class ScheduledTask {
     this.nextAttemptAt = scheduledAt;
     this.failureCount = 0;
     this.status = ScheduledTaskStatus.PENDING;
+  }
+
+  /**
+   * {@code interval}을 초 단위 정수로 좁힌다. {@code Duration.getSeconds()}는 1초 미만
+   * 나머지를 잘라버려서(예: 500ms → 0초) {@link #markSucceeded}가 즉시 다음 시도를 예약하는
+   * 결과를 낳을 수 있고, 초 단위 값이 {@code int} 범위를 넘으면 캐스팅 시 조용히 값이
+   * 깨진다 — 둘 다 호출 시점에 막는다.
+   */
+  private static Integer toIntervalSeconds(Duration interval) {
+    if (interval == null) {
+      return null;
+    }
+    if (interval.isNegative() || interval.isZero() || interval.getNano() != 0) {
+      throw new IllegalArgumentException(
+          "interval은 1초 이상의 정수초 단위 Duration이어야 합니다: " + interval);
+    }
+    if (interval.getSeconds() > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException("interval이 int 범위를 초과합니다: " + interval);
+    }
+    return (int) interval.getSeconds();
   }
 
   /** interval_seconds가 없으면(1회성 작업) 핸들러 반환값과 무관하게 한 번만 실행한다. */
@@ -108,8 +128,19 @@ public class ScheduledTask {
     return endAt != null && now.isAfter(endAt);
   }
 
-  /** 더 이상 재실행하지 않도록 상태를 종료 처리한다. */
-  public void markDone() {
+  /**
+   * 더 이상 재실행하지 않도록 상태를 종료 처리한다. {@link #markSucceeded}와 동일하게
+   * 시도/실행 시각을 남기고 실패 이력을 지운다 — 그렇지 않으면 실패를 몇 번 거친 뒤 성공해
+   * DONE 처리된 task가 {@code last_attempted_at}/{@code last_executed_at}이 여전히
+   * {@code null}이거나 {@code failure_count}/{@code last_error}가 남아있는 채로 보여,
+   * 이 테이블만 보고 상태를 판단하려는 모니터링 취지(기획서 "향후 모니터링과의 관계" 절)와
+   * 어긋난다.
+   */
+  public void markDone(LocalDateTime now) {
+    this.lastAttemptedAt = now;
+    this.lastExecutedAt = now;
+    this.failureCount = 0;
+    this.lastError = null;
     this.status = ScheduledTaskStatus.DONE;
   }
 

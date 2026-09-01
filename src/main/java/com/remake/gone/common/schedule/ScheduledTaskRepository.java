@@ -33,6 +33,7 @@ public interface ScheduledTaskRepository extends JpaRepository<ScheduledTask, Lo
    * 다른 실행이 끼어들 수 있으므로, 오래된 스냅샷을 그대로 쓰지 않고 실행 직전에 항상 최신
    * 상태를 다시 읽는다.
    */
-  @Query("select t.id from ScheduledTask t where t.status = 'PENDING' and t.nextAttemptAt <= :now")
-  List<Long> findDueTaskIds(@Param("now") LocalDateTime now);
+  @Query("select t.id from ScheduledTask t where t.status = :status and t.nextAttemptAt <= :now")
+  List<Long> findDueTaskIds(
+      @Param("status") ScheduledTaskStatus status, @Param("now") LocalDateTime now);
 }

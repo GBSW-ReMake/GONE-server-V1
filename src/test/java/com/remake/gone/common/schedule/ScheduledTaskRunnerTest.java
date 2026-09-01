@@ -32,7 +32,8 @@ class ScheduledTaskRunnerTest {
   @Test
   @DisplayName("findDueTaskIds가 반환한 ID마다 executor.execute를 호출한다")
   void executesEachDueTaskId() {
-    given(scheduledTaskRepository.findDueTaskIds(any(LocalDateTime.class)))
+    given(scheduledTaskRepository.findDueTaskIds(
+        eq(ScheduledTaskStatus.PENDING), any(LocalDateTime.class)))
         .willReturn(List.of(1L, 2L, 3L));
 
     scheduledTaskRunner.run();

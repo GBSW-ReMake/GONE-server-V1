@@ -45,7 +45,7 @@ class ScheduledTaskServiceIntegrationTest {
     scheduledTaskService.schedule(TASK_TYPE, REFERENCE_ID, now, null, null);
     ScheduledTask first =
         scheduledTaskRepository.findByTaskTypeAndReferenceId(TASK_TYPE, REFERENCE_ID).orElseThrow();
-    first.markDone();
+    first.markDone(now);
     scheduledTaskRepository.saveAndFlush(first);
 
     assertThatCode(() -> scheduledTaskService.schedule(TASK_TYPE, REFERENCE_ID, now, null, null))

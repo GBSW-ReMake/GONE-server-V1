@@ -57,7 +57,7 @@ class ScheduledTaskExecutorTest {
   class HandleResult {
 
     @Test
-    @DisplayName("true를 반환하면 DONE 처리한다")
+    @DisplayName("true를 반환하면 DONE 처리하고 시도/실행 시각을 남긴다")
     void marksDoneWhenHandlerReturnsTrue() {
       ScheduledTask task = task(Duration.ofMinutes(1), null);
       given(scheduledTaskRepository.findById(TASK_ID)).willReturn(Optional.of(task));
@@ -66,6 +66,8 @@ class ScheduledTaskExecutorTest {
       executor.execute(TASK_ID, NOW);
 
       assertThat(task.getStatus()).isEqualTo(ScheduledTaskStatus.DONE);
+      assertThat(task.getLastAttemptedAt()).isEqualTo(NOW);
+      assertThat(task.getLastExecutedAt()).isEqualTo(NOW);
     }
 
     @Test
@@ -155,6 +157,20 @@ class ScheduledTaskExecutorTest {
 
       assertThat(task.getStatus()).isEqualTo(ScheduledTaskStatus.FAILED);
       assertThat(task.getFailureCount()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("cap(end_at)을 이미 넘긴 상태에서 예외가 나면 재시도하지 않고 DONE 처리한다")
+    void marksDoneInsteadOfRetryingWhenPastCap() {
+      ScheduledTask task = task(Duration.ofMinutes(1), Duration.ofMinutes(30));
+      LocalDateTime afterCap = NOW.plusHours(1);
+      given(scheduledTaskRepository.findById(TASK_ID)).willReturn(Optional.of(task));
+      given(handler.handle(REFERENCE_ID)).willThrow(new IllegalStateException("boom"));
+
+      executor.execute(TASK_ID, afterCap);
+
+      assertThat(task.getStatus()).isEqualTo(ScheduledTaskStatus.DONE);
+      assertThat(task.getFailureCount()).isZero();
     }
   }
 

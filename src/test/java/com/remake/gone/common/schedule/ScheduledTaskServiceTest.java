@@ -71,7 +71,7 @@ class ScheduledTaskServiceTest {
     @DisplayName("DONE/FAILED로 끝난 이전 건은 정리한 뒤 재등록한다")
     void cleansUpFinishedTaskBeforeReRegistering() {
       ScheduledTask done = new ScheduledTask(TASK_TYPE, REFERENCE_ID, SCHEDULED_AT, null, null);
-      done.markDone();
+      done.markDone(SCHEDULED_AT);
       given(scheduledTaskRepository.findByTaskTypeAndReferenceId(TASK_TYPE, REFERENCE_ID))
           .willReturn(Optional.of(done));
 
