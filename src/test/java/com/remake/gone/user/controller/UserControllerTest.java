@@ -88,17 +88,39 @@ class UserControllerTest {
     }
 
     @Test
-    @DisplayName("검색어로 서비스를 호출하고 결과를 그대로 반환한다")
-    void callsServiceWithQuery() {
+    @DisplayName("role 없이 호출하면 빈 역할 목록으로 서비스를 호출한다")
+    void callsServiceWithEmptyRolesWhenRoleAbsent() {
       UserController controller = new UserController(userService);
       List<UserSearchResponse> expected =
-          List.of(new UserSearchResponse(55L, "영희", "이영희", 3, 1));
-      given(userService.search("영희")).willReturn(expected);
+          List.of(new UserSearchResponse(55L, "영희", "이영희", "3118", 3, 1, 18));
+      given(userService.search("영희", List.of())).willReturn(expected);
 
-      ApiResponse<List<UserSearchResponse>> response = controller.search("영희");
+      ApiResponse<List<UserSearchResponse>> response = controller.search("영희", null);
 
       assertThat(response.success()).isTrue();
       assertThat(response.data()).isEqualTo(expected);
+    }
+
+    @Test
+    @DisplayName("role=TEACHER로 호출하면 [\"TEACHER\"]를 서비스에 전달한다")
+    void parsesAndPassesSingleRole() {
+      UserController controller = new UserController(userService);
+      given(userService.search("김", List.of("TEACHER"))).willReturn(List.of());
+
+      controller.search("김", "TEACHER");
+
+      verify(userService).search("김", List.of("TEACHER"));
+    }
+
+    @Test
+    @DisplayName("role=TEACHER,DISCIPLINE으로 호출하면 두 역할을 서비스에 전달한다")
+    void parsesAndPassesMultipleRoles() {
+      UserController controller = new UserController(userService);
+      given(userService.search("김", List.of("TEACHER", "DISCIPLINE"))).willReturn(List.of());
+
+      controller.search("김", "TEACHER,DISCIPLINE");
+
+      verify(userService).search("김", List.of("TEACHER", "DISCIPLINE"));
     }
   }
 

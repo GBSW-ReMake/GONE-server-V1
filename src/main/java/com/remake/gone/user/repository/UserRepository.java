@@ -98,4 +98,36 @@ public interface UserRepository extends JpaRepository<User, Long> {
       + "and u.status = :status")
   List<User> searchByRealNameContainingAndStatus(
       @Param("query") String query, @Param("status") UserStatus status);
+
+  /**
+   * 실명 또는 학번에 검색어가 부분 일치하는 가입된 사용자를 조회합니다. 역할 목록이 비어 있지
+   * 않으면 해당 역할 중 하나 이상을 가진 사용자만 반환합니다.
+   *
+   * <p>학번은 {@code GbswUtils.studentNumber()}와 동일한 포맷(학년+반+번호 4자리)으로 SQL에서
+   * 계산합니다({@code CONCAT(g.grade, g.classNo, LPAD(g.number, 2, '0'))}). 선생님은 학번 컬럼이
+   * {@code null}이므로 학번 조건은 자동으로 매칭되지 않습니다.
+   *
+   * <p>{@code query}는 호출하는 쪽({@code UserService})에서 LIKE 와일드카드를 이스케이프 처리해서
+   * 넘겨야 합니다.
+   *
+   * @param query  LIKE 와일드카드가 이스케이프 처리된 검색어
+   * @param roles  역할 코드 목록. 비어 있으면 역할 조건 없이 전체 검색
+   * @param status 결과에 포함할 사용자 상태
+   * @return 조건에 맞는 사용자 목록
+   */
+  @Query("select u from User u join fetch u.gbsw g "
+      + "where u.status = :status "
+      + "and (g.name like concat('%', :query, '%') escape '\\' "
+      + "  or (g.number is not null "
+      + "      and function('CONCAT', g.grade, g.classNo, "
+      + "            function('LPAD', g.number, 2, '0')) "
+      + "          like concat('%', :query, '%'))) "
+      + "and (:#{#roles.isEmpty()} = true "
+      + "  or exists ("
+      + "    select ur from UserRole ur "
+      + "    where ur.user = u and ur.role.code in :roles))")
+  List<User> searchByQueryAndRoles(
+      @Param("query") String query,
+      @Param("roles") List<String> roles,
+      @Param("status") UserStatus status);
 }
