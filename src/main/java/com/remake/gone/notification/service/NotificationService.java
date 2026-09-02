@@ -97,7 +97,9 @@ public class NotificationService {
       throw new CustomException(NotificationErrorCode.NOTIFICATION_ACCESS_DENIED);
     }
 
-    notification.markAsRead();
+    if (!notification.isRead()) {
+      notification.markAsRead();
+    }
   }
 
   private void validatePageParams(int page, int size) {

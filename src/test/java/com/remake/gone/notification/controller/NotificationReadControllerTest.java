@@ -3,6 +3,7 @@ package com.remake.gone.notification.controller;
 import static org.mockito.BDDMockito.willDoNothing;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -88,6 +89,39 @@ class NotificationReadControllerTest {
     mockMvc.perform(patch("/api/v1/notifications/{id}/read", NOTIFICATION_ID))
         .andExpect(status().isUnauthorized())
         .andExpect(jsonPath("$.code").value("COMMON_002"));
+  }
+
+  @Test
+  @DisplayName("알림 ID가 0이면 400 COMMON_001을 반환한다")
+  void returns400ForZeroNotificationId() throws Exception {
+    mockMvc.perform(patch("/api/v1/notifications/{id}/read", 0)
+            .header("Authorization", "Bearer " + accessToken()))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("COMMON_001"));
+
+    verifyNoInteractions(notificationService);
+  }
+
+  @Test
+  @DisplayName("알림 ID가 음수면 400 COMMON_001을 반환한다")
+  void returns400ForNegativeNotificationId() throws Exception {
+    mockMvc.perform(patch("/api/v1/notifications/{id}/read", -1)
+            .header("Authorization", "Bearer " + accessToken()))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("COMMON_001"));
+
+    verifyNoInteractions(notificationService);
+  }
+
+  @Test
+  @DisplayName("알림 ID가 숫자가 아니면 400 COMMON_001을 반환한다")
+  void returns400ForNonNumericNotificationId() throws Exception {
+    mockMvc.perform(patch("/api/v1/notifications/{id}/read", "abc")
+            .header("Authorization", "Bearer " + accessToken()))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("COMMON_001"));
+
+    verifyNoInteractions(notificationService);
   }
 
   private String accessToken() {

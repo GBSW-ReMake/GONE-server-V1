@@ -5,9 +5,11 @@ import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.common.security.UserPrincipal;
 import com.remake.gone.notification.dto.NotificationResponse;
 import com.remake.gone.notification.service.NotificationService;
+import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/notifications")
 @RequiredArgsConstructor
+@Validated
 public class NotificationController {
 
   private final NotificationService notificationService;
@@ -56,7 +59,7 @@ public class NotificationController {
   @PreAuthorize("isAuthenticated()")
   public ApiResponse<Void> markAsRead(
       @AuthenticationPrincipal UserPrincipal principal,
-      @PathVariable Long id
+      @PathVariable @Positive(message = "알림 ID는 양수여야 합니다.") Long id
   ) {
     notificationService.markAsRead(principal.userId(), id);
     return ApiResponse.success(null, "알림을 읽음 처리했습니다.");
