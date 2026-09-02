@@ -102,6 +102,18 @@ public class NotificationService {
     }
   }
 
+  /**
+   * 현재 사용자가 받은 읽지 않은 알림을 모두 읽음 상태로 변경합니다.
+   *
+   * <p>벌크 갱신을 사용하므로, 읽지 않은 알림이 없어도 별도 조회 없이 성공합니다.
+   *
+   * @param userId 현재 인증 사용자 ID
+   */
+  @Transactional
+  public void markAllAsRead(Long userId) {
+    notificationRepository.markAllAsReadByUserId(userId);
+  }
+
   private void validatePageParams(int page, int size) {
     if (page < 0 || size < MIN_PAGE_SIZE || size > MAX_PAGE_SIZE) {
       throw new CustomException(NotificationErrorCode.INVALID_PAGE_PARAMS);

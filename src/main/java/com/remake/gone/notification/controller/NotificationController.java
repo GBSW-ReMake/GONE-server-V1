@@ -64,4 +64,19 @@ public class NotificationController {
     notificationService.markAsRead(principal.userId(), id);
     return ApiResponse.success(null, "알림을 읽음 처리했습니다.");
   }
+
+  /**
+   * 현재 사용자가 받은 읽지 않은 알림을 모두 읽음 처리합니다.
+   *
+   * @param principal 인증 필터가 Access Token에서 추출한 현재 사용자
+   * @return 전체 읽음 처리 결과
+   */
+  @PatchMapping("/read-all")
+  @PreAuthorize("isAuthenticated()")
+  public ApiResponse<Void> markAllAsRead(
+      @AuthenticationPrincipal UserPrincipal principal
+  ) {
+    notificationService.markAllAsRead(principal.userId());
+    return ApiResponse.success(null, "모든 알림을 읽음 처리했습니다.");
+  }
 }

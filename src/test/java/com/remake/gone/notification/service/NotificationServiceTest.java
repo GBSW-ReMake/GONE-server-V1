@@ -159,6 +159,19 @@ class NotificationServiceTest {
   }
 
   @Nested
+  @DisplayName("markAllAsRead")
+  class MarkAllAsRead {
+
+    @Test
+    @DisplayName("현재 사용자의 읽지 않은 알림을 벌크 읽음 처리한다")
+    void marksAllUnreadNotificationsAsRead() {
+      notificationService.markAllAsRead(USER_ID);
+
+      verify(notificationRepository).markAllAsReadByUserId(USER_ID);
+    }
+  }
+
+  @Nested
   @DisplayName("send")
   class Send {
 
