@@ -62,4 +62,13 @@ public class Notification {
   @CreationTimestamp
   @Column(name = "created_at", nullable = false, updatable = false)
   private LocalDateTime createdAt;
+
+  /**
+   * 알림을 읽음 상태로 변경합니다.
+   *
+   * <p>이미 읽은 알림도 같은 상태를 유지하므로, 읽음 처리 요청은 멱등하게 동작합니다.
+   */
+  public void markAsRead() {
+    this.isRead = true;
+  }
 }

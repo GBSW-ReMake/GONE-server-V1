@@ -9,6 +9,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -41,5 +43,22 @@ public class NotificationController {
     PageResponse<NotificationResponse> response =
         notificationService.getNotifications(principal.userId(), page, size);
     return ApiResponse.success(response, "알림 목록을 조회했습니다.");
+  }
+
+  /**
+   * 현재 사용자가 선택한 알림을 읽음 처리합니다.
+   *
+   * @param principal 인증 필터가 Access Token에서 추출한 현재 사용자
+   * @param id 읽음 처리할 알림 ID
+   * @return 읽음 처리 결과
+   */
+  @PatchMapping("/{id}/read")
+  @PreAuthorize("isAuthenticated()")
+  public ApiResponse<Void> markAsRead(
+      @AuthenticationPrincipal UserPrincipal principal,
+      @PathVariable Long id
+  ) {
+    notificationService.markAsRead(principal.userId(), id);
+    return ApiResponse.success(null, "알림을 읽음 처리했습니다.");
   }
 }

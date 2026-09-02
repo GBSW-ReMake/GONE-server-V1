@@ -79,6 +79,27 @@ public class NotificationService {
     return PageResponse.of(notifications);
   }
 
+  /**
+   * 현재 사용자가 받은 알림 하나를 읽음 상태로 변경합니다.
+   *
+   * <p>다른 사용자의 알림은 처리할 수 없으며, 이미 읽은 알림을 다시 요청해도 성공합니다.
+   * 변경 감지는 트랜잭션이 끝날 때 읽음 상태를 저장합니다.
+   *
+   * @param userId 현재 인증 사용자 ID
+   * @param notificationId 읽음 처리할 알림 ID
+   */
+  @Transactional
+  public void markAsRead(Long userId, Long notificationId) {
+    Notification notification = notificationRepository.findById(notificationId)
+        .orElseThrow(() -> new CustomException(NotificationErrorCode.NOTIFICATION_NOT_FOUND));
+
+    if (!notification.getUser().getId().equals(userId)) {
+      throw new CustomException(NotificationErrorCode.NOTIFICATION_ACCESS_DENIED);
+    }
+
+    notification.markAsRead();
+  }
+
   private void validatePageParams(int page, int size) {
     if (page < 0 || size < MIN_PAGE_SIZE || size > MAX_PAGE_SIZE) {
       throw new CustomException(NotificationErrorCode.INVALID_PAGE_PARAMS);
