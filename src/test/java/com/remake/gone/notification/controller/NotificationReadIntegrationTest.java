@@ -11,6 +11,7 @@ import com.remake.gone.gbsw.enums.GbswType;
 import com.remake.gone.gbsw.repository.GbswRepository;
 import com.remake.gone.notification.entity.Notification;
 import com.remake.gone.notification.repository.NotificationRepository;
+import com.remake.gone.notification.service.NotificationService;
 import com.remake.gone.user.entity.User;
 import com.remake.gone.user.repository.UserRepository;
 import java.util.ArrayList;
@@ -44,6 +45,9 @@ class NotificationReadIntegrationTest {
 
   @Autowired
   private NotificationRepository notificationRepository;
+
+  @Autowired
+  private NotificationService notificationService;
 
   @Autowired
   private UserRepository userRepository;
@@ -147,6 +151,25 @@ class NotificationReadIntegrationTest {
             .header("Authorization", "Bearer " + accessToken(owner)))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.success").value(true));
+  }
+
+  @Test
+  @DisplayName("벌크 전체 읽음 처리는 갱신된 알림 수를 반환하고 재호출 시 0을 반환한다")
+  void returnsUpdatedCountForBulkReadOperation() {
+    owner = saveUser();
+    final Notification firstNotification = saveNotification(owner, false);
+    final Notification secondNotification = saveNotification(owner, false);
+    saveNotification(owner, true);
+
+    int updatedCount = notificationService.markAllAsRead(owner.getId());
+    int repeatedUpdatedCount = notificationService.markAllAsRead(owner.getId());
+
+    assertThat(updatedCount).isEqualTo(2);
+    assertThat(repeatedUpdatedCount).isZero();
+    assertThat(notificationRepository.findById(firstNotification.getId()).orElseThrow().isRead())
+        .isTrue();
+    assertThat(notificationRepository.findById(secondNotification.getId()).orElseThrow().isRead())
+        .isTrue();
   }
 
   private void deleteUser(User user) {

@@ -163,11 +163,24 @@ class NotificationServiceTest {
   class MarkAllAsRead {
 
     @Test
-    @DisplayName("현재 사용자의 읽지 않은 알림을 벌크 읽음 처리한다")
+    @DisplayName("현재 사용자의 읽지 않은 알림을 벌크 읽음 처리하고 처리 건수를 반환한다")
     void marksAllUnreadNotificationsAsRead() {
-      notificationService.markAllAsRead(USER_ID);
+      given(notificationRepository.markAllAsReadByUserId(USER_ID)).willReturn(2);
 
+      int updatedCount = notificationService.markAllAsRead(USER_ID);
+
+      assertThat(updatedCount).isEqualTo(2);
       verify(notificationRepository).markAllAsReadByUserId(USER_ID);
+    }
+
+    @Test
+    @DisplayName("읽지 않은 알림이 없으면 처리 건수 0을 반환한다")
+    void returnsZeroWhenThereAreNoUnreadNotifications() {
+      given(notificationRepository.markAllAsReadByUserId(USER_ID)).willReturn(0);
+
+      int updatedCount = notificationService.markAllAsRead(USER_ID);
+
+      assertThat(updatedCount).isZero();
     }
   }
 

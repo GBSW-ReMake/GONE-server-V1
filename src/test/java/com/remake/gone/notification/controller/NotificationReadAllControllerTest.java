@@ -1,6 +1,6 @@
 package com.remake.gone.notification.controller;
 
-import static org.mockito.BDDMockito.willDoNothing;
+import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -38,7 +38,7 @@ class NotificationReadAllControllerTest {
   @Test
   @DisplayName("인증된 사용자가 전체 읽음 처리하면 200을 반환한다")
   void returns200ForAuthenticatedUser() throws Exception {
-    willDoNothing().given(notificationService).markAllAsRead(USER_ID);
+    given(notificationService.markAllAsRead(USER_ID)).willReturn(0);
 
     mockMvc.perform(patch("/api/v1/notifications/read-all")
             .header("Authorization", "Bearer " + accessToken()))

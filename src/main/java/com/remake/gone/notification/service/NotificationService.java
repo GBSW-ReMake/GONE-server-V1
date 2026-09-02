@@ -107,11 +107,15 @@ public class NotificationService {
    *
    * <p>벌크 갱신을 사용하므로, 읽지 않은 알림이 없어도 별도 조회 없이 성공합니다.
    *
+   * <p>처리 건수는 HTTP 응답에 노출하지 않지만, 호출자가 벌크 갱신 결과를 확인할 수 있도록
+   * 반환한다.
+   *
    * @param userId 현재 인증 사용자 ID
+   * @return 읽음 처리된 알림 수
    */
   @Transactional
-  public void markAllAsRead(Long userId) {
-    notificationRepository.markAllAsReadByUserId(userId);
+  public int markAllAsRead(Long userId) {
+    return notificationRepository.markAllAsReadByUserId(userId);
   }
 
   private void validatePageParams(int page, int size) {
