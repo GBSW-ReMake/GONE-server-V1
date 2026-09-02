@@ -8,6 +8,7 @@ import com.remake.gone.user.dto.UserSearchResponse;
 import com.remake.gone.user.service.UserService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import java.util.Arrays;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -76,7 +77,7 @@ public class UserController {
   ) {
     List<String> roles = (role == null || role.isBlank())
         ? List.of()
-        : List.of(role.split(","));
+        : Arrays.stream(role.split(",")).map(String::trim).toList();
     List<UserSearchResponse> results = userService.search(query, roles);
     return ApiResponse.success(results, "검색 결과입니다.");
   }

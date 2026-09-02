@@ -122,6 +122,17 @@ class UserControllerTest {
 
       verify(userService).search("김", List.of("TEACHER", "DISCIPLINE"));
     }
+
+    @Test
+    @DisplayName("쉼표 주변 공백을 제거해서 서비스에 전달한다")
+    void trimSpacesAroundCommasInRoles() {
+      UserController controller = new UserController(userService);
+      given(userService.search("김", List.of("TEACHER", "DISCIPLINE"))).willReturn(List.of());
+
+      controller.search("김", "TEACHER, DISCIPLINE");
+
+      verify(userService).search("김", List.of("TEACHER", "DISCIPLINE"));
+    }
   }
 
   @Nested
