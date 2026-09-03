@@ -486,20 +486,28 @@ public class OutingService {
   public TimeoutCheckResult checkAndNotifyTimeout(Long outingId, LocalDateTime now) {
     Optional<Outing> found = outingRepository.findById(outingId);
     if (found.isEmpty() || found.get().getStatus() != OutingStatus.DEPARTED) {
+      // 더 이상 감시할 필요가 없어진 시점 — 위치 기반 리마인더 스로틀 항목도 같이
+      // 정리한다. returnOuting()이 아닌 경로(예: 이미 사라진 outing)로 감시가 끝나도
+      // 이 맵에 항목이 영구히 남지 않게 한다(#99 코드 리뷰 지적).
+      lastLocationReminderAt.remove(outingId);
       return TimeoutCheckResult.RETURNED_OR_MISSING;
     }
     Outing outing = found.get();
     User student = outing.getStudent();
+    Long teacherId = outing.getTeacher().getId();
     notificationService.send(student.getId(),
         "외출 시간이 지났습니다",
         "예정된 복귀 시각이 지났습니다. 빨리 복귀해서 '도착' 버튼을 눌러주세요.",
         NotificationType.OUTING);
-    notificationService.send(outing.getTeacher().getId(),
+    notificationService.send(teacherId,
         "학생 미복귀 알림",
         student.getGbsw().getName() + " 학생이 아직 복귀하지 않았습니다 (외출증 " + outing.getCode() + ").",
         NotificationType.OUTING);
-    userRoleRepository.findUserIdsByRoleCode(DISCIPLINE_ROLE_CODE).forEach(disciplineUserId ->
-        notificationService.send(disciplineUserId,
+    // 담당 선생님이 DISCIPLINE 역할도 겸하면 이미 위에서 알림을 받았으므로 제외한다 —
+    // 그대로 두면 같은 알림을 두 번 받는다(#99 코드 리뷰 지적).
+    userRoleRepository.findUserIdsByRoleCode(DISCIPLINE_ROLE_CODE).stream()
+        .filter(disciplineUserId -> !disciplineUserId.equals(teacherId))
+        .forEach(disciplineUserId -> notificationService.send(disciplineUserId,
             "학생 미복귀 알림",
             student.getGbsw().getName() + " 학생이 아직 복귀하지 않았습니다 (외출증 " + outing.getCode() + ").",
             NotificationType.OUTING));
@@ -541,14 +549,24 @@ public class OutingService {
         request.latitude(), request.longitude(),
         outingProperties.schoolLatitude(), outingProperties.schoolLongitude());
     if (distance <= outingProperties.schoolRadiusMeters()) {
-      LocalDateTime lastSent = lastLocationReminderAt.get(outing.getId());
-      if (lastSent == null
-          || Duration.between(lastSent, now).compareTo(LOCATION_REMINDER_INTERVAL) >= 0) {
+      // get-then-put이 아니라 compute로 판단+갱신을 한 번에 묶어야 한다 — 같은
+      // outingId에 대한 동시 핑 두 건이 서로 상대의 put을 못 본 채 둘 다 스로틀을
+      // 통과하는 경합을 없앤다(#99 코드 리뷰 지적). compute 람다는 부수 효과 없이
+      // 순수해야 하므로, 알림 발송 여부만 계산하고 실제 발송은 람다 밖에서 한다.
+      boolean[] shouldNotify = {false};
+      lastLocationReminderAt.compute(outing.getId(), (id, lastSent) -> {
+        if (lastSent == null
+            || Duration.between(lastSent, now).compareTo(LOCATION_REMINDER_INTERVAL) >= 0) {
+          shouldNotify[0] = true;
+          return now;
+        }
+        return lastSent;
+      });
+      if (shouldNotify[0]) {
         notificationService.send(studentUserId,
             "도착 확인이 필요해요",
             "학교 반경 안에 계신 것 같아요. '도착' 버튼을 눌러주세요.",
             NotificationType.OUTING);
-        lastLocationReminderAt.put(outing.getId(), now);
       }
     }
   }
