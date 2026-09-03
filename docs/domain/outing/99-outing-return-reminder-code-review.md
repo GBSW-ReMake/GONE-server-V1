@@ -205,3 +205,82 @@ DISCIPLINE 알림은 이번 틱에서 전혀 발송되지 않는다. 다음 틱(
 claim/실행/기록 3단계 분리가 기획서가 지목한 (a)(handler 예외로 인한 markFailed 유실),
 (b)(cancel과 실행 사이의 원자성 부재) 두 보류 항목을 실제로 해결했음을
 `ScheduledTaskExecutorIntegrationTest`의 두 테스트로 확인했다.
+
+---
+
+## CodeRabbit 자동 리뷰(PR #130) 추가 지적 — 2026-09-03
+
+PR #130에 대한 CodeRabbit 리뷰(actionable 4건 + outside-diff 1건)에서 나온 지적을
+검증한 결과. **보스가 직접 수정할 예정이라 이 절은 기록용이며, 코드 변경은 아직
+반영되지 않았다.**
+
+### A. 🟡 Minor — QA 문서 케이스 6/7이 순차 호출이라 `recordLocationPing`의
+`compute()` 경합을 실제로 검증하지 못함
+`docs/domain/outing/99-outing-return-reminder-QA.md`의 케이스 6/7은 curl을 순차
+호출한 것이라, 같은 `outingId`에 동시 요청 두 건을 보내 `ConcurrentHashMap.compute(...)`
+경합 구간을 실제로 통과시키는 검증이 아니다. 새로 발견된 지적이며 타당하다 — 같은
+`outingId`로 동시 요청 두 건을 보내 알림이 정확히 1건만 발송되는지 확인하는 테스트를
+추가하면 닫을 수 있다.
+
+### B. 🟠 (기존 2번의 잔여 한계) — `recordSuccess()` 실패 시 handler가 중복 실행될 수 있음
+새로운 발견이 아니라, 이 문서 2번 항목의 "해결 방안 1"에 이미 적어둔 한계가 그대로
+남아있다는 재확인이다. `ScheduledTaskExecutor.execute()`가 `handler.handle()`과
+`recordSuccess()`를 분리한 뒤에도, **recordSuccess 자체가 실패하면 task가 `PENDING`
+그대로 남아 다음 폴링 틱(10초 뒤)에 handler가 다시 호출된다** — handler(알림 발송)는
+이미 성공한 뒤라 같은 알림이 한 번 더 나간다.
+
+**완전히 막으려면 구조적으로 무엇이 필요한가**: "handler를 이미 호출했다"는 사실을
+handler 호출 **전에**, `claim()`과 같은 트랜잭션 안에서 durable하게 남겨야 한다.
+지금은 그 사실을 기록할 곳 자체가 없다.
+- `scheduled_task`에 attempt 식별자 컬럼 추가 → 마이그레이션 필요(#120)
+- `ScheduledTaskHandler` 인터페이스가 그 식별자를 받아 "이미 처리한 시도인지" 확인할
+  방법 추가 → 인터페이스 계약 변경(#120)
+- `NotificationService`(#59)도 같은 attempt로 이미 보낸 알림인지 dedupe해야 완전히
+  막힘 → 다른 도메인까지 변경 필요
+
+즉 스키마+인터페이스+다른 도메인까지 걸치는 변경이라 `#120` 재설계급이다. 실제
+발생 조건도 "handler는 성공했는데 그 직후 `recordSuccess()`만 독립적으로 실패하는"
+좁은 순간이고, 터져도 최악의 결과가 "알림이 한 번 더 감"(무한 반복 아님, 다음 틱에
+정상 기록되면 종료)이라 심각도가 낮다. **후속 이슈로 분리 권장.**
+
+### C. 🟠 (기존 3번의 잔여 한계) — cap 만료 시 `lastLocationReminderAt`이 정리 안 됨
+이것도 새로운 발견이 아니라 3번 항목 "해결 방안 1"의 한계가 그대로 재확인된 것이다.
+`ScheduledTaskExecutionStore.claim()`이 `task.isPastCap(now)`일 때
+`handler.handle()`을 아예 호출하지 않고 `markDone()`만 하고 끝내므로,
+`checkAndNotifyTimeout()` 안에 넣어둔 정리 코드가 실행될 기회 자체가 없다 — 3시간
+cap을 넘기고도 위치 핑을 계속 보내는 학생이 있으면 스로틀 맵 항목이 안 지워진다.
+
+**이건 #120을 안 건드리고도 고칠 수 있다** — 문제의 본질이 "정리 트리거를
+`checkAndNotifyTimeout()` 호출 하나에만 의존한다"는 것이므로, 트리거 대신 맵 자체에
+유효기간을 주면 어떤 경로로 감시가 끝나든 상관없이 정리된다. 두 방법:
+1. `ConcurrentHashMap` → Caffeine 캐시(`expireAfterWrite`)로 교체. 새 의존성 추가 필요.
+2. 이 프로젝트가 이미 휴대폰 인증 코드 저장에 쓰는 `common/redis`
+   (`RedisRepository`/`RedisKeyType`, TTL 지원) 패턴을 그대로 재사용 — 새 의존성
+   불필요, 기존 컨벤션과 일치. **추천.**
+
+둘 다 `outing` 도메인 안에서 끝나고 `#120` 코드는 건드리지 않는다.
+
+### D. 🟠 (신규 발견) — `compute()`로 스로틀 맵을 먼저 갱신한 뒤 알림을 보내, 트랜잭션이
+롤백되면 맵만 갱신된 채로 남는다
+`recordLocationPing()`은 `@Transactional`이다. `lastLocationReminderAt.compute(...)`가
+먼저 실행돼 맵에 `now`를 기록한 뒤(`OutingService.java:557`), `notificationService.send(...)`가
+같은 트랜잭션 안에서 알림을 저장한다(`OutingService.java:566`). 이 저장(또는 커밋
+시점의 flush)이 실패해 트랜잭션 전체가 롤백되면, DB에는 알림이 안 남지만
+`lastLocationReminderAt`은 이미 갱신된 채로 남는다 — 실제로는 아무것도 안 보냈는데
+다음 5분간 정상 핑까지 조용히 억제된다. 이전 코드 리뷰에서는 다루지 않은, 오늘 처음
+나온 유효한 지적이다.
+
+**해결 방향**: `TransactionSynchronizationManager.registerSynchronization(...)`으로
+롤백(`STATUS_ROLLED_BACK`) 시에만 그 `(outingId, now)` 항목을 되돌리는 콜백을
+등록한다(`ConcurrentHashMap.remove(key, value)`의 조건부 삭제로, 그 사이 새로 들어온
+갱신을 덮어쓰지 않게 한다). `outing` 도메인 안에서 끝나는 변경이다.
+
+### 정리
+| # | 항목 | #120 변경 필요? | 처리 방향 |
+|---|---|---|---|
+| A | QA 문서 동시성 테스트 보강 | 아니오 | 테스트 추가로 해결 |
+| B | recordSuccess 실패 시 중복 발송 | **예**(스키마+인터페이스+#59) | 후속 이슈로 분리 권장 |
+| C | cap 만료 시 스로틀 맵 미정리 | 아니오(Redis TTL 재사용으로 해결) | outing 도메인 내 수정 |
+| D | 스로틀 맵 갱신-알림 저장 트랜잭션 불일치 | 아니오 | outing 도메인 내 수정 |
+
+보스가 A/C/D는 직접 수정 예정. B는 범위가 커서 별도 이슈로 분리할지 결정 필요.
