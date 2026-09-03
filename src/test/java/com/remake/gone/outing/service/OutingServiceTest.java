@@ -1041,6 +1041,22 @@ class OutingServiceTest {
       verify(notificationService).send(
           eq(DISCIPLINE_USER_ID_2), any(), any(), eq(NotificationType.OUTING));
     }
+
+    @Test
+    @DisplayName("담당 선생님이 DISCIPLINE 역할도 겸하면 같은 알림을 두 번 받지 않는다")
+    void doesNotDuplicateNotificationWhenTeacherAlsoHasDisciplineRole() {
+      Outing outing = departedOuting();
+      given(outingRepository.findById(OUTING_ID)).willReturn(Optional.of(outing));
+      given(userRoleRepository.findUserIdsByRoleCode("DISCIPLINE"))
+          .willReturn(List.of(outing.getTeacher().getId(), DISCIPLINE_USER_ID_1));
+
+      outingService.checkAndNotifyTimeout(OUTING_ID, LocalDateTime.of(2026, 8, 10, 14, 0));
+
+      verify(notificationService, times(1)).send(
+          eq(outing.getTeacher().getId()), any(), any(), eq(NotificationType.OUTING));
+      verify(notificationService, times(1)).send(
+          eq(DISCIPLINE_USER_ID_1), any(), any(), eq(NotificationType.OUTING));
+    }
   }
 
   @Nested
@@ -1956,6 +1972,31 @@ class OutingServiceTest {
           secondPingAt);
 
       verify(notificationService, times(1)).send(
+          eq(STUDENT_ID), any(), any(), eq(NotificationType.OUTING));
+    }
+
+    @Test
+    @DisplayName("checkAndNotifyTimeout이 RETURNED_OR_MISSING을 반환하면 스로틀 항목이 정리돼 "
+        + "스로틀 간격 안에서도 다음 핑에서 다시 알림을 보낸다")
+    void resendsNotificationAfterThrottleEntryClearedByTimeoutCheck() {
+      Outing outing = departedOuting();
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      // outing이 이미 사라진 것(또는 다른 경로로 종료된 것)으로 감지되는 상황을
+      // 재현한다 — checkAndNotifyTimeout이 이 시점에 스로틀 맵 항목도 함께 정리한다.
+      given(outingRepository.findById(outing.getId())).willReturn(Optional.empty());
+      givenSchoolPropertiesOk();
+      LocalDateTime firstPingAt = LocalDateTime.of(2026, 8, 10, 13, 0, 0);
+      LocalDateTime secondPingAt = firstPingAt.plusMinutes(1); // 스로틀 간격(5분) 안
+
+      outingService.recordLocationPing(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          firstPingAt);
+      outingService.checkAndNotifyTimeout(outing.getId(), firstPingAt.plusSeconds(30));
+      outingService.recordLocationPing(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          secondPingAt);
+
+      verify(notificationService, times(2)).send(
           eq(STUDENT_ID), any(), any(), eq(NotificationType.OUTING));
     }
 
