@@ -211,7 +211,11 @@ int markAllAsReadByUserId(@Param("userId") Long userId);
 
 ## 6. 데이터베이스 및 하위 호환성
 
-- 기존 `notification.is_read` 컬럼을 사용하므로 Flyway 마이그레이션은 추가하지 않는다.
+- 기존 `notification.is_read` 컬럼을 사용한다.
+- `V20260903175511__add_notification_user_read_index.sql`로
+  `idx_notification_user_read (user_id, is_read)` 복합 인덱스를 추가한다. 전체 읽음의
+  조건부 벌크 UPDATE와 안 읽은 개수의 `COUNT`가 모두 `user_id`와 `is_read = false`로
+  대상을 좁히므로, 목록 조회용 기존 `(user_id, created_at)` 인덱스와 별도로 필요하다.
 - 기존 목록 조회 응답과 `Notification` 필드를 변경하지 않는다.
 - 새 엔드포인트와 새 DTO만 추가하므로 기존 클라이언트 동작에는 영향을 주지 않는다.
 
