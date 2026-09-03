@@ -208,5 +208,38 @@ class ScheduledTaskExecutorTest {
 
       verify(handler, never()).handle(anyLong());
     }
+
+    @Test
+    @DisplayName("claim 자체가 예외를 던지면 그 예외를 삼키고 handler를 호출하지 않는다")
+    void doesNotPropagateWhenClaimThrows() {
+      // DB 커넥션 순간 장애 등으로 claim()의 UPDATE/findById가 예외를 던지는 경우 —
+      // execute()가 이 예외를 삼키지 않으면 ScheduledTaskRunner의 forEach가 중단돼
+      // 같은 틱의 나머지 task가 전부 스킵된다(#99 코드 리뷰 지적).
+      given(scheduledTaskRepository.claim(eq(TASK_ID), eq(ScheduledTaskStatus.PENDING), any()))
+          .willThrow(new IllegalStateException("connection lost"));
+
+      executor.execute(TASK_ID, NOW);
+
+      verify(handler, never()).handle(anyLong());
+    }
+
+    @Test
+    @DisplayName("recordSuccess 기록이 실패해도 handler 실패로 오인해 재시도 이력을 남기지 않는다")
+    void doesNotRecordFailureWhenRecordSuccessThrows() {
+      // 첫 findById 호출(claim 내부)은 정상 반환하고, 두 번째 호출(recordSuccess 내부)만
+      // 실패하는 상황을 재현한다 — handler.handle()은 이미 성공했으므로 recordFailure로
+      // 잘못 기록되면 다음 틱에 handler가 다시 실행돼 알림이 중복 발송된다(#99 코드 리뷰
+      // 지적).
+      ScheduledTask task = task(Duration.ofMinutes(1), null);
+      given(scheduledTaskRepository.findById(TASK_ID))
+          .willReturn(Optional.of(task))
+          .willThrow(new IllegalStateException("db down"));
+      given(handler.handle(REFERENCE_ID)).willReturn(true);
+
+      executor.execute(TASK_ID, NOW);
+
+      assertThat(task.getStatus()).isEqualTo(ScheduledTaskStatus.PENDING);
+      assertThat(task.getFailureCount()).isEqualTo(0);
+    }
   }
 }
