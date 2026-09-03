@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.notification.dto.NotificationResponse;
+import com.remake.gone.notification.dto.UnreadNotificationCountResponse;
 import com.remake.gone.notification.entity.Notification;
 import com.remake.gone.notification.enums.NotificationType;
 import com.remake.gone.notification.exception.NotificationErrorCode;
@@ -181,6 +182,22 @@ class NotificationServiceTest {
       int updatedCount = notificationService.markAllAsRead(USER_ID);
 
       assertThat(updatedCount).isZero();
+    }
+  }
+
+  @Nested
+  @DisplayName("getUnreadCount")
+  class GetUnreadCount {
+
+    @Test
+    @DisplayName("현재 사용자의 읽지 않은 알림 개수를 응답 DTO로 반환한다")
+    void returnsUnreadNotificationCount() {
+      given(notificationRepository.countByUserIdAndIsReadFalse(USER_ID)).willReturn(3L);
+
+      UnreadNotificationCountResponse response = notificationService.getUnreadCount(USER_ID);
+
+      assertThat(response).isEqualTo(new UnreadNotificationCountResponse(3L));
+      verify(notificationRepository).countByUserIdAndIsReadFalse(USER_ID);
     }
   }
 

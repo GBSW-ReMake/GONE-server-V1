@@ -1,6 +1,7 @@
 package com.remake.gone.notification.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -170,6 +171,22 @@ class NotificationReadIntegrationTest {
         .isTrue();
     assertThat(notificationRepository.findById(secondNotification.getId()).orElseThrow().isRead())
         .isTrue();
+  }
+
+  @Test
+  @DisplayName("안 읽은 알림 개수는 현재 사용자의 읽지 않은 알림만 센다")
+  void countsOnlyCurrentUsersUnreadNotifications() throws Exception {
+    owner = saveUser();
+    otherUser = saveUser();
+    saveNotification(owner, false);
+    saveNotification(owner, false);
+    saveNotification(owner, true);
+    saveNotification(otherUser, false);
+
+    mockMvc.perform(get("/api/v1/notifications/unread-count")
+            .header("Authorization", "Bearer " + accessToken(owner)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.unreadCount").value(2));
   }
 
   private void deleteUser(User user) {

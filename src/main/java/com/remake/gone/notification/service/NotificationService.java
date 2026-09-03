@@ -3,6 +3,7 @@ package com.remake.gone.notification.service;
 import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.notification.dto.NotificationResponse;
+import com.remake.gone.notification.dto.UnreadNotificationCountResponse;
 import com.remake.gone.notification.entity.Notification;
 import com.remake.gone.notification.enums.NotificationType;
 import com.remake.gone.notification.exception.NotificationErrorCode;
@@ -116,6 +117,18 @@ public class NotificationService {
   @Transactional
   public int markAllAsRead(Long userId) {
     return notificationRepository.markAllAsReadByUserId(userId);
+  }
+
+  /**
+   * 현재 사용자가 읽지 않은 알림 개수를 조회합니다.
+   *
+   * @param userId 현재 인증 사용자 ID
+   * @return 읽지 않은 알림 개수 응답
+   */
+  @Transactional(readOnly = true)
+  public UnreadNotificationCountResponse getUnreadCount(Long userId) {
+    long unreadCount = notificationRepository.countByUserIdAndIsReadFalse(userId);
+    return new UnreadNotificationCountResponse(unreadCount);
   }
 
   private void validatePageParams(int page, int size) {

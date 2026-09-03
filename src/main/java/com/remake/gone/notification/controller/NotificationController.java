@@ -4,6 +4,7 @@ import com.remake.gone.common.response.ApiResponse;
 import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.common.security.UserPrincipal;
 import com.remake.gone.notification.dto.NotificationResponse;
+import com.remake.gone.notification.dto.UnreadNotificationCountResponse;
 import com.remake.gone.notification.service.NotificationService;
 import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
@@ -78,5 +79,21 @@ public class NotificationController {
   ) {
     notificationService.markAllAsRead(principal.userId());
     return ApiResponse.success(null, "모든 알림을 읽음 처리했습니다.");
+  }
+
+  /**
+   * 현재 사용자가 읽지 않은 알림 개수를 조회합니다.
+   *
+   * @param principal 인증 필터가 Access Token에서 추출한 현재 사용자
+   * @return 안 읽은 알림 개수
+   */
+  @GetMapping("/unread-count")
+  @PreAuthorize("isAuthenticated()")
+  public ApiResponse<UnreadNotificationCountResponse> getUnreadCount(
+      @AuthenticationPrincipal UserPrincipal principal
+  ) {
+    UnreadNotificationCountResponse response =
+        notificationService.getUnreadCount(principal.userId());
+    return ApiResponse.success(response, "안 읽은 알림 개수를 조회했습니다.");
   }
 }

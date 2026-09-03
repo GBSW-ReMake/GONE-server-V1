@@ -1,0 +1,66 @@
+package com.remake.gone.notification.controller;
+
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.remake.gone.common.security.JwtProvider;
+import com.remake.gone.notification.dto.UnreadNotificationCountResponse;
+import com.remake.gone.notification.service.NotificationService;
+import java.util.Set;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+
+/**
+ * {@link NotificationController}의 안 읽은 알림 개수 조회 HTTP·인증 통합 테스트.
+ */
+@SpringBootTest
+@AutoConfigureMockMvc
+class NotificationUnreadCountControllerTest {
+
+  private static final Long USER_ID = 1L;
+
+  @Autowired
+  private MockMvc mockMvc;
+
+  @Autowired
+  private JwtProvider jwtProvider;
+
+  @MockitoBean
+  private NotificationService notificationService;
+
+  @Test
+  @DisplayName("인증된 사용자가 안 읽은 알림 개수를 조회하면 200을 반환한다")
+  void returns200ForAuthenticatedUser() throws Exception {
+    given(notificationService.getUnreadCount(USER_ID))
+        .willReturn(new UnreadNotificationCountResponse(3L));
+
+    mockMvc.perform(get("/api/v1/notifications/unread-count")
+            .header("Authorization", "Bearer " + accessToken()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.success").value(true))
+        .andExpect(jsonPath("$.data.unreadCount").value(3))
+        .andExpect(jsonPath("$.message").value("안 읽은 알림 개수를 조회했습니다."));
+
+    verify(notificationService).getUnreadCount(USER_ID);
+  }
+
+  @Test
+  @DisplayName("인증 없이 안 읽은 알림 개수를 조회하면 401 COMMON_002를 반환한다")
+  void returns401WithoutToken() throws Exception {
+    mockMvc.perform(get("/api/v1/notifications/unread-count"))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.code").value("COMMON_002"));
+  }
+
+  private String accessToken() {
+    return jwtProvider.createAccessToken(USER_ID, Set.of("STUDENT"));
+  }
+}
