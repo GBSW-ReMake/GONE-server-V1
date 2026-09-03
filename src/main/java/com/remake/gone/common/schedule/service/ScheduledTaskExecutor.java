@@ -35,7 +35,16 @@ public class ScheduledTaskExecutor {
    * @param now    실행 시각(호출자와 동일한 값을 써서 한 틱 안에서 시각 기준을 통일한다)
    */
   public void execute(Long taskId, LocalDateTime now) {
-    ScheduledTaskExecutionStore.ClaimedTask claimed = executionStore.claim(taskId, now);
+    ScheduledTaskExecutionStore.ClaimedTask claimed;
+    try {
+      claimed = executionStore.claim(taskId, now);
+    } catch (Exception e) {
+      // claim 자체가 던지는 예외(DB 커넥션 순간 장애 등)를 여기서 삼키지 않으면
+      // ScheduledTaskRunner의 forEach가 중단돼, 같은 틱에서 아직 처리 안 한 나머지
+      // task까지 전부 스킵된다(#99 코드 리뷰 지적) — 이 한 건만 다음 틱으로 미룬다.
+      log.error("ScheduledTask claim 실패(id={})", taskId, e);
+      return;
+    }
     if (claimed == null) {
       // claim 실패(이미 취소/처리됨) 또는 cap을 넘겨 종료 처리됨 — 둘 다 더 할 일이 없다.
       return;
@@ -47,15 +56,25 @@ public class ScheduledTaskExecutor {
       log.warn("등록된 ScheduledTaskHandler가 없습니다(taskType={})", claimed.taskType());
       return;
     }
+    boolean done;
     try {
-      boolean done = handler.handle(claimed.referenceId());
-      // 둘 중 하나라도 참이면 더 이상 재실행하지 않는다: (1) 핸들러가 스스로 "끝났다"고
-      // 판단, (2) 애초에 1회성 작업이라 재실행 개념이 없음.
-      executionStore.recordSuccess(taskId, now, done || claimed.oneShot());
+      done = handler.handle(claimed.referenceId());
     } catch (Exception e) {
       log.error("ScheduledTask 실행 실패(id={}, taskType={}, referenceId={})",
           taskId, claimed.taskType(), claimed.referenceId(), e);
       executionStore.recordFailure(taskId, now, e.getMessage(), handler.retryPolicy());
+      return;
+    }
+    try {
+      // 둘 중 하나라도 참이면 더 이상 재실행하지 않는다: (1) 핸들러가 스스로 "끝났다"고
+      // 판단, (2) 애초에 1회성 작업이라 재실행 개념이 없음.
+      executionStore.recordSuccess(taskId, now, done || claimed.oneShot());
+    } catch (Exception e) {
+      // handler는 이미 성공(부수 효과 발생)했다 — recordFailure로 잘못 기록하면 다음
+      // 틱에 handler가 다시 실행돼 알림이 중복 발송된다(#99 코드 리뷰 지적). 기록 자체의
+      // 실패는 로그만 남기고 task를 PENDING 그대로 둬, 다음 claim이 다시 시도하게 한다.
+      log.error("ScheduledTask 성공 기록 실패(id={}, taskType={}, referenceId={})",
+          taskId, claimed.taskType(), claimed.referenceId(), e);
     }
   }
 }
