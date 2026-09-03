@@ -15,10 +15,13 @@ import com.remake.gone.notification.repository.NotificationRepository;
 import com.remake.gone.notification.service.NotificationService;
 import com.remake.gone.user.entity.User;
 import com.remake.gone.user.repository.UserRepository;
+import jakarta.persistence.EntityManagerFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -55,6 +58,9 @@ class NotificationReadIntegrationTest {
 
   @Autowired
   private GbswRepository gbswRepository;
+
+  @Autowired
+  private EntityManagerFactory entityManagerFactory;
 
   private final List<Notification> notifications = new ArrayList<>();
   private User owner;
@@ -171,6 +177,27 @@ class NotificationReadIntegrationTest {
         .isTrue();
     assertThat(notificationRepository.findById(secondNotification.getId()).orElseThrow().isRead())
         .isTrue();
+  }
+
+  @Test
+  @DisplayName("전체 읽음 처리는 하나의 JDBC UPDATE 문으로 실행된다")
+  void executesSingleJdbcStatementForBulkReadOperation() {
+    owner = saveUser();
+    saveNotification(owner, false);
+    saveNotification(owner, false);
+    Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+    boolean wasStatisticsEnabled = statistics.isStatisticsEnabled();
+    statistics.setStatisticsEnabled(true);
+    statistics.clear();
+
+    try {
+      notificationService.markAllAsRead(owner.getId());
+
+      assertThat(statistics.getPrepareStatementCount()).isOne();
+    } finally {
+      statistics.clear();
+      statistics.setStatisticsEnabled(wasStatisticsEnabled);
+    }
   }
 
   @Test
