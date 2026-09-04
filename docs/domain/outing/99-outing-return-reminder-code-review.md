@@ -278,12 +278,12 @@ cap을 넘기고도 위치 핑을 계속 보내는 학생이 있으면 스로틀
 ### 정리
 | # | 항목 | #120 변경 필요? | 처리 방향 |
 |---|---|---|---|
-| A | QA 문서 동시성 테스트 보강 | 아니오 | 테스트 추가로 해결 |
+| A | QA 문서 동시성 테스트 보강 | 아니오 | 미반영 — QA 재실행 시 반영 |
 | B | recordSuccess 실패 시 중복 발송 | **아니오(재검토 결과)** | 트랜잭션 병합으로 해결 완료 — 아래 참고 |
-| C | cap 만료 시 스로틀 맵 미정리 | 아니오(Redis TTL 재사용으로 해결) | outing 도메인 내 수정 |
-| D | 스로틀 맵 갱신-알림 저장 트랜잭션 불일치 | 아니오 | outing 도메인 내 수정 |
+| C | cap 만료 시 스로틀 맵 미정리 | 아니오(Redis TTL 재사용으로 해결) | **해결 완료 — 아래 참고** |
+| D | 스로틀 맵 갱신-알림 저장 트랜잭션 불일치 | 아니오 | **해결 완료 — 아래 참고** |
 
-보스가 A/C/D는 직접 수정 예정.
+A는 아직 미반영(QA 문서 보강 항목이라 다음 QA 재실행 때 처리).
 
 ## B 반영 현황(2026-09-04) — #120 스키마 변경 없이 트랜잭션 병합으로 해결
 
@@ -314,3 +314,34 @@ taskId, now)`를 신규 추가해 `handler.handle()` 호출과 성공 기록(`ma
 때만 유효하다. 알림 도메인에 FCM 푸시(외부 API 호출)가 추가되면 그 호출은 트랜잭션
 롤백으로 되돌릴 수 없으므로, 그 시점에는 이 방식만으론 부족해지고 원래 검토했던 attempt
 식별자(#120 스키마 변경) 방식이 다시 필요해진다 — 그때 재검토.
+
+## C/D 반영 현황(2026-09-04) — 인메모리 맵을 Redis TTL 쿨다운으로 교체
+
+C(cap 만료 시 스로틀 맵 미정리)와 D(스로틀 맵 갱신-알림 저장 트랜잭션 불일치)를 같이
+해결했다 — 둘 다 원인이 "인메모리 `ConcurrentHashMap`이 트랜잭션/폴링 생애주기와 무관하게
+독립적으로 관리된다"는 같은 지점이라, `lastLocationReminderAt` 맵 자체를 걷어내고 이미
+휴대폰 인증 쿨다운(`PHONE_SEND_COOLDOWN`)에 쓰던 `RedisRepository.saveIfAbsent(...)`(원자적
+SETNX+TTL) 패턴으로 교체했다.
+
+**C 해결**: `RedisKeyType.OUTING_LOCATION_REMINDER_COOLDOWN`(TTL 5분)을 신규 추가하고,
+`recordLocationPing()`의 `compute()` 블록을 `redisRepository.saveIfAbsent(...)` 호출로
+대체했다. 어떤 경로로 감시가 끝나든(정상 복귀, `checkAndNotifyTimeout`의 감지, 또는 cap
+초과로 handler 자체가 더 이상 안 불리는 경우까지) TTL이 5분 뒤 자동으로 키를 지우므로,
+"핸들러가 다시 안 불려서 정리 코드가 실행될 기회가 없는" 경로가 있어도 항목이 영구히
+남지 않는다. `returnOuting()`/`checkAndNotifyTimeout()`의 명시적 `redisRepository.delete(...)`
+호출은 TTL 만료를 기다리지 않고 즉시 정리하기 위한 것으로 남겨뒀다(필수는 아니고 TTL이
+최종 안전망).
+
+**D 해결**: `recordLocationPing()`이 `saveIfAbsent(...)`로 쿨다운 키를 저장한 뒤 알림을
+같은 `@Transactional` 트랜잭션 안에서 저장하는데, `TransactionSynchronizationManager
+.registerSynchronization(...)`로 트랜잭션이 롤백됐을 때만(`STATUS_ROLLED_BACK`) 그
+쿨다운 키를 되돌리는 콜백을 등록했다. `isSynchronizationActive()` 가드는 트랜잭션 프록시
+없이 서비스 메서드를 직접 호출하는 단위 테스트를 위한 것이고, 실제 호출 경로(컨트롤러 →
+`@Transactional` 프록시)에서는 항상 활성 상태다.
+
+**검증**: `OutingServiceTest.RecordLocationPing`의 관련 테스트를 mock `RedisRepository`
+기반으로 재작성했다(`givenCooldownAvailable()`/`doesNotNotifyWhenCooldownIsActive()`/
+`clearsCooldownWhenTimeoutCheckReturnsReturnedOrMissing()`). 실제 TTL 만료 자체는 단위
+테스트로 재현할 수 없어(실 Redis 필요) `PHONE_SEND_COOLDOWN`과 동일한 기존 컨벤션대로
+단위 테스트 범위를 "서비스가 `saveIfAbsent`/`delete` 반환값·호출을 올바르게 반영하는지"로
+좁혔다. `./gradlew build` 전체(테스트+체크스타일 포함) 통과 확인.
