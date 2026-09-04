@@ -279,8 +279,38 @@ cap을 넘기고도 위치 핑을 계속 보내는 학생이 있으면 스로틀
 | # | 항목 | #120 변경 필요? | 처리 방향 |
 |---|---|---|---|
 | A | QA 문서 동시성 테스트 보강 | 아니오 | 테스트 추가로 해결 |
-| B | recordSuccess 실패 시 중복 발송 | **예**(스키마+인터페이스+#59) | 후속 이슈로 분리 권장 |
+| B | recordSuccess 실패 시 중복 발송 | **아니오(재검토 결과)** | 트랜잭션 병합으로 해결 완료 — 아래 참고 |
 | C | cap 만료 시 스로틀 맵 미정리 | 아니오(Redis TTL 재사용으로 해결) | outing 도메인 내 수정 |
 | D | 스로틀 맵 갱신-알림 저장 트랜잭션 불일치 | 아니오 | outing 도메인 내 수정 |
 
-보스가 A/C/D는 직접 수정 예정. B는 범위가 커서 별도 이슈로 분리할지 결정 필요.
+보스가 A/C/D는 직접 수정 예정.
+
+## B 반영 현황(2026-09-04) — #120 스키마 변경 없이 트랜잭션 병합으로 해결
+
+위 "완전히 막으려면 구조적으로 무엇이 필요한가" 절은 **claim/handle/recordSuccess 3단계
+분리를 그대로 유지한 채** 고치려 할 때의 결론이었다. 재검토 결과, `handler.handle()`의
+부수 효과가 현재는 `NotificationService.send()`(인앱 DB INSERT뿐, FCM 없음)로 **순수
+DB 쓰기**라는 전제 하에서는, 그 구조 자체를 바꿔 스키마 변경 없이 해결할 수 있다는 게
+드러났다.
+
+**해결 방식**: `ScheduledTaskExecutionStore`에 `executeAndRecordSuccess(handler, claimed,
+taskId, now)`를 신규 추가해 `handler.handle()` 호출과 성공 기록(`markDone`/`markSucceeded`)을
+**하나의 `REQUIRES_NEW` 트랜잭션**으로 묶었다(`ScheduledTaskExecutor`는 이 메서드 하나만
+호출하도록 단순화). `handler.handle()`이 호출하는 도메인 서비스(`checkAndNotifyTimeout`
+등)는 기본 전파(`REQUIRED`)라 이 트랜잭션에 참여할 뿐 독립적으로 커밋하지 않으므로, 그
+안에서 저장한 알림도 이 메서드가 끝까지 정상 반환해 커밋될 때만 함께 확정된다. 성공 기록
+단계에서 예외가 나면(또는 handler 자신이 예외를 던지면) 트랜잭션 전체가 롤백돼 알림 저장도
+함께 취소되므로, "알림은 이미 나갔는데 기록만 실패해 다음 틱에 중복 발송"되는 중간 상태
+자체가 생기지 않는다.
+
+**검증**: `ScheduledTaskExecutorTest.recordsFailureWhenRecordingSucceedsAfterHandleThrows`
+(성공 기록 단계 실패가 handler 실패와 동일하게 재시도 대상으로 분류되는지),
+`ScheduledTaskExecutionStoreTest.ExecuteAndRecordSuccess`(분기 로직 단위 검증),
+`ScheduledTaskExecutorIntegrationTest.rollsBackHandlerSideEffectWhenExecutionFailsAfterSideEffect`
+(실제 `@Transactional(REQUIRED)` 참여 호출로 남긴 부수 효과 행이 실패 시 실제로 롤백되는지
+실 DB로 확인)로 검증했다. `./gradlew build` 전체(테스트+체크스타일 포함) 통과 확인.
+
+**남는 전제**: 이 보장은 handler의 부수 효과가 이 물리 트랜잭션 안에서 끝나는 DB 쓰기일
+때만 유효하다. 알림 도메인에 FCM 푸시(외부 API 호출)가 추가되면 그 호출은 트랜잭션
+롤백으로 되돌릴 수 없으므로, 그 시점에는 이 방식만으론 부족해지고 원래 검토했던 attempt
+식별자(#120 스키마 변경) 방식이 다시 필요해진다 — 그때 재검토.
