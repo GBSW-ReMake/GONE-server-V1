@@ -224,22 +224,27 @@ class ScheduledTaskExecutorTest {
     }
 
     @Test
-    @DisplayName("recordSuccess 기록이 실패해도 handler 실패로 오인해 재시도 이력을 남기지 않는다")
-    void doesNotRecordFailureWhenRecordSuccessThrows() {
-      // 첫 findById 호출(claim 내부)은 정상 반환하고, 두 번째 호출(recordSuccess 내부)만
-      // 실패하는 상황을 재현한다 — handler.handle()은 이미 성공했으므로 recordFailure로
-      // 잘못 기록되면 다음 틱에 handler가 다시 실행돼 알림이 중복 발송된다(#99 코드 리뷰
-      // 지적).
+    @DisplayName("handler 성공 직후 결과 기록만 실패해도 handler 실패와 동일하게 재시도 "
+        + "대상으로 기록한다(#99 CodeRabbit 지적 B — 트랜잭션 병합으로 재발 방지)")
+    void recordsFailureWhenRecordingSucceedsAfterHandleThrows() {
+      // 첫 findById 호출(claim 내부)은 정상 반환하고, 두 번째 호출(executeAndRecordSuccess
+      // 내부, handler.handle() 이후)이 실패하는 상황을 재현한다. 세 번째 호출(recordFailure
+      // 내부)은 정상 반환하게 해 "기록 실패가 handler 실패와 똑같이 분류되어 정상적으로
+      // 재시도 예약된다"는 것만 이 단위 테스트 레벨에서 검증한다 — 실제로 handler의 부수
+      // 효과(알림 저장)까지 롤백되는지는 실 트랜잭션이 필요해
+      // ScheduledTaskExecutorIntegrationTest가 검증한다.
       ScheduledTask task = task(Duration.ofMinutes(1), null);
       given(scheduledTaskRepository.findById(TASK_ID))
           .willReturn(Optional.of(task))
-          .willThrow(new IllegalStateException("db down"));
+          .willThrow(new IllegalStateException("db down"))
+          .willReturn(Optional.of(task));
       given(handler.handle(REFERENCE_ID)).willReturn(true);
 
       executor.execute(TASK_ID, NOW);
 
       assertThat(task.getStatus()).isEqualTo(ScheduledTaskStatus.PENDING);
-      assertThat(task.getFailureCount()).isEqualTo(0);
+      assertThat(task.getFailureCount()).isEqualTo(1);
+      assertThat(task.getLastError()).isEqualTo("db down");
     }
   }
 }

@@ -1,6 +1,7 @@
 package com.remake.gone.common.schedule.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -91,38 +92,72 @@ class ScheduledTaskExecutionStoreTest {
   }
 
   @Nested
-  @DisplayName("recordSuccess")
-  class RecordSuccess {
+  @DisplayName("executeAndRecordSuccess")
+  class ExecuteAndRecordSuccess {
+
+    private final ScheduledTaskExecutionStore.ClaimedTask claimed =
+        new ScheduledTaskExecutionStore.ClaimedTask(TASK_TYPE, REFERENCE_ID, false);
+    private final ScheduledTaskExecutionStore.ClaimedTask oneShotClaimed =
+        new ScheduledTaskExecutionStore.ClaimedTask(TASK_TYPE, REFERENCE_ID, true);
 
     @Test
-    @DisplayName("done=true면 DONE 처리한다")
-    void marksDoneWhenDone() {
+    @DisplayName("handler가 true를 반환하면 DONE 처리한다")
+    void marksDoneWhenHandlerReturnsTrue() {
       ScheduledTask task = task(Duration.ofMinutes(1), null);
       given(scheduledTaskRepository.findById(TASK_ID)).willReturn(Optional.of(task));
+      ScheduledTaskHandler handler = referenceId -> true;
 
-      executionStore.recordSuccess(TASK_ID, NOW, true);
+      executionStore.executeAndRecordSuccess(handler, claimed, TASK_ID, NOW);
 
       assertThat(task.getStatus()).isEqualTo(ScheduledTaskStatus.DONE);
     }
 
     @Test
-    @DisplayName("done=false면 다음 실행을 예약한다")
-    void reschedulesWhenNotDone() {
+    @DisplayName("handler가 false를 반환하고 1회성이 아니면 다음 실행을 예약한다")
+    void reschedulesWhenNotDoneAndNotOneShot() {
       ScheduledTask task = task(Duration.ofMinutes(1), null);
       given(scheduledTaskRepository.findById(TASK_ID)).willReturn(Optional.of(task));
+      ScheduledTaskHandler handler = referenceId -> false;
 
-      executionStore.recordSuccess(TASK_ID, NOW, false);
+      executionStore.executeAndRecordSuccess(handler, claimed, TASK_ID, NOW);
 
       assertThat(task.getStatus()).isEqualTo(ScheduledTaskStatus.PENDING);
       assertThat(task.getNextAttemptAt()).isEqualTo(NOW.plusMinutes(1));
     }
 
     @Test
+    @DisplayName("1회성 작업이면 handler가 false를 반환해도 DONE 처리한다")
+    void marksDoneForOneShotEvenWhenHandlerReturnsFalse() {
+      ScheduledTask task = task(null, null);
+      given(scheduledTaskRepository.findById(TASK_ID)).willReturn(Optional.of(task));
+      ScheduledTaskHandler handler = referenceId -> false;
+
+      executionStore.executeAndRecordSuccess(handler, oneShotClaimed, TASK_ID, NOW);
+
+      assertThat(task.getStatus()).isEqualTo(ScheduledTaskStatus.DONE);
+    }
+
+    @Test
+    @DisplayName("handler가 예외를 던지면 기록을 건드리지 않고 그대로 전파한다")
+    void propagatesHandlerExceptionWithoutRecording() {
+      ScheduledTaskHandler handler = referenceId -> {
+        throw new IllegalStateException("boom");
+      };
+
+      assertThatThrownBy(
+              () -> executionStore.executeAndRecordSuccess(handler, claimed, TASK_ID, NOW))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessage("boom");
+      verify(scheduledTaskRepository, never()).findById(any());
+    }
+
+    @Test
     @DisplayName("그 사이 task가 사라졌으면 조용히 아무것도 하지 않는다")
     void doesNothingWhenTaskGone() {
       given(scheduledTaskRepository.findById(TASK_ID)).willReturn(Optional.empty());
+      ScheduledTaskHandler handler = referenceId -> true;
 
-      executionStore.recordSuccess(TASK_ID, NOW, true);
+      executionStore.executeAndRecordSuccess(handler, claimed, TASK_ID, NOW);
       // 예외 없이 끝나면 충분하다 — 별도 assertion 대상이 없다.
     }
   }
