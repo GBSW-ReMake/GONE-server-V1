@@ -2,6 +2,8 @@ package com.remake.gone.outing.service;
 
 import com.remake.gone.common.exception.CommonErrorCode;
 import com.remake.gone.common.exception.CustomException;
+import com.remake.gone.common.redis.RedisKeyType;
+import com.remake.gone.common.redis.RedisRepository;
 import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.common.schedule.service.ScheduledTaskService;
 import com.remake.gone.file.service.R2FileService;
@@ -45,8 +47,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -57,6 +57,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * 외출증 신청 비즈니스 로직을 처리하는 서비스.
@@ -87,9 +89,6 @@ public class OutingService {
   // "아직 결정 안 된 것" 참고).
   private static final Duration TIMEOUT_REMINDER_INTERVAL = Duration.ofMinutes(5);
   private static final Duration TIMEOUT_REMINDER_CAP = Duration.ofHours(3);
-  // 위치 기반 복귀 리마인더(#99) 스로틀 간격 — 재발송 간격과 값은 같지만 서로 다른 감지
-  // 경로(시간 초과 vs 위치 핑)라 별도 상수로 분리해뒀다.
-  private static final Duration LOCATION_REMINDER_INTERVAL = Duration.ofMinutes(5);
 
   // getMyRequests/getReceivedOutings 조회 정렬 기준(#41 도입, #96에서 DB 페이지네이션으로
   // 전환하며 id를 보조 정렬 키로 추가) — outingDate/startTime이 같은 두 건이 존재할 수 있어
@@ -117,12 +116,7 @@ public class OutingService {
   private final OutingProperties outingProperties;
   private final NotificationService notificationService;
   private final ScheduledTaskService scheduledTaskService;
-
-  // 위치 기반 복귀 리마인더(#99) 마지막 발송 시각 스로틀. outingId별로 관리하며, 서버
-  // 재시작으로 초기화돼도 문제없다 — 최악의 경우 재시작 직후 핑 한 번에 대해 스로틀이
-  // 리셋되어 알림이 한 번 더 갈 뿐이다(#99 기획서 참고).
-  private final ConcurrentMap<Long, LocalDateTime> lastLocationReminderAt =
-      new ConcurrentHashMap<>();
+  private final RedisRepository redisRepository;
 
   /**
    * 학생이 정해진 시간대(프리셋) 또는 직접 입력한 시간대(커스텀)에 외출증을 신청한다.
@@ -454,9 +448,11 @@ public class OutingService {
 
     // 복귀 리마인더(#99) 취소 — outing 상태 변경과 같은 트랜잭션에서 원자적으로 처리된다.
     scheduledTaskService.cancel(OUTING_TIMEOUT_TASK_TYPE, outing.getId());
-    // 위치 기반 리마인더(#99) 스로틀 정리 — 더 이상 필요 없는 항목을 남겨두면 메모리가
-    // 계속 늘어난다.
-    lastLocationReminderAt.remove(outing.getId());
+    // 위치 기반 리마인더(#99) 쿨다운 정리 — TTL(5분)이 지나면 어차피 자동으로 사라지지만,
+    // 도착 즉시 정리해두면 그 전에 재출발하는 예외적인 경우에도 이전 쿨다운이 새 감시를
+    // 방해하지 않는다.
+    redisRepository.delete(
+        RedisKeyType.OUTING_LOCATION_REMINDER_COOLDOWN, outing.getId().toString());
 
     return toResponse(
         outing, outing.getStudent(), outing.getTeacher(), now.toLocalDate(), now.toLocalTime());
@@ -486,10 +482,12 @@ public class OutingService {
   public TimeoutCheckResult checkAndNotifyTimeout(Long outingId, LocalDateTime now) {
     Optional<Outing> found = outingRepository.findById(outingId);
     if (found.isEmpty() || found.get().getStatus() != OutingStatus.DEPARTED) {
-      // 더 이상 감시할 필요가 없어진 시점 — 위치 기반 리마인더 스로틀 항목도 같이
-      // 정리한다. returnOuting()이 아닌 경로(예: 이미 사라진 outing)로 감시가 끝나도
-      // 이 맵에 항목이 영구히 남지 않게 한다(#99 코드 리뷰 지적).
-      lastLocationReminderAt.remove(outingId);
+      // 더 이상 감시할 필요가 없어진 시점 — 위치 기반 리마인더 쿨다운도 같이 정리한다.
+      // returnOuting()이 아닌 경로(예: 이미 사라진 outing)로 감시가 끝나도 즉시 정리되게
+      // 한다(#99 코드 리뷰 지적) — TTL(5분)이 지나면 어차피 자동 정리되지만, cap을 넘겨
+      // 이 메서드 자체가 더 이상 호출되지 않는 outing에 대해서는 이 호출도 일어나지
+      // 않으므로 TTL이 최종 안전망 역할을 한다(#99 CodeRabbit 지적 C).
+      redisRepository.delete(RedisKeyType.OUTING_LOCATION_REMINDER_COOLDOWN, outingId.toString());
       return TimeoutCheckResult.RETURNED_OR_MISSING;
     }
     Outing outing = found.get();
@@ -549,20 +547,31 @@ public class OutingService {
         request.latitude(), request.longitude(),
         outingProperties.schoolLatitude(), outingProperties.schoolLongitude());
     if (distance <= outingProperties.schoolRadiusMeters()) {
-      // get-then-put이 아니라 compute로 판단+갱신을 한 번에 묶어야 한다 — 같은
-      // outingId에 대한 동시 핑 두 건이 서로 상대의 put을 못 본 채 둘 다 스로틀을
-      // 통과하는 경합을 없앤다(#99 코드 리뷰 지적). compute 람다는 부수 효과 없이
-      // 순수해야 하므로, 알림 발송 여부만 계산하고 실제 발송은 람다 밖에서 한다.
-      boolean[] shouldNotify = {false};
-      lastLocationReminderAt.compute(outing.getId(), (id, lastSent) -> {
-        if (lastSent == null
-            || Duration.between(lastSent, now).compareTo(LOCATION_REMINDER_INTERVAL) >= 0) {
-          shouldNotify[0] = true;
-          return now;
+      // Redis SETNX(saveIfAbsent)는 원자적 연산이라 같은 outingId에 대한 동시 핑 두 건이
+      // 서로의 쓰기를 못 본 채 둘 다 쿨다운을 통과하는 경합이 없다(#99 코드 리뷰 지적,
+      // 인메모리 ConcurrentHashMap.compute()를 Redis TTL 쿨다운으로 대체 — 자세한 이유는
+      // RedisKeyType.OUTING_LOCATION_REMINDER_COOLDOWN 참고, #99 CodeRabbit 지적 C 대응).
+      String cooldownKey = outing.getId().toString();
+      if (redisRepository.saveIfAbsent(
+          RedisKeyType.OUTING_LOCATION_REMINDER_COOLDOWN, cooldownKey)) {
+        // 이 메서드는 @Transactional이라 알림 저장이 실제로 커밋될지는 이 시점에 알 수
+        // 없다 — 쿨다운 키는 이미 저장됐는데 트랜잭션이 롤백되면(알림은 안 나갔는데) 다음
+        // 5분간 정상 핑까지 조용히 억제된다(#99 CodeRabbit 지적 D). 롤백된 경우에만
+        // 쿨다운을 되돌려, 커밋 성공 시의 정상 쿨다운 동작과 구분한다. isSynchronizationActive
+        // 가드는 트랜잭션 프록시 없이 이 메서드를 직접 호출하는 단위 테스트를 위한 것 —
+        // 실제 호출 경로(컨트롤러 → @Transactional 프록시)에서는 항상 true다.
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+          TransactionSynchronizationManager.registerSynchronization(
+              new TransactionSynchronization() {
+                @Override
+                public void afterCompletion(int status) {
+                  if (status == TransactionSynchronization.STATUS_ROLLED_BACK) {
+                    redisRepository.delete(
+                        RedisKeyType.OUTING_LOCATION_REMINDER_COOLDOWN, cooldownKey);
+                  }
+                }
+              });
         }
-        return lastSent;
-      });
-      if (shouldNotify[0]) {
         notificationService.send(studentUserId,
             "도착 확인이 필요해요",
             "학교 반경 안에 계신 것 같아요. '도착' 버튼을 눌러주세요.",

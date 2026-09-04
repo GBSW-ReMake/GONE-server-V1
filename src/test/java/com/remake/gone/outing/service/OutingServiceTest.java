@@ -11,6 +11,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.remake.gone.common.exception.CustomException;
+import com.remake.gone.common.redis.RedisKeyType;
+import com.remake.gone.common.redis.RedisRepository;
 import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.common.schedule.service.ScheduledTaskService;
 import com.remake.gone.file.service.R2FileService;
@@ -95,6 +97,9 @@ class OutingServiceTest {
 
   @Mock
   private ScheduledTaskService scheduledTaskService;
+
+  @Mock
+  private RedisRepository redisRepository;
 
   @InjectMocks
   private OutingService outingService;
@@ -1833,6 +1838,17 @@ class OutingServiceTest {
       given(outingProperties.schoolRadiusMeters()).willReturn(200);
     }
 
+    /**
+     * 쿨다운이 걸려 있지 않은 상태(Redis에 키가 없는 상태)를 재현한다 — 실제로는
+     * {@code saveIfAbsent}가 원자적 SETNX+TTL이라 저장과 동시에 "아직 쿨다운 없었음"을
+     * 알려주지만, mock에서는 그 저장 자체를 검증하지 않고 반환값만 재현한다(#99 CodeRabbit
+     * 지적 C — ConcurrentHashMap을 Redis TTL 쿨다운으로 대체).
+     */
+    private void givenCooldownAvailable() {
+      given(redisRepository.saveIfAbsent(
+          eq(RedisKeyType.OUTING_LOCATION_REMINDER_COOLDOWN), any())).willReturn(true);
+    }
+
     private Outing departedOuting() {
       return Outing.builder()
           .id(500L)
@@ -1931,6 +1947,7 @@ class OutingServiceTest {
       Outing outing = departedOuting();
       given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
       givenSchoolPropertiesOk();
+      givenCooldownAvailable();
 
       outingService.recordLocationPing(
           STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
@@ -1938,6 +1955,8 @@ class OutingServiceTest {
 
       verify(notificationService).send(
           eq(STUDENT_ID), any(), any(), eq(NotificationType.OUTING));
+      verify(redisRepository).saveIfAbsent(
+          RedisKeyType.OUTING_LOCATION_REMINDER_COOLDOWN, outing.getId().toString());
     }
 
     @Test
@@ -1956,68 +1975,38 @@ class OutingServiceTest {
     }
 
     @Test
-    @DisplayName("스로틀 간격(5분) 안에 반경 안에서 다시 핑을 보내면 알림을 또 보내지 않는다")
-    void doesNotResendNotificationWithinThrottleInterval() {
+    @DisplayName("쿨다운이 걸려 있으면(Redis 키가 이미 있으면) 알림을 보내지 않는다")
+    void doesNotNotifyWhenCooldownIsActive() {
+      // 실제 쿨다운 간격(5분) 자체는 RedisKeyType.OUTING_LOCATION_REMINDER_COOLDOWN의
+      // TTL(#99 CodeRabbit 지적 C)이 보장한다 — 그 TTL 만료 여부는 단위 테스트로 재현할
+      // 방법이 없으므로(실 Redis 필요), 여기서는 서비스가 saveIfAbsent의 반환값(쿨다운
+      // 상태)을 올바르게 알림 발송 여부로 반영하는지만 검증한다.
       Outing outing = departedOuting();
       given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
       givenSchoolPropertiesOk();
-      LocalDateTime firstPingAt = LocalDateTime.of(2026, 8, 10, 13, 0, 0);
-      LocalDateTime secondPingAt = firstPingAt.plusMinutes(4);
+      given(redisRepository.saveIfAbsent(
+          eq(RedisKeyType.OUTING_LOCATION_REMINDER_COOLDOWN), any())).willReturn(false);
 
       outingService.recordLocationPing(
           STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
-          firstPingAt);
-      outingService.recordLocationPing(
-          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
-          secondPingAt);
+          LocalDateTime.of(2026, 8, 10, 13, 0));
 
-      verify(notificationService, times(1)).send(
-          eq(STUDENT_ID), any(), any(), eq(NotificationType.OUTING));
+      verify(notificationService, times(0)).send(any(), any(), any(), any());
     }
 
     @Test
-    @DisplayName("checkAndNotifyTimeout이 RETURNED_OR_MISSING을 반환하면 스로틀 항목이 정리돼 "
-        + "스로틀 간격 안에서도 다음 핑에서 다시 알림을 보낸다")
-    void resendsNotificationAfterThrottleEntryClearedByTimeoutCheck() {
+    @DisplayName("checkAndNotifyTimeout이 RETURNED_OR_MISSING을 반환하면 쿨다운을 정리한다")
+    void clearsCooldownWhenTimeoutCheckReturnsReturnedOrMissing() {
       Outing outing = departedOuting();
-      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
-      // outing이 이미 사라진 것(또는 다른 경로로 종료된 것)으로 감지되는 상황을
-      // 재현한다 — checkAndNotifyTimeout이 이 시점에 스로틀 맵 항목도 함께 정리한다.
+      // outing이 이미 사라진 것(또는 다른 경로로 종료된 것)으로 감지되는 상황을 재현한다 —
+      // checkAndNotifyTimeout이 이 시점에 위치 기반 리마인더 쿨다운도 함께 정리해야 한다
+      // (#99 코드 리뷰 지적, #99 CodeRabbit 지적 C로 Redis TTL 쿨다운으로 대체).
       given(outingRepository.findById(outing.getId())).willReturn(Optional.empty());
-      givenSchoolPropertiesOk();
-      LocalDateTime firstPingAt = LocalDateTime.of(2026, 8, 10, 13, 0, 0);
-      LocalDateTime secondPingAt = firstPingAt.plusMinutes(1); // 스로틀 간격(5분) 안
 
-      outingService.recordLocationPing(
-          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
-          firstPingAt);
-      outingService.checkAndNotifyTimeout(outing.getId(), firstPingAt.plusSeconds(30));
-      outingService.recordLocationPing(
-          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
-          secondPingAt);
+      outingService.checkAndNotifyTimeout(outing.getId(), LocalDateTime.of(2026, 8, 10, 13, 0));
 
-      verify(notificationService, times(2)).send(
-          eq(STUDENT_ID), any(), any(), eq(NotificationType.OUTING));
-    }
-
-    @Test
-    @DisplayName("스로틀 간격(5분)이 지난 후 반경 안에서 다시 핑을 보내면 알림을 또 보낸다")
-    void resendsNotificationAfterThrottleInterval() {
-      Outing outing = departedOuting();
-      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
-      givenSchoolPropertiesOk();
-      LocalDateTime firstPingAt = LocalDateTime.of(2026, 8, 10, 13, 0, 0);
-      LocalDateTime secondPingAt = firstPingAt.plusMinutes(5);
-
-      outingService.recordLocationPing(
-          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
-          firstPingAt);
-      outingService.recordLocationPing(
-          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
-          secondPingAt);
-
-      verify(notificationService, times(2)).send(
-          eq(STUDENT_ID), any(), any(), eq(NotificationType.OUTING));
+      verify(redisRepository).delete(
+          RedisKeyType.OUTING_LOCATION_REMINDER_COOLDOWN, outing.getId().toString());
     }
   }
 

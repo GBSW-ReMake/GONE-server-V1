@@ -28,7 +28,16 @@ public enum RedisKeyType {
   MEAL_INFO("neis:meal:", Duration.ofHours(6)),
 
   /** NEIS 시간표 캐시 키. identifier: {@code grade:classNo:날짜}, value: 시간표 응답, TTL 6시간. */
-  TIMETABLE("neis:timetable:", Duration.ofHours(6));
+  TIMETABLE("neis:timetable:", Duration.ofHours(6)),
+
+  /**
+   * 위치 기반 복귀 리마인더(#99) 재발송 쿨다운 키. identifier: outingId, value 없이 존재
+   * 여부만 사용, TTL 5분(재발송 간격). {@code ConcurrentHashMap}을 인메모리로 직접 관리하던
+   * 이전 방식은 outing이 타임아웃 cap을 넘겨 handler 호출 자체가 끊기면 정리될 기회가 없어
+   * 항목이 영구히 남았다(#99 CodeRabbit 지적 C) — TTL로 어떤 경로로 감시가 끝나든 자동
+   * 정리되게 한다.
+   */
+  OUTING_LOCATION_REMINDER_COOLDOWN("outing:location-reminder:", Duration.ofMinutes(5));
 
   private final String prefix;
   private final Duration ttl;
