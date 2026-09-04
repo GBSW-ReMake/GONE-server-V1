@@ -282,8 +282,32 @@ cap을 넘기고도 위치 핑을 계속 보내는 학생이 있으면 스로틀
 | B | recordSuccess 실패 시 중복 발송 | **아니오(재검토 결과)** | 트랜잭션 병합으로 해결 완료 — 아래 참고 |
 | C | cap 만료 시 스로틀 맵 미정리 | 아니오(Redis TTL 재사용으로 해결) | **해결 완료 — 아래 참고** |
 | D | 스로틀 맵 갱신-알림 저장 트랜잭션 불일치 | 아니오 | **해결 완료 — 아래 참고** |
+| E | checkAndNotifyTimeout/returnOuting 경합(2026-09-04 재스캔, 신규) | 아니오 | **해결 완료 — 아래 참고** |
 
-A/B/C/D 전부 해결 완료.
+A/B/C/D/E 전부 해결 완료.
+
+## E 반영 현황(2026-09-04) — 비관적 쓰기 락으로 직렬화
+
+**문제**: `checkAndNotifyTimeout()`과 `returnOuting()`이 거의 동시에 같은 outing을 처리하면,
+`checkAndNotifyTimeout()`이 잠금 없는 `findById`로 읽은 (아직 `DEPARTED`인) 스냅샷을 근거로
+알림을 보내는 사이 `returnOuting()`이 `RETURNED`로 바꾸고 커밋해버릴 수 있었다. `Outing`의
+`@Version`은 `checkAndNotifyTimeout()`이 Outing을 갱신하지 않아(읽기만 함) 이 경합을 감지
+못한다.
+
+**해결**: `UserRepository.findByIdForUpdate`(#29, 외출증 신청 겹침 검사에 쓰던 기존
+패턴)와 동일한 방식으로 `OutingRepository`에 `findByIdForUpdate`/`findByCodeForUpdate`
+(둘 다 `@Lock(PESSIMISTIC_WRITE)`)를 추가했다. `checkAndNotifyTimeout()`은
+`findByIdForUpdate`로, `returnOuting()`은 `findByCodeForUpdate`로 조회를 바꿔, 두 메서드가
+같은 outing 행을 두고 경합하면 뒤에 들어온 트랜잭션이 앞선 트랜잭션의 커밋을 기다리게
+했다 — 어느 쪽이 먼저 락을 잡든, 나머지 하나는 항상 최신 상태를 보고 진행한다.
+
+**검증**: `OutingTimeoutReturnRaceIntegrationTest`(신규)로 이 잠금 메커니즘 자체를 실 DB로
+검증했다 — 한 트랜잭션이 `findByIdForUpdate`로 락을 잡고 있는 동안 다른 트랜잭션의
+`findByCodeForUpdate`가 실제로 블록됐다가 앞 트랜잭션 커밋 후에야 진행되는지 이벤트 순서로
+확인한다. 서비스 메서드 두 개를 직접 동시 호출하는 방식은 두 트랜잭션이 정확히 겹치는
+순간을 결정론적으로 재현할 수 없어(스레드 스케줄링 의존) 채택하지 않았다 — 두 메서드가
+공유하는 잠금 메커니즘 자체를 검증하는 것으로 충분하다고 판단했다. `./gradlew build`
+전체(테스트+체크스타일 포함) 통과 확인.
 
 ## B 반영 현황(2026-09-04) — #120 스키마 변경 없이 트랜잭션 병합으로 해결
 
