@@ -119,6 +119,7 @@ class OutingTimeoutReturnRaceIntegrationTest {
 
     List<String> events = Collections.synchronizedList(new ArrayList<>());
     CountDownLatch lockAcquired = new CountDownLatch(1);
+    CountDownLatch aboutToQuery = new CountDownLatch(1);
     CountDownLatch releaseLock = new CountDownLatch(1);
     TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
     ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -139,15 +140,23 @@ class OutingTimeoutReturnRaceIntegrationTest {
 
     lockAcquired.await(5, TimeUnit.SECONDS);
     // 스레드 B: returnOuting()이 하는 것처럼 findByCodeForUpdate로 같은 행을 조회한다 —
-    // A가 커밋하기 전까지는 DB가 이 SELECT ... FOR UPDATE를 블록해야 한다.
+    // A가 커밋하기 전까지는 DB가 이 SELECT ... FOR UPDATE를 블록해야 한다. aboutToQuery는
+    // 쿼리 호출 "직전"에 내려, 이 스레드가 실제로 요청을 보내기 시작했다는 걸 메인
+    // 스레드가 확인할 수 있게 한다 — CI 부하로 이 스레드 자체가 늦게 스케줄되는 경우와,
+    // "요청은 보냈지만 아직 실행 중"인 경우를 구분하기 위함이다(CodeRabbit 지적: 고정
+    // sleep만으로는 이 스레드가 아예 시작도 못 한 상태에서 통과할 수 있었다).
     Future<?> waiter = executor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+      aboutToQuery.countDown();
       outingRepository.findByCodeForUpdate(outing.getCode());
       events.add("B-locked");
     }));
 
-    // B가 실제로 DB에 도달해 블록 상태에 들어갈 시간을 준다 — 이 시점까지 B는 아직
-    // 진행하지 못했어야 한다(그렇지 않다면 락이 걸리지 않았다는 뜻).
-    Thread.sleep(800);
+    aboutToQuery.await(5, TimeUnit.SECONDS);
+    // 요청이 실제로 DB에 도달해 대기 상태로 들어갈 시간을 짧게 준 뒤, B가 "아직 끝나지
+    // 않았다"는 것 자체를 단언한다 — 락이 걸리지 않으면 이 조회는 거의 즉시 끝나므로,
+    // 이 단언이 이 테스트에서 락이 실제로 걸렸는지를 검증하는 핵심 지점이다.
+    Thread.sleep(300);
+    assertThat(waiter.isDone()).as("findByCodeForUpdate가 아직 락 대기 중이어야 한다").isFalse();
     events.add("checkpoint");
     releaseLock.countDown();
 
