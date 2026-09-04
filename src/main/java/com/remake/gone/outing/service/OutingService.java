@@ -431,7 +431,10 @@ public class OutingService {
   @Transactional
   public OutingResponse returnOuting(
       Long studentUserId, String code, OutingLocationRequest request, LocalDateTime now) {
-    Outing outing = outingRepository.findByCode(code)
+    // 비관적 쓰기 락으로 조회한다 — checkAndNotifyTimeout()과 거의 동시에 실행되면, 이
+    // 트랜잭션이 끝날 때까지 그쪽이 기다리게 해 "이미 복귀했는데 미복귀 알림이 나가는" 경합을
+    // 막는다(#99 CodeRabbit 지적 E).
+    Outing outing = outingRepository.findByCodeForUpdate(code)
         .orElseThrow(() -> new CustomException(OutingErrorCode.OUTING_NOT_FOUND));
     validateOwnership(studentUserId, outing);
     validateOperatingHours(now.toLocalTime());
@@ -480,7 +483,11 @@ public class OutingService {
    */
   @Transactional
   public TimeoutCheckResult checkAndNotifyTimeout(Long outingId, LocalDateTime now) {
-    Optional<Outing> found = outingRepository.findById(outingId);
+    // 비관적 쓰기 락으로 조회한다 — returnOuting()과 거의 동시에 실행되면, 이 트랜잭션이
+    // 끝날 때까지 그쪽이 기다리게 해 "이미 복귀했는데 이 메서드가 낡은 스냅샷으로 미복귀
+    // 알림을 보내는" 경합을 막는다(#99 CodeRabbit 지적 E) — Outing에 @Version이 있어도
+    // 이 메서드는 Outing을 갱신하지 않아 낙관적 락으로는 이 경합이 감지되지 않는다.
+    Optional<Outing> found = outingRepository.findByIdForUpdate(outingId);
     if (found.isEmpty() || found.get().getStatus() != OutingStatus.DEPARTED) {
       // 더 이상 감시할 필요가 없어진 시점 — 위치 기반 리마인더 쿨다운도 같이 정리한다.
       // returnOuting()이 아닌 경로(예: 이미 사라진 outing)로 감시가 끝나도 즉시 정리되게
