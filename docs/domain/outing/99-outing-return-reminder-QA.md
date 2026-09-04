@@ -60,6 +60,16 @@ DB가 빈 상태였어서(이전 QA 데이터 없음) 계정을 직접 준비했
    제약). 코드 리뷰 시점에 `ConcurrentHashMap.compute(...)`로의 전환 자체는 코드로
    확인했고, 회귀 여부는 위 케이스 6/7(순차 호출)로 기존 동작이 깨지지 않았음을 확인했다.
 
+### 반영(2026-09-04) — CodeRabbit 지적 A(PR #130) 대응
+위 4번의 한계(순차 curl 호출로는 동시 경합을 재현 못 함)는 CodeRabbit 자동 리뷰(PR #130)에서
+같은 지적(A)으로 다시 나왔다. 이후 스로틀 자료구조 자체가 `ConcurrentHashMap.compute(...)`
+에서 Redis `saveIfAbsent`(원자적 SETNX+TTL)로 바뀌면서(#99 CodeRabbit 지적 C/D 대응),
+`OutingLocationReminderConcurrencyIntegrationTest`(신규)를 추가해 실 DB + 실 Redis로 진짜
+동시 요청 20건을 같은 외출증에 보내 도착 확인 알림이 정확히 1건만 저장되는지 검증했다 —
+`onlyOneNotificationSentWhenConcurrentPingsWithinSchoolRadius` 테스트로 통과 확인.
+curl 기반 수동 QA로는 여전히 불가능한 검증이라 자동화 통합 테스트로 대체했다(위 4번과 같은
+판단 근거).
+
 ## 2. 결론
 
 Critical/High 없음. 계획된 8개 케이스(scheduled_task 등록/타임아웃 리마인더 최초 발동/

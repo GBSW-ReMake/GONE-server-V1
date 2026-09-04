@@ -278,12 +278,12 @@ cap을 넘기고도 위치 핑을 계속 보내는 학생이 있으면 스로틀
 ### 정리
 | # | 항목 | #120 변경 필요? | 처리 방향 |
 |---|---|---|---|
-| A | QA 문서 동시성 테스트 보강 | 아니오 | 미반영 — QA 재실행 시 반영 |
+| A | QA 문서 동시성 테스트 보강 | 아니오 | **해결 완료 — 아래 참고** |
 | B | recordSuccess 실패 시 중복 발송 | **아니오(재검토 결과)** | 트랜잭션 병합으로 해결 완료 — 아래 참고 |
 | C | cap 만료 시 스로틀 맵 미정리 | 아니오(Redis TTL 재사용으로 해결) | **해결 완료 — 아래 참고** |
 | D | 스로틀 맵 갱신-알림 저장 트랜잭션 불일치 | 아니오 | **해결 완료 — 아래 참고** |
 
-A는 아직 미반영(QA 문서 보강 항목이라 다음 QA 재실행 때 처리).
+A/B/C/D 전부 해결 완료.
 
 ## B 반영 현황(2026-09-04) — #120 스키마 변경 없이 트랜잭션 병합으로 해결
 
@@ -345,3 +345,17 @@ SETNX+TTL) 패턴으로 교체했다.
 테스트로 재현할 수 없어(실 Redis 필요) `PHONE_SEND_COOLDOWN`과 동일한 기존 컨벤션대로
 단위 테스트 범위를 "서비스가 `saveIfAbsent`/`delete` 반환값·호출을 올바르게 반영하는지"로
 좁혔다. `./gradlew build` 전체(테스트+체크스타일 포함) 통과 확인.
+
+## A 반영 현황(2026-09-04) — 실 Redis 동시성 통합 테스트로 해결
+
+C/D를 고치며 스로틀 자료구조가 `ConcurrentHashMap.compute(...)`에서 Redis
+`saveIfAbsent`(원자적 SETNX+TTL)로 바뀌었으므로, A가 원래 지적한 "QA 문서 케이스 6/7이
+순차 호출이라 경합 구간을 검증 못 함" 문제도 이 시점에 같이 닫을 수 있었다.
+`OutingLocationReminderConcurrencyIntegrationTest`(신규,
+`SchoolCampSessionClaimServiceIntegrationTest`와 동일한 `ExecutorService`+
+`CountDownLatch` 패턴)를 추가해 실 DB + 실 Redis로 같은 외출증에 동시 요청 20건을 보내고
+`notificationRepository.findByUserId(...)`로 알림이 정확히 1건만 저장됐는지 확인했다 —
+mock 기반 단위 테스트로는 검증 불가능한 실제 원자성 보장을 실 인프라로 증명한다.
+`OutingServiceTest`의 mock 기반 단위 테스트만으로는 이 경합 자체를 검증할 수 없다는
+한계는 여전하지만(반환값 분기만 검증), 이 통합 테스트가 그 공백을 메운다. QA 문서
+`99-outing-return-reminder-QA.md`에도 반영 내역을 남겼다.
