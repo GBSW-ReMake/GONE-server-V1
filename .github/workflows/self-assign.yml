@@ -1,0 +1,41 @@
+name: Self Assign Issue
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+
+jobs:
+  self-assign:
+    # issue_comment는 이슈/PR 코멘트 모두에서 발생한다. PR 코멘트는 payload에
+    # issue.pull_request가 존재하므로 이 값으로 순수 issue 코멘트만 걸러낸다.
+    if: github.event.issue.pull_request == null && contains(github.event.comment.body, '/assign')
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: 이슈 자동 배정
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const commenter = context.payload.comment.user.login;
+
+            if (issue.assignees && issue.assignees.length > 0) {
+              const names = issue.assignees.map((a) => `@${a.login}`).join(', ');
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `이미 담당자(${names})가 배정되어 있어 자동 배정을 건너뜁니다.`,
+              });
+              return;
+            }
+
+            await github.rest.issues.addAssignees({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              assignees: [commenter],
+            });
