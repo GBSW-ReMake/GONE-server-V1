@@ -1,0 +1,119 @@
+name: Self Assign Issue
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+
+jobs:
+  self-assign:
+    # issue_comment는 이슈/PR 코멘트 모두에서 발생한다. PR 코멘트는 payload에
+    # issue.pull_request가 존재하므로 이 값으로 순수 issue 코멘트만 걸러낸다.
+    if: github.event.issue.pull_request == null && contains(github.event.comment.body, '/assign')
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: 이슈 자동 배정
+        id: assign
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const commenter = context.payload.comment.user.login;
+
+            // 이후 Discord 알림 스텝에서 재사용할 공통 컨텍스트.
+            // github.event.* 값(이슈 제목 등)은 외부 입력이라 run: 스크립트 본문에 직접
+            // 넣지 않고, exportVariable로 안전하게 $GITHUB_ENV에 실어 다음 스텝의
+            // env: 블록으로만 전달한다(#22에서 정한 스크립트 인젝션 방지 규칙과 동일).
+            core.exportVariable('ISSUE_NUMBER', String(issue.number));
+            core.exportVariable('ISSUE_TITLE', issue.title);
+            core.exportVariable('ISSUE_URL', issue.html_url);
+            core.exportVariable('COMMENTER', commenter);
+            core.exportVariable('COMMENT_URL', context.payload.comment.html_url);
+
+            // 같은 이슈에 담당자가 이미 있어도, 이 프로젝트는 이슈 1개에 여러 담당자를
+            // 두는 것을 허용한다. 다만 /assign 자동 배정은 "담당자가 아직 없을 때"만
+            // 동작하고, 이미 있으면 추가로 배정하지 않고 안내 코멘트만 남긴다.
+            if (issue.assignees && issue.assignees.length > 0) {
+              const names = issue.assignees.map((a) => `@${a.login}`).join(', ');
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `이미 담당자(${names})가 배정되어 있어 자동 배정을 건너뜁니다.`,
+              });
+              core.exportVariable('ASSIGN_STATUS', 'skipped');
+              core.exportVariable('EXISTING_ASSIGNEES', names);
+              return;
+            }
+
+            // addAssignees는 실제로 배정 불가능한 사용자(레포 write 권한 없음 등)를 에러 없이
+            // 조용히 무시한다. 응답의 assignees 목록에 commenter가 실제로 포함됐는지 확인해야
+            // 진짜 배정 성공 여부를 알 수 있다.
+            const { data: updated } = await github.rest.issues.addAssignees({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              assignees: [commenter],
+            });
+            const assignedLogins = (updated.assignees || []).map((a) => a.login);
+            core.exportVariable('ASSIGN_STATUS', assignedLogins.includes(commenter) ? 'assigned' : 'failed');
+
+      - name: Discord 알림 (이슈 자동 배정 결과)
+        if: always()
+        # 알림 발송 실패(시크릿 미설정 등)가 위 배정 처리 결과 자체를 실패로 뒤집지 않게 한다.
+        continue-on-error: true
+        env:
+          DISCORD_ISSUE_WEBHOOK: ${{ secrets.DISCORD_ISSUE_WEBHOOK }}
+        run: |
+          case "$ASSIGN_STATUS" in
+            assigned)
+              TITLE="✅ 이슈 자동 배정 완료"
+              COLOR=65280
+              DETAIL_NAME="담당자"
+              DETAIL_VALUE="@${COMMENTER}"
+              ;;
+            skipped)
+              TITLE="ℹ️ 이슈 배정 요청 — 이미 담당자 있음"
+              COLOR=3447003
+              DETAIL_NAME="기존 담당자"
+              DETAIL_VALUE="${EXISTING_ASSIGNEES}"
+              ;;
+            failed)
+              TITLE="⚠️ 이슈 자동 배정 실패 (배정 불가 사용자)"
+              COLOR=16711680
+              DETAIL_NAME="요청자"
+              DETAIL_VALUE="@${COMMENTER} — 레포 write 권한 없음 등으로 GitHub이 배정을 조용히 무시함"
+              ;;
+            *)
+              echo "알 수 없는 ASSIGN_STATUS='$ASSIGN_STATUS', 알림을 건너뜁니다."
+              exit 0
+              ;;
+          esac
+
+          PAYLOAD=$(jq -n \
+            --arg title "$TITLE" \
+            --argjson color "$COLOR" \
+            --arg actor "$COMMENTER" \
+            --arg avatar "https://github.com/$COMMENTER.png" \
+            --arg number "$ISSUE_NUMBER" \
+            --arg issue_title "$ISSUE_TITLE" \
+            --arg issue_url "$ISSUE_URL" \
+            --arg detail_name "$DETAIL_NAME" \
+            --arg detail_value "$DETAIL_VALUE" \
+            --arg comment_url "$COMMENT_URL" \
+            '{embeds: [{
+              title: $title,
+              color: $color,
+              author: {name: $actor, icon_url: $avatar},
+              fields: [
+                {name: "이슈", value: ("[#" + $number + " " + $issue_title + "](" + $issue_url + ")"), inline: false},
+                {name: "요청자", value: ("@" + $actor), inline: true},
+                {name: $detail_name, value: $detail_value, inline: true},
+                {name: "요청 코멘트", value: ("[바로가기](" + $comment_url + ")"), inline: true}
+              ],
+              url: $issue_url
+            }]}')
+          curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_ISSUE_WEBHOOK"
