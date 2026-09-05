@@ -9,11 +9,11 @@ import static org.mockito.Mockito.verify;
 
 import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.common.response.PageResponse;
-import com.remake.gone.common.schedule.ScheduledTask;
-import com.remake.gone.common.schedule.ScheduledTaskRepository;
-import com.remake.gone.common.schedule.ScheduledTaskStatus;
 import com.remake.gone.common.schedule.dto.ScheduledTaskStatsResponse;
+import com.remake.gone.common.schedule.entity.ScheduledTask;
+import com.remake.gone.common.schedule.enums.ScheduledTaskStatus;
 import com.remake.gone.common.schedule.exception.ScheduleErrorCode;
+import com.remake.gone.common.schedule.repository.ScheduledTaskRepository;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;

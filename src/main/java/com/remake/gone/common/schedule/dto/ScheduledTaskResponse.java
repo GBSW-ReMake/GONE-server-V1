@@ -1,7 +1,7 @@
 package com.remake.gone.common.schedule.dto;
 
-import com.remake.gone.common.schedule.ScheduledTask;
-import com.remake.gone.common.schedule.ScheduledTaskStatus;
+import com.remake.gone.common.schedule.entity.ScheduledTask;
+import com.remake.gone.common.schedule.enums.ScheduledTaskStatus;
 import java.time.LocalDateTime;
 
 /**

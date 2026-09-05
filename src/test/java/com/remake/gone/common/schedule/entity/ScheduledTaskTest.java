@@ -1,9 +1,11 @@
-package com.remake.gone.common.schedule;
+package com.remake.gone.common.schedule.entity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.remake.gone.common.schedule.enums.ScheduledTaskStatus;
+import com.remake.gone.common.schedule.service.RetryPolicy;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.DisplayName;
@@ -12,7 +14,7 @@ import org.junit.jupiter.api.Test;
 /**
  * {@link ScheduledTask} 생성 시점의 {@code interval} 검증과 {@code retry()}(#126)에 대한
  * 단위 테스트. 다른 상태 전이(markDone/markSucceeded/markFailed)는
- * {@link ScheduledTaskExecutorTest}가 다룬다.
+ * {@code ScheduledTaskExecutorTest}가 다룬다.
  */
 class ScheduledTaskTest {
 

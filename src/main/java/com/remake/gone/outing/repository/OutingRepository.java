@@ -2,6 +2,7 @@ package com.remake.gone.outing.repository;
 
 import com.remake.gone.outing.entity.Outing;
 import com.remake.gone.outing.enums.OutingStatus;
+import jakarta.persistence.LockModeType;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Collection;
@@ -10,6 +11,7 @@ import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -25,6 +27,33 @@ public interface OutingRepository extends JpaRepository<Outing, Long> {
    * @return 외출증 정보, 없으면 {@link Optional#empty()}
    */
   Optional<Outing> findByCode(String code);
+
+  /**
+   * 코드로 외출증을 비관적 쓰기 락과 함께 조회합니다(#99 CodeRabbit 지적 E 대응). {@code
+   * checkAndNotifyTimeout()}과 {@code returnOuting()}이 거의 동시에 같은 외출증을 처리할 때,
+   * 뒤에 들어온 트랜잭션이 앞선 트랜잭션의 커밋을 기다리게 해 "학생이 이미 복귀했는데 스케줄러가
+   * 낡은 스냅샷으로 미복귀 알림을 보내는" 경합을 막습니다({@code UserRepository
+   * .findByIdForUpdate}와 같은 이유). 호출하는 메서드는 반드시 {@code @Transactional}이어야
+   * 락이 의도한 범위 동안 유지됩니다.
+   *
+   * @param code 락을 걸고 조회할 코드
+   * @return 외출증 정보, 없으면 {@link Optional#empty()}
+   */
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @Query("select o from Outing o where o.code = :code")
+  Optional<Outing> findByCodeForUpdate(@Param("code") String code);
+
+  /**
+   * ID로 외출증을 비관적 쓰기 락과 함께 조회합니다(#99 CodeRabbit 지적 E 대응). {@link
+   * #findByCodeForUpdate}와 같은 목적이며, {@code checkAndNotifyTimeout()}이 코드가 아니라
+   * PK로 조회하기 때문에 별도로 둔다.
+   *
+   * @param id 락을 걸고 조회할 외출증의 내부 PK
+   * @return 외출증 정보, 없으면 {@link Optional#empty()}
+   */
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @Query("select o from Outing o where o.id = :id")
+  Optional<Outing> findByIdForUpdate(@Param("id") Long id);
 
   /**
    * 특정 학생의 특정 날짜에, 주어진 상태들에 해당하는 외출증을 조회합니다. 시간 겹침(중복 신청)
