@@ -51,15 +51,21 @@ jobs:
 
             // addAssignees는 실제로 배정 불가능한 사용자(레포 write 권한 없음 등)를 에러 없이
             // 조용히 무시한다. 응답의 assignees 목록에 commenter가 실제로 포함됐는지 확인해야
-            // 진짜 배정 성공 여부를 알 수 있다.
-            const { data: updated } = await github.rest.issues.addAssignees({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issue.number,
-              assignees: [commenter],
-            });
-            const assignedLogins = (updated.assignees || []).map((a) => a.login);
-            core.exportVariable('ASSIGN_STATUS', assignedLogins.includes(commenter) ? 'assigned' : 'failed');
+            // 진짜 배정 성공 여부를 알 수 있다. API 자체가 실패(네트워크/권한 등)하는 경우도
+            // 그냥 넘어가면 Discord 알림이 조용히 생략되므로, 이 경우도 별도 상태로 잡는다.
+            try {
+              const { data: updated } = await github.rest.issues.addAssignees({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                assignees: [commenter],
+              });
+              const assignedLogins = (updated.assignees || []).map((a) => a.login);
+              core.exportVariable('ASSIGN_STATUS', assignedLogins.includes(commenter) ? 'assigned' : 'failed');
+            } catch (error) {
+              core.exportVariable('ASSIGN_STATUS', 'error');
+              core.exportVariable('ERROR_MESSAGE', error.message || String(error));
+            }
 
       - name: Discord 알림 (이슈 자동 배정 결과)
         if: always()
@@ -86,6 +92,12 @@ jobs:
               COLOR=16711680
               DETAIL_NAME="요청자"
               DETAIL_VALUE="@${COMMENTER} — 레포 write 권한 없음 등으로 GitHub이 배정을 조용히 무시함"
+              ;;
+            error)
+              TITLE="🔥 이슈 자동 배정 처리 중 오류"
+              COLOR=16711680
+              DETAIL_NAME="오류 내용"
+              DETAIL_VALUE="${ERROR_MESSAGE:-알 수 없는 오류}"
               ;;
             *)
               echo "알 수 없는 ASSIGN_STATUS='$ASSIGN_STATUS', 알림을 건너뜁니다."
@@ -116,4 +128,4 @@ jobs:
               ],
               url: $issue_url
             }]}')
-          curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_ISSUE_WEBHOOK"
+          curl --fail --silent --show-error -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_ISSUE_WEBHOOK"
