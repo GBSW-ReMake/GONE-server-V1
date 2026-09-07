@@ -1,4 +1,4 @@
-package com.remake.gone.common.schedule;
+package com.remake.gone.common.schedule.service;
 
 /**
  * {@code common/schedule} 인프라 위에서 실제 도메인 로직을 실행하는 접점. 구현체는

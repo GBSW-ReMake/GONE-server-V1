@@ -19,4 +19,13 @@ public interface UserRoleRepository extends JpaRepository<UserRole, Long> {
    */
   @Query("select ur.role.code from UserRole ur where ur.user.id = :userId")
   List<String> findRoleCodesByUserId(@Param("userId") Long userId);
+
+  /**
+   * 특정 역할 코드를 가진 사용자들의 ID 목록을 조회합니다.
+   *
+   * @param roleCode 조회할 역할 코드(예: {@code "DISCIPLINE"})
+   * @return 해당 역할을 가진 사용자 ID 목록
+   */
+  @Query("select ur.user.id from UserRole ur where ur.role.code = :roleCode")
+  List<Long> findUserIdsByRoleCode(@Param("roleCode") String roleCode);
 }

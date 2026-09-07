@@ -1,4 +1,4 @@
-package com.remake.gone.common.schedule;
+package com.remake.gone.common.schedule.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

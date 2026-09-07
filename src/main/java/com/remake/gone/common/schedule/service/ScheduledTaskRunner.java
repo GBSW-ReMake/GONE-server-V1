@@ -1,5 +1,7 @@
-package com.remake.gone.common.schedule;
+package com.remake.gone.common.schedule.service;
 
+import com.remake.gone.common.schedule.enums.ScheduledTaskStatus;
+import com.remake.gone.common.schedule.repository.ScheduledTaskRepository;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import lombok.RequiredArgsConstructor;
@@ -7,7 +9,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * {@link ScheduledTask} 폴링 루프(도메인 무관). 트리거 역할만 한다 — 조회는
+ * {@code ScheduledTask} 폴링 루프(도메인 무관). 트리거 역할만 한다 — 조회는
  * {@link ScheduledTaskRepository}(Spring Data 기본 읽기전용 트랜잭션), 실제 실행/상태 변경은
  * {@link ScheduledTaskExecutor}에 위임한다.
  */

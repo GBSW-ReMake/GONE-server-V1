@@ -1,4 +1,4 @@
-package com.remake.gone.common.schedule;
+package com.remake.gone.common.schedule.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -6,6 +6,8 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import com.remake.gone.common.schedule.entity.ScheduledTask;
+import com.remake.gone.common.schedule.repository.ScheduledTaskRepository;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Optional;

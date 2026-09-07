@@ -1,14 +1,20 @@
-package com.remake.gone.common.schedule;
+package com.remake.gone.common.schedule.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.withSettings;
 
+import com.remake.gone.common.schedule.entity.ScheduledTask;
+import com.remake.gone.common.schedule.enums.ScheduledTaskStatus;
+import com.remake.gone.common.schedule.repository.ScheduledTaskRepository;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -24,6 +30,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 /**
  * {@link ScheduledTaskExecutor}에 대한 단위 테스트. {@code handlers}는 빈 이름으로 매핑되는
  * {@code Map<String, ScheduledTaskHandler>}라 {@code @InjectMocks} 대신 직접 조립한다.
+ * {@link ScheduledTaskExecutionStore}는 mock하지 않고 mock {@link ScheduledTaskRepository}
+ * 위에서 실제로 동작시킨다 — {@code @Transactional} 전파(REQUIRES_NEW 분리, 원자적 claim)
+ * 자체는 이 단위 테스트로 검증할 수 없고 {@code ScheduledTaskExecutorIntegrationTest}가
+ * 실제 트랜잭션으로 검증하지만, claim/기록 로직의 분기(성공/실패/cap/claim 실패)는
+ * mock 리포지토리로도 충분히 검증된다.
  */
 @ExtendWith(MockitoExtension.class)
 class ScheduledTaskExecutorTest {
@@ -45,7 +56,16 @@ class ScheduledTaskExecutorTest {
     // 스텁 없이는 null을 반환한다 — 재정의하지 않은 핸들러가 실제로 RetryPolicy.DEFAULT를
     // 반환하는 프로덕션 동작을 재현하려면 default 메서드가 실제로 호출돼야 한다.
     handler = mock(ScheduledTaskHandler.class, withSettings().defaultAnswer(CALLS_REAL_METHODS));
-    executor = new ScheduledTaskExecutor(scheduledTaskRepository, Map.of(TASK_TYPE, handler));
+    // claim()은 status=PENDING인 행을 갱신하는 원자적 UPDATE다 — 이 테스트 스위트의 대부분은
+    // "claim 자체는 성공한다"는 전제라 기본값을 1로 깔아두고, claim 실패 시나리오
+    // (EdgeCases.doesNothingWhenClaimFails)에서만 개별적으로 0으로 덮어쓴다. lenient()인
+    // 이유: 그 테스트에서는 이 기본 스텁이 실제로 쓰이지 않아(재정의로 대체됨) strict
+    // stubbing이 "불필요한 스텁"으로 오탐하기 때문이다.
+    lenient().when(scheduledTaskRepository.claim(
+        eq(TASK_ID), eq(ScheduledTaskStatus.PENDING), any())).thenReturn(1);
+    ScheduledTaskExecutionStore executionStore =
+        new ScheduledTaskExecutionStore(scheduledTaskRepository);
+    executor = new ScheduledTaskExecutor(executionStore, Map.of(TASK_TYPE, handler));
   }
 
   private ScheduledTask task(Duration interval, Duration cap) {
@@ -177,13 +197,54 @@ class ScheduledTaskExecutorTest {
     }
 
     @Test
-    @DisplayName("조회 시점에 이미 취소/처리된 task이면 아무것도 하지 않는다")
-    void doesNothingWhenTaskGoneOrAlreadyHandled() {
-      given(scheduledTaskRepository.findById(TASK_ID)).willReturn(Optional.empty());
+    @DisplayName("claim 시점에 이미 취소/처리되어 갱신 대상이 없으면(claim=0) 아무것도 하지 않는다")
+    void doesNothingWhenClaimFails() {
+      // status=PENDING 조건에 걸리는 행이 없다는 뜻 — cancel()이 먼저 커밋해 행을
+      // 지웠거나(#99 코드 리뷰 보류 항목 (b)), 이미 다른 상태로 바뀐 경우다.
+      given(scheduledTaskRepository.claim(eq(TASK_ID), eq(ScheduledTaskStatus.PENDING), any()))
+          .willReturn(0);
 
       executor.execute(TASK_ID, NOW);
 
       verify(handler, never()).handle(anyLong());
+    }
+
+    @Test
+    @DisplayName("claim 자체가 예외를 던지면 그 예외를 삼키고 handler를 호출하지 않는다")
+    void doesNotPropagateWhenClaimThrows() {
+      // DB 커넥션 순간 장애 등으로 claim()의 UPDATE/findById가 예외를 던지는 경우 —
+      // execute()가 이 예외를 삼키지 않으면 ScheduledTaskRunner의 forEach가 중단돼
+      // 같은 틱의 나머지 task가 전부 스킵된다(#99 코드 리뷰 지적).
+      given(scheduledTaskRepository.claim(eq(TASK_ID), eq(ScheduledTaskStatus.PENDING), any()))
+          .willThrow(new IllegalStateException("connection lost"));
+
+      executor.execute(TASK_ID, NOW);
+
+      verify(handler, never()).handle(anyLong());
+    }
+
+    @Test
+    @DisplayName("handler 성공 직후 결과 기록만 실패해도 handler 실패와 동일하게 재시도 "
+        + "대상으로 기록한다(#99 CodeRabbit 지적 B — 트랜잭션 병합으로 재발 방지)")
+    void recordsFailureWhenRecordingSucceedsAfterHandleThrows() {
+      // 첫 findById 호출(claim 내부)은 정상 반환하고, 두 번째 호출(executeAndRecordSuccess
+      // 내부, handler.handle() 이후)이 실패하는 상황을 재현한다. 세 번째 호출(recordFailure
+      // 내부)은 정상 반환하게 해 "기록 실패가 handler 실패와 똑같이 분류되어 정상적으로
+      // 재시도 예약된다"는 것만 이 단위 테스트 레벨에서 검증한다 — 실제로 handler의 부수
+      // 효과(알림 저장)까지 롤백되는지는 실 트랜잭션이 필요해
+      // ScheduledTaskExecutorIntegrationTest가 검증한다.
+      ScheduledTask task = task(Duration.ofMinutes(1), null);
+      given(scheduledTaskRepository.findById(TASK_ID))
+          .willReturn(Optional.of(task))
+          .willThrow(new IllegalStateException("db down"))
+          .willReturn(Optional.of(task));
+      given(handler.handle(REFERENCE_ID)).willReturn(true);
+
+      executor.execute(TASK_ID, NOW);
+
+      assertThat(task.getStatus()).isEqualTo(ScheduledTaskStatus.PENDING);
+      assertThat(task.getFailureCount()).isEqualTo(1);
+      assertThat(task.getLastError()).isEqualTo("db down");
     }
   }
 }

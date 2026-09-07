@@ -1,6 +1,6 @@
-package com.remake.gone.common.schedule;
+package com.remake.gone.common.schedule.enums;
 
-/** {@link ScheduledTask}의 실행 상태. */
+/** {@code ScheduledTask}의 실행 상태. */
 public enum ScheduledTaskStatus {
   /** 대기 또는 재시도 중. */
   PENDING,

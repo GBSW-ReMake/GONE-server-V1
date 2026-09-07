@@ -11,11 +11,16 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.remake.gone.common.exception.CustomException;
+import com.remake.gone.common.redis.RedisKeyType;
+import com.remake.gone.common.redis.RedisRepository;
 import com.remake.gone.common.response.PageResponse;
+import com.remake.gone.common.schedule.service.ScheduledTaskService;
 import com.remake.gone.file.service.R2FileService;
 import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.enums.GbswType;
 import com.remake.gone.gbsw.exception.GbswErrorCode;
+import com.remake.gone.notification.enums.NotificationType;
+import com.remake.gone.notification.service.NotificationService;
 import com.remake.gone.outing.config.OutingProperties;
 import com.remake.gone.outing.dto.OutingActiveResponse;
 import com.remake.gone.outing.dto.OutingApplyRequest;
@@ -34,6 +39,7 @@ import com.remake.gone.outing.repository.OutingRepository;
 import com.remake.gone.role.repository.UserRoleRepository;
 import com.remake.gone.user.entity.User;
 import com.remake.gone.user.repository.UserRepository;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -85,6 +91,15 @@ class OutingServiceTest {
 
   @Mock
   private OutingProperties outingProperties;
+
+  @Mock
+  private NotificationService notificationService;
+
+  @Mock
+  private ScheduledTaskService scheduledTaskService;
+
+  @Mock
+  private RedisRepository redisRepository;
 
   @InjectMocks
   private OutingService outingService;
@@ -635,6 +650,11 @@ class OutingServiceTest {
       assertThat(outing.getDepartedLatitude()).isEqualTo(SCHOOL_LATITUDE);
       assertThat(outing.getDepartedLongitude()).isEqualTo(SCHOOL_LONGITUDE);
       verify(outingRepository).saveAndFlush(outing);
+      // 복귀 리마인더(#99) 등록 — 예정 종료 시각(outingDate + endTime)에 최초 실행되도록 예약한다.
+      verify(scheduledTaskService).schedule(
+          "OUTING_TIMEOUT", outing.getId(),
+          LocalDateTime.of(outing.getOutingDate(), outing.getEndTime()),
+          Duration.ofMinutes(5), Duration.ofHours(3));
     }
 
     @Test
@@ -827,7 +847,7 @@ class OutingServiceTest {
     @DisplayName("DEPARTED 외출증을 학교 반경 안에서 도착 보고하면 RETURNED로 바뀌고 좌표가 저장된다")
     void returnsSuccessfully() {
       Outing outing = departedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
-      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(outingRepository.findByCodeForUpdate(OUTING_CODE)).willReturn(Optional.of(outing));
       given(outingRepository.saveAndFlush(any(Outing.class)))
           .willAnswer(invocation -> invocation.getArgument(0, Outing.class));
       givenSchoolPropertiesOk();
@@ -843,12 +863,14 @@ class OutingServiceTest {
       assertThat(outing.getReturnedLatitude()).isEqualTo(SCHOOL_LATITUDE);
       assertThat(outing.getReturnedLongitude()).isEqualTo(SCHOOL_LONGITUDE);
       verify(outingRepository).saveAndFlush(outing);
+      // 복귀 리마인더(#99) 취소 — 더 이상 감시할 필요가 없어졌으므로 예약을 정리한다.
+      verify(scheduledTaskService).cancel("OUTING_TIMEOUT", outing.getId());
     }
 
     @Test
     @DisplayName("존재하지 않는 code면 거부한다")
     void rejectsWhenOutingNotFound() {
-      given(outingRepository.findByCode("NOPE")).willReturn(Optional.empty());
+      given(outingRepository.findByCodeForUpdate("NOPE")).willReturn(Optional.empty());
 
       assertThatThrownBy(() -> outingService.returnOuting(
           STUDENT_ID, "NOPE", new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
@@ -862,7 +884,7 @@ class OutingServiceTest {
     @DisplayName("본인 외출증이 아니면 거부한다")
     void rejectsWhenNotOwner() {
       Outing outing = departedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
-      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(outingRepository.findByCodeForUpdate(OUTING_CODE)).willReturn(Optional.of(outing));
       Long otherStudentId = 99L;
 
       assertThatThrownBy(() -> outingService.returnOuting(
@@ -877,7 +899,7 @@ class OutingServiceTest {
     @DisplayName("운영시간(08:40~20:30) 밖에서 호출하면 거부한다")
     void rejectsWhenOutsideOperatingHours() {
       Outing outing = departedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
-      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(outingRepository.findByCodeForUpdate(OUTING_CODE)).willReturn(Optional.of(outing));
 
       assertThatThrownBy(() -> outingService.returnOuting(
           STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
@@ -892,7 +914,7 @@ class OutingServiceTest {
     void rejectsWhenNotDeparted() {
       Outing outing = departedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
       outing.setStatus(OutingStatus.APPROVED);
-      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(outingRepository.findByCodeForUpdate(OUTING_CODE)).willReturn(Optional.of(outing));
 
       assertThatThrownBy(() -> outingService.returnOuting(
           STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
@@ -906,7 +928,7 @@ class OutingServiceTest {
     @DisplayName("학교 반경 밖에서 시도하면 거부한다")
     void rejectsWhenOutOfSchoolRadius() {
       Outing outing = departedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
-      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(outingRepository.findByCodeForUpdate(OUTING_CODE)).willReturn(Optional.of(outing));
       givenSchoolPropertiesOk();
 
       assertThatThrownBy(() -> outingService.returnOuting(
@@ -921,7 +943,7 @@ class OutingServiceTest {
     @DisplayName("운영시간 안이지만 이 외출증의 예정 시간대 이전에 도착하면 차단되지 않고 offSchedule만 true다")
     void allowsButFlagsOffScheduleWhenBeforeOwnTimeSlot() {
       Outing outing = departedOuting(TODAY, LocalTime.of(18, 10), LocalTime.of(19, 10));
-      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(outingRepository.findByCodeForUpdate(OUTING_CODE)).willReturn(Optional.of(outing));
       given(outingRepository.saveAndFlush(any(Outing.class)))
           .willAnswer(invocation -> invocation.getArgument(0, Outing.class));
       givenSchoolPropertiesOk();
@@ -940,7 +962,7 @@ class OutingServiceTest {
         + "(#43 코드 리뷰 Medium 2번 대응)")
     void convertsOptimisticLockFailureToAlreadyProcessed() {
       Outing outing = departedOuting(TODAY, LocalTime.of(12, 30), LocalTime.of(13, 40));
-      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      given(outingRepository.findByCodeForUpdate(OUTING_CODE)).willReturn(Optional.of(outing));
       given(outingRepository.saveAndFlush(any(Outing.class)))
           .willThrow(new ObjectOptimisticLockingFailureException(Outing.class, OUTING_CODE));
       givenSchoolPropertiesOk();
@@ -951,6 +973,94 @@ class OutingServiceTest {
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(OutingErrorCode.ALREADY_PROCESSED);
+    }
+  }
+
+  @Nested
+  @DisplayName("checkAndNotifyTimeout")
+  class CheckAndNotifyTimeout {
+
+    private static final Long OUTING_ID = 500L;
+    private static final Long DISCIPLINE_USER_ID_1 = 77L;
+    private static final Long DISCIPLINE_USER_ID_2 = 78L;
+
+    private Outing departedOuting() {
+      return Outing.builder()
+          .id(OUTING_ID)
+          .code("8A1zx9202n")
+          .student(student())
+          .teacher(teacher())
+          .reason("치과 진료")
+          .outingDate(TODAY)
+          .timeSlot(OutingTimeSlot.LUNCH)
+          .startTime(LocalTime.of(12, 30))
+          .endTime(LocalTime.of(13, 40))
+          .status(OutingStatus.DEPARTED)
+          .build();
+    }
+
+    @Test
+    @DisplayName("outing이 존재하지 않으면 RETURNED_OR_MISSING을 반환하고 알림을 보내지 않는다")
+    void returnsReturnedOrMissingWhenOutingNotFound() {
+      given(outingRepository.findByIdForUpdate(OUTING_ID)).willReturn(Optional.empty());
+
+      OutingService.TimeoutCheckResult result =
+          outingService.checkAndNotifyTimeout(OUTING_ID, LocalDateTime.of(2026, 8, 10, 14, 0));
+
+      assertThat(result).isEqualTo(OutingService.TimeoutCheckResult.RETURNED_OR_MISSING);
+      verify(notificationService, times(0)).send(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("이미 RETURNED 상태면 RETURNED_OR_MISSING을 반환하고 알림을 보내지 않는다")
+    void returnsReturnedOrMissingWhenAlreadyReturned() {
+      Outing outing = departedOuting();
+      outing.setStatus(OutingStatus.RETURNED);
+      given(outingRepository.findByIdForUpdate(OUTING_ID)).willReturn(Optional.of(outing));
+
+      OutingService.TimeoutCheckResult result =
+          outingService.checkAndNotifyTimeout(OUTING_ID, LocalDateTime.of(2026, 8, 10, 14, 0));
+
+      assertThat(result).isEqualTo(OutingService.TimeoutCheckResult.RETURNED_OR_MISSING);
+      verify(notificationService, times(0)).send(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("DEPARTED 상태면 학생/담당 선생님/DISCIPLINE 역할 전원에게 알림을 보내고 CONTINUE를 반환한다")
+    void notifiesEveryoneAndContinuesWhenStillDeparted() {
+      Outing outing = departedOuting();
+      given(outingRepository.findByIdForUpdate(OUTING_ID)).willReturn(Optional.of(outing));
+      given(userRoleRepository.findUserIdsByRoleCode("DISCIPLINE"))
+          .willReturn(List.of(DISCIPLINE_USER_ID_1, DISCIPLINE_USER_ID_2));
+
+      OutingService.TimeoutCheckResult result =
+          outingService.checkAndNotifyTimeout(OUTING_ID, LocalDateTime.of(2026, 8, 10, 14, 0));
+
+      assertThat(result).isEqualTo(OutingService.TimeoutCheckResult.CONTINUE);
+      verify(notificationService).send(
+          eq(outing.getStudent().getId()), any(), any(), eq(NotificationType.OUTING));
+      verify(notificationService).send(
+          eq(outing.getTeacher().getId()), any(), any(), eq(NotificationType.OUTING));
+      verify(notificationService).send(
+          eq(DISCIPLINE_USER_ID_1), any(), any(), eq(NotificationType.OUTING));
+      verify(notificationService).send(
+          eq(DISCIPLINE_USER_ID_2), any(), any(), eq(NotificationType.OUTING));
+    }
+
+    @Test
+    @DisplayName("담당 선생님이 DISCIPLINE 역할도 겸하면 같은 알림을 두 번 받지 않는다")
+    void doesNotDuplicateNotificationWhenTeacherAlsoHasDisciplineRole() {
+      Outing outing = departedOuting();
+      given(outingRepository.findByIdForUpdate(OUTING_ID)).willReturn(Optional.of(outing));
+      given(userRoleRepository.findUserIdsByRoleCode("DISCIPLINE"))
+          .willReturn(List.of(outing.getTeacher().getId(), DISCIPLINE_USER_ID_1));
+
+      outingService.checkAndNotifyTimeout(OUTING_ID, LocalDateTime.of(2026, 8, 10, 14, 0));
+
+      verify(notificationService, times(1)).send(
+          eq(outing.getTeacher().getId()), any(), any(), eq(NotificationType.OUTING));
+      verify(notificationService, times(1)).send(
+          eq(DISCIPLINE_USER_ID_1), any(), any(), eq(NotificationType.OUTING));
     }
   }
 
@@ -1719,6 +1829,25 @@ class OutingServiceTest {
   class RecordLocationPing {
 
     private static final String OUTING_CODE = "8A1zx9202n";
+    private static final double SCHOOL_LATITUDE = 36.0;
+    private static final double SCHOOL_LONGITUDE = 128.0;
+
+    private void givenSchoolPropertiesOk() {
+      given(outingProperties.schoolLatitude()).willReturn(SCHOOL_LATITUDE);
+      given(outingProperties.schoolLongitude()).willReturn(SCHOOL_LONGITUDE);
+      given(outingProperties.schoolRadiusMeters()).willReturn(200);
+    }
+
+    /**
+     * 쿨다운이 걸려 있지 않은 상태(Redis에 키가 없는 상태)를 재현한다 — 실제로는
+     * {@code saveIfAbsent}가 원자적 SETNX+TTL이라 저장과 동시에 "아직 쿨다운 없었음"을
+     * 알려주지만, mock에서는 그 저장 자체를 검증하지 않고 반환값만 재현한다(#99 CodeRabbit
+     * 지적 C — ConcurrentHashMap을 Redis TTL 쿨다운으로 대체).
+     */
+    private void givenCooldownAvailable() {
+      given(redisRepository.saveIfAbsent(
+          eq(RedisKeyType.OUTING_LOCATION_REMINDER_COOLDOWN), any())).willReturn(true);
+    }
 
     private Outing departedOuting() {
       return Outing.builder()
@@ -1810,6 +1939,74 @@ class OutingServiceTest {
           STUDENT_ID, OUTING_CODE, new OutingLocationRequest(36.01, 128.01), secondPingAt);
 
       verify(outingLocationRepository, times(2)).save(any(OutingLocation.class));
+    }
+
+    @Test
+    @DisplayName("학교 반경 안에서 핑을 보내면 도착 확인 알림을 보낸다")
+    void notifiesWhenPingIsWithinSchoolRadius() {
+      Outing outing = departedOuting();
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      givenSchoolPropertiesOk();
+      givenCooldownAvailable();
+
+      outingService.recordLocationPing(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          LocalDateTime.of(2026, 8, 10, 13, 0));
+
+      verify(notificationService).send(
+          eq(STUDENT_ID), any(), any(), eq(NotificationType.OUTING));
+      verify(redisRepository).saveIfAbsent(
+          RedisKeyType.OUTING_LOCATION_REMINDER_COOLDOWN, outing.getId().toString());
+    }
+
+    @Test
+    @DisplayName("학교 반경 밖에서 핑을 보내면 알림을 보내지 않는다")
+    void doesNotNotifyWhenPingIsOutsideSchoolRadius() {
+      Outing outing = departedOuting();
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      givenSchoolPropertiesOk();
+
+      // 학교(36.0, 128.0)에서 위도 1도(약 111km) 떨어진 지점 — 반경 200m를 훨씬 벗어난다.
+      outingService.recordLocationPing(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(37.0, SCHOOL_LONGITUDE),
+          LocalDateTime.of(2026, 8, 10, 13, 0));
+
+      verify(notificationService, times(0)).send(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("쿨다운이 걸려 있으면(Redis 키가 이미 있으면) 알림을 보내지 않는다")
+    void doesNotNotifyWhenCooldownIsActive() {
+      // 실제 쿨다운 간격(5분) 자체는 RedisKeyType.OUTING_LOCATION_REMINDER_COOLDOWN의
+      // TTL(#99 CodeRabbit 지적 C)이 보장한다 — 그 TTL 만료 여부는 단위 테스트로 재현할
+      // 방법이 없으므로(실 Redis 필요), 여기서는 서비스가 saveIfAbsent의 반환값(쿨다운
+      // 상태)을 올바르게 알림 발송 여부로 반영하는지만 검증한다.
+      Outing outing = departedOuting();
+      given(outingRepository.findByCode(OUTING_CODE)).willReturn(Optional.of(outing));
+      givenSchoolPropertiesOk();
+      given(redisRepository.saveIfAbsent(
+          eq(RedisKeyType.OUTING_LOCATION_REMINDER_COOLDOWN), any())).willReturn(false);
+
+      outingService.recordLocationPing(
+          STUDENT_ID, OUTING_CODE, new OutingLocationRequest(SCHOOL_LATITUDE, SCHOOL_LONGITUDE),
+          LocalDateTime.of(2026, 8, 10, 13, 0));
+
+      verify(notificationService, times(0)).send(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("checkAndNotifyTimeout이 RETURNED_OR_MISSING을 반환하면 쿨다운을 정리한다")
+    void clearsCooldownWhenTimeoutCheckReturnsReturnedOrMissing() {
+      Outing outing = departedOuting();
+      // outing이 이미 사라진 것(또는 다른 경로로 종료된 것)으로 감지되는 상황을 재현한다 —
+      // checkAndNotifyTimeout이 이 시점에 위치 기반 리마인더 쿨다운도 함께 정리해야 한다
+      // (#99 코드 리뷰 지적, #99 CodeRabbit 지적 C로 Redis TTL 쿨다운으로 대체).
+      given(outingRepository.findByIdForUpdate(outing.getId())).willReturn(Optional.empty());
+
+      outingService.checkAndNotifyTimeout(outing.getId(), LocalDateTime.of(2026, 8, 10, 13, 0));
+
+      verify(redisRepository).delete(
+          RedisKeyType.OUTING_LOCATION_REMINDER_COOLDOWN, outing.getId().toString());
     }
   }
 

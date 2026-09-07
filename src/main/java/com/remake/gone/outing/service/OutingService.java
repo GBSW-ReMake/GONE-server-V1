@@ -2,10 +2,15 @@ package com.remake.gone.outing.service;
 
 import com.remake.gone.common.exception.CommonErrorCode;
 import com.remake.gone.common.exception.CustomException;
+import com.remake.gone.common.redis.RedisKeyType;
+import com.remake.gone.common.redis.RedisRepository;
 import com.remake.gone.common.response.PageResponse;
+import com.remake.gone.common.schedule.service.ScheduledTaskService;
 import com.remake.gone.file.service.R2FileService;
 import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.exception.GbswErrorCode;
+import com.remake.gone.notification.enums.NotificationType;
+import com.remake.gone.notification.service.NotificationService;
 import com.remake.gone.outing.config.OutingProperties;
 import com.remake.gone.outing.dto.OutingActiveResponse;
 import com.remake.gone.outing.dto.OutingApplyRequest;
@@ -31,6 +36,7 @@ import com.remake.gone.role.repository.UserRoleRepository;
 import com.remake.gone.user.entity.User;
 import com.remake.gone.user.repository.UserRepository;
 import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -51,6 +57,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * 외출증 신청 비즈니스 로직을 처리하는 서비스.
@@ -74,6 +82,13 @@ public class OutingService {
   private static final int MAX_CODE_GENERATION_ATTEMPTS = 5;
   private static final int MIN_PAGE_SIZE = 1;
   private static final int MAX_PAGE_SIZE = 100;
+
+  // 복귀 리마인더(#99) — #120 ScheduledTaskService에 등록하는 task_type 문자열.
+  private static final String OUTING_TIMEOUT_TASK_TYPE = "OUTING_TIMEOUT";
+  // 시간 초과 알림 재발송 간격/발송 상한(가정값, 운영해보고 조정 가능 — #99 기획서
+  // "아직 결정 안 된 것" 참고).
+  private static final Duration TIMEOUT_REMINDER_INTERVAL = Duration.ofMinutes(5);
+  private static final Duration TIMEOUT_REMINDER_CAP = Duration.ofHours(3);
 
   // getMyRequests/getReceivedOutings 조회 정렬 기준(#41 도입, #96에서 DB 페이지네이션으로
   // 전환하며 id를 보조 정렬 키로 추가) — outingDate/startTime이 같은 두 건이 존재할 수 있어
@@ -99,6 +114,9 @@ public class OutingService {
   private final UserRoleRepository userRoleRepository;
   private final R2FileService r2FileService;
   private final OutingProperties outingProperties;
+  private final NotificationService notificationService;
+  private final ScheduledTaskService scheduledTaskService;
+  private final RedisRepository redisRepository;
 
   /**
    * 학생이 정해진 시간대(프리셋) 또는 직접 입력한 시간대(커스텀)에 외출증을 신청한다.
@@ -389,6 +407,14 @@ public class OutingService {
     outing.setDepartedLongitude(request.longitude());
     saveOrRejectAsAlreadyProcessed(outing);
 
+    // 복귀 리마인더(#99) 등록 — 같은 트랜잭션 안에서 호출해 outing 상태 변경과
+    // scheduled_task 등록이 원자적으로 함께 커밋/롤백된다(#120 ScheduledTaskService 참고).
+    // scheduledAt은 outing의 종료 예정 시각(외출 날짜 + 종료 시각)이다.
+    scheduledTaskService.schedule(
+        OUTING_TIMEOUT_TASK_TYPE, outing.getId(),
+        LocalDateTime.of(outing.getOutingDate(), outing.getEndTime()),
+        TIMEOUT_REMINDER_INTERVAL, TIMEOUT_REMINDER_CAP);
+
     return toResponse(
         outing, outing.getStudent(), outing.getTeacher(), now.toLocalDate(), now.toLocalTime());
   }
@@ -405,7 +431,10 @@ public class OutingService {
   @Transactional
   public OutingResponse returnOuting(
       Long studentUserId, String code, OutingLocationRequest request, LocalDateTime now) {
-    Outing outing = outingRepository.findByCode(code)
+    // 비관적 쓰기 락으로 조회한다 — checkAndNotifyTimeout()과 거의 동시에 실행되면, 이
+    // 트랜잭션이 끝날 때까지 그쪽이 기다리게 해 "이미 복귀했는데 미복귀 알림이 나가는" 경합을
+    // 막는다(#99 CodeRabbit 지적 E).
+    Outing outing = outingRepository.findByCodeForUpdate(code)
         .orElseThrow(() -> new CustomException(OutingErrorCode.OUTING_NOT_FOUND));
     validateOwnership(studentUserId, outing);
     validateOperatingHours(now.toLocalTime());
@@ -420,12 +449,80 @@ public class OutingService {
     outing.setReturnedLongitude(request.longitude());
     saveOrRejectAsAlreadyProcessed(outing);
 
+    // 복귀 리마인더(#99) 취소 — outing 상태 변경과 같은 트랜잭션에서 원자적으로 처리된다.
+    scheduledTaskService.cancel(OUTING_TIMEOUT_TASK_TYPE, outing.getId());
+    // 위치 기반 리마인더(#99) 쿨다운 정리 — TTL(5분)이 지나면 어차피 자동으로 사라지지만,
+    // 도착 즉시 정리해두면 그 전에 재출발하는 예외적인 경우에도 이전 쿨다운이 새 감시를
+    // 방해하지 않는다.
+    redisRepository.delete(
+        RedisKeyType.OUTING_LOCATION_REMINDER_COOLDOWN, outing.getId().toString());
+
     return toResponse(
         outing, outing.getStudent(), outing.getTeacher(), now.toLocalDate(), now.toLocalTime());
   }
 
+  /** {@link #checkAndNotifyTimeout}의 결과 — #120 {@code ScheduledTaskHandler}가 재실행
+   * 여부를 판단하는 데 그대로 쓴다. */
+  public enum TimeoutCheckResult {
+    /** 이미 복귀했거나(RETURNED 등) outing이 사라졌음 — 더 이상 감시할 필요 없음. */
+    RETURNED_OR_MISSING,
+    /** 아직 DEPARTED 상태라 알림을 보냈고, 다음 간격에 다시 확인해야 함. */
+    CONTINUE
+  }
+
   /**
-   * 학생 본인이 외출 중({@code DEPARTED}) 위치 핑을 전송합니다(#97).
+   * 외출 종료 시각이 지났는데 아직 복귀({@code RETURNED}) 처리되지 않은 학생에게 리마인더
+   * 알림을 보냅니다(#99). {@code OutingTimeoutScheduledTaskHandler}(#120 {@code
+   * ScheduledTaskHandler} 구현체)가 #120 폴링 루프에서 호출합니다 — 스케줄링 방식과 무관한
+   * 순수 도메인 로직이라 별도 단위 테스트로 검증합니다.
+   *
+   * @param outingId 확인할 외출증의 내부 PK
+   * @param now      "지금" 시각(KST)
+   * @return 더 이상 재실행할 필요가 없으면 {@link TimeoutCheckResult#RETURNED_OR_MISSING},
+   *     다음 간격에 다시 확인해야 하면 {@link TimeoutCheckResult#CONTINUE}
+   */
+  @Transactional
+  public TimeoutCheckResult checkAndNotifyTimeout(Long outingId, LocalDateTime now) {
+    // 비관적 쓰기 락으로 조회한다 — returnOuting()과 거의 동시에 실행되면, 이 트랜잭션이
+    // 끝날 때까지 그쪽이 기다리게 해 "이미 복귀했는데 이 메서드가 낡은 스냅샷으로 미복귀
+    // 알림을 보내는" 경합을 막는다(#99 CodeRabbit 지적 E) — Outing에 @Version이 있어도
+    // 이 메서드는 Outing을 갱신하지 않아 낙관적 락으로는 이 경합이 감지되지 않는다.
+    Optional<Outing> found = outingRepository.findByIdForUpdate(outingId);
+    if (found.isEmpty() || found.get().getStatus() != OutingStatus.DEPARTED) {
+      // 더 이상 감시할 필요가 없어진 시점 — 위치 기반 리마인더 쿨다운도 같이 정리한다.
+      // returnOuting()이 아닌 경로(예: 이미 사라진 outing)로 감시가 끝나도 즉시 정리되게
+      // 한다(#99 코드 리뷰 지적) — TTL(5분)이 지나면 어차피 자동 정리되지만, cap을 넘겨
+      // 이 메서드 자체가 더 이상 호출되지 않는 outing에 대해서는 이 호출도 일어나지
+      // 않으므로 TTL이 최종 안전망 역할을 한다(#99 CodeRabbit 지적 C).
+      redisRepository.delete(RedisKeyType.OUTING_LOCATION_REMINDER_COOLDOWN, outingId.toString());
+      return TimeoutCheckResult.RETURNED_OR_MISSING;
+    }
+    Outing outing = found.get();
+    User student = outing.getStudent();
+    Long teacherId = outing.getTeacher().getId();
+    notificationService.send(student.getId(),
+        "외출 시간이 지났습니다",
+        "예정된 복귀 시각이 지났습니다. 빨리 복귀해서 '도착' 버튼을 눌러주세요.",
+        NotificationType.OUTING);
+    notificationService.send(teacherId,
+        "학생 미복귀 알림",
+        student.getGbsw().getName() + " 학생이 아직 복귀하지 않았습니다 (외출증 " + outing.getCode() + ").",
+        NotificationType.OUTING);
+    // 담당 선생님이 DISCIPLINE 역할도 겸하면 이미 위에서 알림을 받았으므로 제외한다 —
+    // 그대로 두면 같은 알림을 두 번 받는다(#99 코드 리뷰 지적).
+    userRoleRepository.findUserIdsByRoleCode(DISCIPLINE_ROLE_CODE).stream()
+        .filter(disciplineUserId -> !disciplineUserId.equals(teacherId))
+        .forEach(disciplineUserId -> notificationService.send(disciplineUserId,
+            "학생 미복귀 알림",
+            student.getGbsw().getName() + " 학생이 아직 복귀하지 않았습니다 (외출증 " + outing.getCode() + ").",
+            NotificationType.OUTING));
+    return TimeoutCheckResult.CONTINUE;
+  }
+
+  /**
+   * 학생 본인이 외출 중({@code DEPARTED}) 위치 핑을 전송합니다(#97). 핑이 학교 반경 안이면
+   * "도착 확인" 리마인더 알림을 함께 보냅니다(#99, 위치 기반 복귀 감지 — 종료 시각과
+   * 무관하게 학교 안에 있는데 도착 버튼을 안 누른 경우를 잡는다).
    *
    * @param studentUserId 핑을 전송하는 학생 사용자 ID (Access Token에서 추출됨)
    * @param code          핑을 전송할 외출증의 외부 식별자 코드
@@ -450,6 +547,44 @@ public class OutingService {
         .longitude(request.longitude())
         .recordedAt(now)
         .build());
+
+    // 위치 기반 복귀 리마인더(#99) — 핑이 올 때만 검사한다. 핑이 없으면 애초에 "아직 학교
+    // 밖" 상태로 볼 수밖에 없어 알림을 못 보내도 논리적 공백이 생기지 않는다.
+    double distance = GeoUtils.distanceMeters(
+        request.latitude(), request.longitude(),
+        outingProperties.schoolLatitude(), outingProperties.schoolLongitude());
+    if (distance <= outingProperties.schoolRadiusMeters()) {
+      // Redis SETNX(saveIfAbsent)는 원자적 연산이라 같은 outingId에 대한 동시 핑 두 건이
+      // 서로의 쓰기를 못 본 채 둘 다 쿨다운을 통과하는 경합이 없다(#99 코드 리뷰 지적,
+      // 인메모리 ConcurrentHashMap.compute()를 Redis TTL 쿨다운으로 대체 — 자세한 이유는
+      // RedisKeyType.OUTING_LOCATION_REMINDER_COOLDOWN 참고, #99 CodeRabbit 지적 C 대응).
+      String cooldownKey = outing.getId().toString();
+      if (redisRepository.saveIfAbsent(
+          RedisKeyType.OUTING_LOCATION_REMINDER_COOLDOWN, cooldownKey)) {
+        // 이 메서드는 @Transactional이라 알림 저장이 실제로 커밋될지는 이 시점에 알 수
+        // 없다 — 쿨다운 키는 이미 저장됐는데 트랜잭션이 롤백되면(알림은 안 나갔는데) 다음
+        // 5분간 정상 핑까지 조용히 억제된다(#99 CodeRabbit 지적 D). 롤백된 경우에만
+        // 쿨다운을 되돌려, 커밋 성공 시의 정상 쿨다운 동작과 구분한다. isSynchronizationActive
+        // 가드는 트랜잭션 프록시 없이 이 메서드를 직접 호출하는 단위 테스트를 위한 것 —
+        // 실제 호출 경로(컨트롤러 → @Transactional 프록시)에서는 항상 true다.
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+          TransactionSynchronizationManager.registerSynchronization(
+              new TransactionSynchronization() {
+                @Override
+                public void afterCompletion(int status) {
+                  if (status == TransactionSynchronization.STATUS_ROLLED_BACK) {
+                    redisRepository.delete(
+                        RedisKeyType.OUTING_LOCATION_REMINDER_COOLDOWN, cooldownKey);
+                  }
+                }
+              });
+        }
+        notificationService.send(studentUserId,
+            "도착 확인이 필요해요",
+            "학교 반경 안에 계신 것 같아요. '도착' 버튼을 눌러주세요.",
+            NotificationType.OUTING);
+      }
+    }
   }
 
   /**
