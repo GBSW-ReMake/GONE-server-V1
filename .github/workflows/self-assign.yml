@@ -38,13 +38,15 @@ jobs:
             // 작성자 본인이 이미 담당자인 경우"(같은 사람이 /assign을 다시 입력)로만 한정한다.
             const alreadySelfAssigned = (issue.assignees || []).some((a) => a.login === commenter);
             if (alreadySelfAssigned) {
+              // 아래 코멘트 작성이 실패(이슈 잠김, secondary rate limit 등)해도 Discord
+              // 알림은 별개로 나가야 하므로, exportVariable을 먼저 호출해둔다.
+              core.exportVariable('ASSIGN_STATUS', 'skipped');
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issue.number,
                 body: `@${commenter}님은 이미 이 이슈의 담당자로 배정되어 있습니다.`,
               });
-              core.exportVariable('ASSIGN_STATUS', 'skipped');
               return;
             }
 
@@ -83,8 +85,8 @@ jobs:
             skipped)
               TITLE="ℹ️ 이슈 배정 요청 — 이미 본인이 담당자"
               COLOR=3447003
-              DETAIL_NAME="요청자"
-              DETAIL_VALUE="@${COMMENTER} — 이미 이 이슈의 담당자임"
+              DETAIL_NAME="배정 상태"
+              DETAIL_VALUE="이미 이 이슈의 담당자임"
               ;;
             failed)
               TITLE="⚠️ 이슈 자동 배정 실패 (배정 불가 사용자)"
