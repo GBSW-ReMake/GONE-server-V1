@@ -10,13 +10,16 @@ import static org.mockito.Mockito.verify;
 import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.notification.dto.NotificationResponse;
+import com.remake.gone.notification.dto.UnreadNotificationCountResponse;
 import com.remake.gone.notification.entity.Notification;
 import com.remake.gone.notification.enums.NotificationType;
+import com.remake.gone.notification.exception.NotificationErrorCode;
 import com.remake.gone.notification.repository.NotificationRepository;
 import com.remake.gone.user.entity.User;
 import com.remake.gone.user.repository.UserRepository;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -105,6 +108,100 @@ class NotificationServiceTest {
   }
 
   @Nested
+  @DisplayName("markAsRead")
+  class MarkAsRead {
+
+    @Test
+    @DisplayName("본인 알림을 읽음 처리한다")
+    void marksOwnNotificationAsRead() {
+      Notification notification = notification(USER_ID, false);
+      given(notificationRepository.findById(10L)).willReturn(Optional.of(notification));
+
+      notificationService.markAsRead(USER_ID, 10L);
+
+      assertThat(notification.isRead()).isTrue();
+      verify(notificationRepository).findById(10L);
+    }
+
+    @Test
+    @DisplayName("이미 읽은 본인 알림도 성공으로 처리한다")
+    void keepsAlreadyReadNotificationAsRead() {
+      Notification notification = notification(USER_ID, true);
+      given(notificationRepository.findById(10L)).willReturn(Optional.of(notification));
+
+      notificationService.markAsRead(USER_ID, 10L);
+
+      assertThat(notification.isRead()).isTrue();
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 알림이면 NOTIFICATION_001 예외를 던진다")
+    void rejectsMissingNotification() {
+      given(notificationRepository.findById(10L)).willReturn(Optional.empty());
+
+      assertThatThrownBy(() -> notificationService.markAsRead(USER_ID, 10L))
+          .isInstanceOf(CustomException.class)
+          .extracting("errorCode")
+          .isEqualTo(NotificationErrorCode.NOTIFICATION_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("다른 사용자의 알림이면 NOTIFICATION_002 예외를 던진다")
+    void rejectsOtherUsersNotification() {
+      Notification notification = notification(2L, false);
+      given(notificationRepository.findById(10L)).willReturn(Optional.of(notification));
+
+      assertThatThrownBy(() -> notificationService.markAsRead(USER_ID, 10L))
+          .isInstanceOf(CustomException.class)
+          .extracting("errorCode")
+          .isEqualTo(NotificationErrorCode.NOTIFICATION_ACCESS_DENIED);
+      assertThat(notification.isRead()).isFalse();
+    }
+  }
+
+  @Nested
+  @DisplayName("markAllAsRead")
+  class MarkAllAsRead {
+
+    @Test
+    @DisplayName("현재 사용자의 읽지 않은 알림을 벌크 읽음 처리하고 처리 건수를 반환한다")
+    void marksAllUnreadNotificationsAsRead() {
+      given(notificationRepository.markAllAsReadByUserId(USER_ID)).willReturn(2);
+
+      int updatedCount = notificationService.markAllAsRead(USER_ID);
+
+      assertThat(updatedCount).isEqualTo(2);
+      verify(notificationRepository).markAllAsReadByUserId(USER_ID);
+    }
+
+    @Test
+    @DisplayName("읽지 않은 알림이 없으면 처리 건수 0을 반환한다")
+    void returnsZeroWhenThereAreNoUnreadNotifications() {
+      given(notificationRepository.markAllAsReadByUserId(USER_ID)).willReturn(0);
+
+      int updatedCount = notificationService.markAllAsRead(USER_ID);
+
+      assertThat(updatedCount).isZero();
+    }
+  }
+
+  @Nested
+  @DisplayName("getUnreadCount")
+  class GetUnreadCount {
+
+    @Test
+    @DisplayName("현재 사용자의 읽지 않은 알림 개수를 응답 DTO로 반환한다")
+    void returnsUnreadNotificationCount() {
+      given(notificationRepository.countByUserIdAndIsReadFalse(USER_ID)).willReturn(3L);
+
+      UnreadNotificationCountResponse response = notificationService.getUnreadCount(USER_ID);
+
+      assertThat(response).isEqualTo(new UnreadNotificationCountResponse(3L));
+      verify(notificationRepository).countByUserIdAndIsReadFalse(USER_ID);
+    }
+  }
+
+  @Nested
   @DisplayName("send")
   class Send {
 
@@ -135,5 +232,15 @@ class NotificationServiceTest {
 
       verify(notificationRepository).save(argThat(notification -> notification.getType() == null));
     }
+  }
+
+  private Notification notification(Long userId, boolean isRead) {
+    return Notification.builder()
+        .id(10L)
+        .user(User.builder().id(userId).build())
+        .title("외출증 승인")
+        .body("외출증이 승인되었습니다.")
+        .isRead(isRead)
+        .build();
   }
 }
