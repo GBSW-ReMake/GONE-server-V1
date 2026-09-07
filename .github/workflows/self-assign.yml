@@ -33,19 +33,18 @@ jobs:
             core.exportVariable('COMMENTER', commenter);
             core.exportVariable('COMMENT_URL', context.payload.comment.html_url);
 
-            // 같은 이슈에 담당자가 이미 있어도, 이 프로젝트는 이슈 1개에 여러 담당자를
-            // 두는 것을 허용한다. 다만 /assign 자동 배정은 "담당자가 아직 없을 때"만
-            // 동작하고, 이미 있으면 추가로 배정하지 않고 안내 코멘트만 남긴다.
-            if (issue.assignees && issue.assignees.length > 0) {
-              const names = issue.assignees.map((a) => `@${a.login}`).join(', ');
+            // 이 프로젝트는 이슈 1개에 여러 담당자를 두는 것을 허용하므로, 다른 사람이
+            // 이미 배정되어 있어도 /assign 자동 배정을 막지 않는다. 스킵은 "코멘트
+            // 작성자 본인이 이미 담당자인 경우"(같은 사람이 /assign을 다시 입력)로만 한정한다.
+            const alreadySelfAssigned = (issue.assignees || []).some((a) => a.login === commenter);
+            if (alreadySelfAssigned) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issue.number,
-                body: `이미 담당자(${names})가 배정되어 있어 자동 배정을 건너뜁니다.`,
+                body: `@${commenter}님은 이미 이 이슈의 담당자로 배정되어 있습니다.`,
               });
               core.exportVariable('ASSIGN_STATUS', 'skipped');
-              core.exportVariable('EXISTING_ASSIGNEES', names);
               return;
             }
 
@@ -82,10 +81,10 @@ jobs:
               DETAIL_VALUE="@${COMMENTER}"
               ;;
             skipped)
-              TITLE="ℹ️ 이슈 배정 요청 — 이미 담당자 있음"
+              TITLE="ℹ️ 이슈 배정 요청 — 이미 본인이 담당자"
               COLOR=3447003
-              DETAIL_NAME="기존 담당자"
-              DETAIL_VALUE="${EXISTING_ASSIGNEES}"
+              DETAIL_NAME="요청자"
+              DETAIL_VALUE="@${COMMENTER} — 이미 이 이슈의 담당자임"
               ;;
             failed)
               TITLE="⚠️ 이슈 자동 배정 실패 (배정 불가 사용자)"
