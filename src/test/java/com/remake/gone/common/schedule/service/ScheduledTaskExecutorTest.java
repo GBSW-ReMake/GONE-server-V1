@@ -185,14 +185,17 @@ class ScheduledTaskExecutorTest {
   class EdgeCases {
 
     @Test
-    @DisplayName("등록된 핸들러가 없는 taskType이면 예외 없이 조용히 건너뛴다")
-    void skipsSilentlyWhenHandlerMissing() {
+    @DisplayName("등록된 핸들러가 없는 taskType이면 handler를 호출하지 않고 즉시 FAILED로 "
+        + "격리한다(#141 — 재시도로 해결되지 않는 배포 구성 오류라 backoff 없이 곧장 격리)")
+    void marksFailedImmediatelyWhenHandlerMissing() {
       ScheduledTask task = new ScheduledTask("UNKNOWN_TYPE", REFERENCE_ID, NOW, null, null);
       given(scheduledTaskRepository.findById(TASK_ID)).willReturn(Optional.of(task));
 
       executor.execute(TASK_ID, NOW);
 
-      assertThat(task.getStatus()).isEqualTo(ScheduledTaskStatus.PENDING);
+      assertThat(task.getStatus()).isEqualTo(ScheduledTaskStatus.FAILED);
+      assertThat(task.getFailureCount()).isEqualTo(1);
+      assertThat(task.getLastError()).contains("UNKNOWN_TYPE");
       verify(handler, never()).handle(anyLong());
     }
 
