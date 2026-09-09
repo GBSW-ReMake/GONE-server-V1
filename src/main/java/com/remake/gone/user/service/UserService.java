@@ -54,6 +54,10 @@ public class UserService {
    * 실명 또는 학번에 검색어가 부분 일치하는 가입된 사용자를 검색합니다. {@code roles}가 비어 있지
    * 않으면 해당 역할 중 하나 이상을 가진 사용자만 반환합니다.
    *
+   * <p>학번·이름 OR 검색은 Hibernate 7의 {@code function()} 래퍼 반환 타입 제약(항상
+   * {@code Object})으로 JPQL에서 구현할 수 없어, 이 조회에 한해 네이티브 SQL로 ID를 먼저 뽑은 뒤
+   * JPQL {@code join fetch}로 엔티티를 가져오는 2-query 패턴을 사용합니다.
+   *
    * @param query 검색어(실명·학번 부분 일치)
    * @param roles 역할 코드 목록. 비어 있으면 역할 조건 없이 전체 검색
    * @return 검색 결과 목록
@@ -66,9 +70,15 @@ public class UserService {
         throw new CustomException(CommonErrorCode.INVALID_REQUEST);
       }
     }
-    return userRepository
-        .searchByQueryAndRoles(escapeLikeWildcards(query), roles, UserStatus.ACTIVE)
-        .stream()
+    String escaped = escapeLikeWildcards(query);
+    String status = UserStatus.ACTIVE.name();
+    List<Long> ids = roles.isEmpty()
+        ? userRepository.findIdsByQuery(escaped, status)
+        : userRepository.findIdsByQueryAndRoles(escaped, roles, status);
+    if (ids.isEmpty()) {
+      return List.of();
+    }
+    return userRepository.findAllByIdWithGbsw(ids).stream()
         .map(this::toSearchResponse)
         .toList();
   }
