@@ -98,4 +98,71 @@ public interface UserRepository extends JpaRepository<User, Long> {
       + "and u.status = :status")
   List<User> searchByRealNameContainingAndStatus(
       @Param("query") String query, @Param("status") UserStatus status);
+
+  /**
+   * 실명 또는 학번에 검색어가 부분 일치하는 가입된 사용자의 ID를 조회합니다. 역할 필터는
+   * 없습니다. N+1을 막기 위해 ID만 반환하며, 엔티티 fetch는 {@link #findAllByIdWithGbsw(List)}로
+   * 수행합니다.
+   *
+   * <p>JPQL {@code function()} 래퍼가 반환 타입을 {@code Object}로 추론해 Hibernate 7 타입
+   * 검증을 통과하지 못하므로, 학번 계산({@code LPAD}, {@code CONCAT})이 필요한 이 쿼리에 한해
+   * 네이티브 SQL을 사용합니다. 프로젝트의 다른 쿼리는 JPQL을 사용합니다.
+   *
+   * <p>{@code query}는 호출하는 쪽({@code UserService})에서 LIKE 와일드카드를 이스케이프 처리해서
+   * 넘겨야 합니다. {@code status}는 {@link UserStatus#name()}으로 변환해서 넘겨야 합니다.
+   *
+   * @param query  LIKE 와일드카드가 이스케이프 처리된 검색어
+   * @param status 결과에 포함할 사용자 상태 문자열(예: {@code "ACTIVE"})
+   * @return 조건에 맞는 사용자 ID 목록
+   */
+  @Query(value = "select u.id from user u join gbsw g on u.gbsw_id = g.id "
+      + "where u.status = :status "
+      + "and (g.name like concat('%', :query, '%') escape '\\\\' "
+      + "  or (g.number is not null "
+      + "      and concat(g.grade, g.class_no, lpad(g.number, 2, '0')) "
+      + "          like concat('%', :query, '%') escape '\\\\'))",
+      nativeQuery = true)
+  List<Long> findIdsByQuery(@Param("query") String query, @Param("status") String status);
+
+  /**
+   * 실명 또는 학번에 검색어가 부분 일치하면서 지정된 역할 중 하나 이상을 가진 사용자의 ID를
+   * 조회합니다. {@code roles}는 비어 있지 않아야 합니다(빈 목록이면
+   * {@link #findIdsByQuery(String, String)}를 사용하세요).
+   *
+   * <p>네이티브 SQL 사용 이유는 {@link #findIdsByQuery(String, String)} 참고.
+   *
+   * <p>{@code query}는 호출하는 쪽({@code UserService})에서 LIKE 와일드카드를 이스케이프 처리해서
+   * 넘겨야 합니다. {@code status}는 {@link UserStatus#name()}으로 변환해서 넘겨야 합니다.
+   *
+   * @param query  LIKE 와일드카드가 이스케이프 처리된 검색어
+   * @param roles  역할 코드 목록(비어 있으면 안 됨)
+   * @param status 결과에 포함할 사용자 상태 문자열(예: {@code "ACTIVE"})
+   * @return 조건에 맞는 사용자 ID 목록
+   */
+  @Query(value = "select u.id from user u join gbsw g on u.gbsw_id = g.id "
+      + "where u.status = :status "
+      + "and (g.name like concat('%', :query, '%') escape '\\\\' "
+      + "  or (g.number is not null "
+      + "      and concat(g.grade, g.class_no, lpad(g.number, 2, '0')) "
+      + "          like concat('%', :query, '%') escape '\\\\')) "
+      + "and exists ("
+      + "  select 1 from user_role ur join role r on ur.role_id = r.id "
+      + "  where ur.user_id = u.id and r.code in :roles)",
+      nativeQuery = true)
+  List<Long> findIdsByQueryAndRoles(
+      @Param("query") String query,
+      @Param("roles") List<String> roles,
+      @Param("status") String status);
+
+  /**
+   * ID 목록으로 사용자를 조회하면서 {@link com.remake.gone.gbsw.entity.Gbsw}를 즉시 로딩합니다.
+   * N+1을 막기 위해 {@link #findIdsByQuery(String, String)}/{@link
+   * #findIdsByQueryAndRoles(String, List, String)} 결과로 받은 ID 목록을 이 메서드에 넘겨
+   * 최종 엔티티를 가져옵니다.
+   *
+   * @param ids 조회할 사용자 ID 목록
+   * @return {@link com.remake.gone.gbsw.entity.Gbsw}가 즉시 로딩된 사용자 목록
+   */
+  @Query("select u from User u join fetch u.gbsw g where u.id in :ids")
+  List<User> findAllByIdWithGbsw(@Param("ids") List<Long> ids);
 }

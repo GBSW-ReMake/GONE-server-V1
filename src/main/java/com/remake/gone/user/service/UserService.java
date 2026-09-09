@@ -5,9 +5,12 @@ import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.file.service.R2FileService;
 import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.enums.GbswType;
+import com.remake.gone.gbsw.utils.GbswUtils;
+import com.remake.gone.role.repository.RoleRepository;
 import com.remake.gone.user.dto.MyProfileResponse;
 import com.remake.gone.user.dto.UserSearchResponse;
 import com.remake.gone.user.entity.User;
+import com.remake.gone.user.enums.UserStatus;
 import com.remake.gone.user.exception.UserErrorCode;
 import com.remake.gone.user.repository.UserRepository;
 import java.util.List;
@@ -24,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserService {
 
   private final UserRepository userRepository;
+  private final RoleRepository roleRepository;
   private final R2FileService r2FileService;
 
   /**
@@ -47,14 +51,34 @@ public class UserService {
   }
 
   /**
-   * 실명에 검색어가 부분 일치하는 가입된 사용자를 검색합니다.
+   * 실명 또는 학번에 검색어가 부분 일치하는 가입된 사용자를 검색합니다. {@code roles}가 비어 있지
+   * 않으면 해당 역할 중 하나 이상을 가진 사용자만 반환합니다.
    *
-   * @param query 검색어(실명 부분 일치)
-   * @return 검색 결과 목록. 학생이면 학년/반을 포함하고, 선생님이면 {@code null}
+   * <p>학번·이름 OR 검색은 Hibernate 7의 {@code function()} 래퍼 반환 타입 제약(항상
+   * {@code Object})으로 JPQL에서 구현할 수 없어, 이 조회에 한해 네이티브 SQL로 ID를 먼저 뽑은 뒤
+   * JPQL {@code join fetch}로 엔티티를 가져오는 2-query 패턴을 사용합니다.
+   *
+   * @param query 검색어(실명·학번 부분 일치)
+   * @param roles 역할 코드 목록. 비어 있으면 역할 조건 없이 전체 검색
+   * @return 검색 결과 목록
+   * @throws CustomException 알 수 없는 역할 코드가 포함된 경우 {@link CommonErrorCode#INVALID_REQUEST}
    */
   @Transactional(readOnly = true)
-  public List<UserSearchResponse> search(String query) {
-    return userRepository.searchByRealNameContaining(escapeLikeWildcards(query)).stream()
+  public List<UserSearchResponse> search(String query, List<String> roles) {
+    for (String code : roles) {
+      if (!roleRepository.existsByCode(code)) {
+        throw new CustomException(CommonErrorCode.INVALID_REQUEST);
+      }
+    }
+    String escaped = escapeLikeWildcards(query);
+    String status = UserStatus.ACTIVE.name();
+    List<Long> ids = roles.isEmpty()
+        ? userRepository.findIdsByQuery(escaped, status)
+        : userRepository.findIdsByQueryAndRoles(escaped, roles, status);
+    if (ids.isEmpty()) {
+      return List.of();
+    }
+    return userRepository.findAllByIdWithGbsw(ids).stream()
         .map(this::toSearchResponse)
         .toList();
   }
@@ -77,8 +101,10 @@ public class UserService {
         user.getId(),
         user.getName(),
         gbsw.getName(),
+        isStudent ? GbswUtils.studentNumber(gbsw) : null,
         isStudent ? gbsw.getGrade() : null,
-        isStudent ? gbsw.getClassNo() : null);
+        isStudent ? gbsw.getClassNo() : null,
+        isStudent ? gbsw.getNumber() : null);
   }
 
   /**

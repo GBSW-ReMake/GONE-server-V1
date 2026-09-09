@@ -16,4 +16,12 @@ public interface RoleRepository extends JpaRepository<Role, Long> {
    * @return 일치하는 {@link Role}, 없으면 빈 {@link Optional}
    */
   Optional<Role> findByCode(String code);
+
+  /**
+   * 해당 역할 코드가 존재하는지 확인합니다.
+   *
+   * @param code 확인할 역할 코드
+   * @return 존재하면 {@code true}
+   */
+  boolean existsByCode(String code);
 }

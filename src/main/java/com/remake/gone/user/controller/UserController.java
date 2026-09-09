@@ -8,6 +8,7 @@ import com.remake.gone.user.dto.UserSearchResponse;
 import com.remake.gone.user.service.UserService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import java.util.Arrays;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -61,17 +62,23 @@ public class UserController {
   }
 
   /**
-   * 실명이 검색어에 부분 일치하는 가입된 사용자를 검색합니다. Access Token 인증이 필요합니다
+   * 실명 또는 학번이 검색어에 부분 일치하는 가입된 사용자를 검색합니다. {@code role}을 지정하면
+   * 해당 역할 중 하나 이상을 가진 사용자만 반환합니다. Access Token 인증이 필요합니다
    * ({@code SecurityConfig} 참고).
    *
-   * @param query 검색어(실명 부분 일치)
+   * @param query 검색어(실명·학번 부분 일치)
+   * @param role  역할 코드, 쉼표로 구분(예: {@code TEACHER,DISCIPLINE}). 생략하면 역할 조건 없음
    * @return 검색 결과 목록
    */
   @GetMapping("/search")
   public ApiResponse<List<UserSearchResponse>> search(
-      @RequestParam @NotBlank String query
+      @RequestParam @NotBlank String query,
+      @RequestParam(required = false) String role
   ) {
-    List<UserSearchResponse> results = userService.search(query);
+    List<String> roles = (role == null || role.isBlank())
+        ? List.of()
+        : Arrays.stream(role.split(",")).map(String::trim).toList();
+    List<UserSearchResponse> results = userService.search(query, roles);
     return ApiResponse.success(results, "검색 결과입니다.");
   }
 }
