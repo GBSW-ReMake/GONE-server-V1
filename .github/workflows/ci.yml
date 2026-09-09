@@ -167,8 +167,8 @@ jobs:
       ALIGO_USER_ID: dummy-aligo-user-id
       ALIGO_SENDER: '01000000000'
       # OutingProperties(@NotNull) 검증을 통과시키기 위한 더미 값. contextLoads()는 실제
-      # 반경 판정을 검증하지 않으므로 실제 학교 좌표가 필요 없다(#43, staging 배포 전
-      # OUTING_SCHOOL_* 실제 좌표를 GitHub Environment "STAGING" 시크릿으로 별도 등록).
+      # 반경 판정을 검증하지 않으므로 실제 학교 좌표가 필요 없다(#43). staging의 실제 값은
+      # GitHub Environment "STAGING" 시크릿에 별도 등록돼 deploy-staging job에서 쓰인다(#149).
       OUTING_SCHOOL_LATITUDE: '0.0'
       OUTING_SCHOOL_LONGITUDE: '0.0'
       OUTING_SCHOOL_RADIUS_METERS: '200'
@@ -401,6 +401,13 @@ jobs:
       ALIGO_KEY: ${{ secrets.ALIGO_KEY }}
       ALIGO_USER_ID: ${{ secrets.ALIGO_USER_ID }}
       ALIGO_SENDER: ${{ secrets.ALIGO_SENDER }}
+      # OutingProperties/ConductProperties(둘 다 @Validated @NotNull)가 처음 staging에
+      # 반영됐을 때 이 값들이 빠져 있어 앱이 기동 직후 ConfigurationPropertiesBindException으로
+      # 죽고, nginx가 프록시할 대상이 없어 헬스체크가 실패했다(#149).
+      OUTING_SCHOOL_LATITUDE: ${{ secrets.OUTING_SCHOOL_LATITUDE }}
+      OUTING_SCHOOL_LONGITUDE: ${{ secrets.OUTING_SCHOOL_LONGITUDE }}
+      OUTING_SCHOOL_RADIUS_METERS: ${{ secrets.OUTING_SCHOOL_RADIUS_METERS }}
+      CONDUCT_DEMERIT_THRESHOLD: ${{ secrets.CONDUCT_DEMERIT_THRESHOLD }}
 
     steps:
       - name: Code Checkout(코드 체크아웃)
@@ -433,7 +440,7 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: MYSQL_ROOT_PASSWORD,JWT_ACCESS_TOKEN_SECRET,JWT_REFRESH_TOKEN_SECRET,R2_ACCOUNT_ID,R2_ACCESS_KEY,R2_SECRET_KEY,R2_BUCKET,R2_ENDPOINT,NEIS_API_KEY,NEIS_ATPT_OFCDC_SC_CODE,NEIS_SD_SCHUL_CODE,ALIGO_KEY,ALIGO_USER_ID,ALIGO_SENDER
+          envs: MYSQL_ROOT_PASSWORD,JWT_ACCESS_TOKEN_SECRET,JWT_REFRESH_TOKEN_SECRET,R2_ACCOUNT_ID,R2_ACCESS_KEY,R2_SECRET_KEY,R2_BUCKET,R2_ENDPOINT,NEIS_API_KEY,NEIS_ATPT_OFCDC_SC_CODE,NEIS_SD_SCHUL_CODE,ALIGO_KEY,ALIGO_USER_ID,ALIGO_SENDER,OUTING_SCHOOL_LATITUDE,OUTING_SCHOOL_LONGITUDE,OUTING_SCHOOL_RADIUS_METERS,CONDUCT_DEMERIT_THRESHOLD
           script: |
             set -e
             cd /opt/gone/dev
@@ -460,6 +467,10 @@ jobs:
             ALIGO_KEY=$ALIGO_KEY
             ALIGO_USER_ID=$ALIGO_USER_ID
             ALIGO_SENDER=$ALIGO_SENDER
+            OUTING_SCHOOL_LATITUDE=$OUTING_SCHOOL_LATITUDE
+            OUTING_SCHOOL_LONGITUDE=$OUTING_SCHOOL_LONGITUDE
+            OUTING_SCHOOL_RADIUS_METERS=$OUTING_SCHOOL_RADIUS_METERS
+            CONDUCT_DEMERIT_THRESHOLD=$CONDUCT_DEMERIT_THRESHOLD
             ENVEOF
             chmod 600 .env
             # 매 배포마다 :dev 태그가 새 이미지로 갱신되며 이전 레이어가 dangling으로
