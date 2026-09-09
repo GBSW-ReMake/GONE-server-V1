@@ -71,6 +71,8 @@
 | `?query=x&role=UNKNOWN_CODE` | 400, COMMON_001 | ✅ |
 | `?query=` | 400, COMMON_001 | ✅ |
 | 인증 없이 | 401, COMMON_002 | ✅ |
+| `?query=Q&role=TEACHER,%20DISCIPLINE` (공백 포함 복수 역할) | 200, 교사/생활부장 역할 모두 포함, trim 정상 동작 | ✅ 교사 결과 반환, studentNumber=null 확인 |
+| query 파라미터 자체 누락 | 400, COMMON_001 | ✅ |
 
 **핵심 검증**: role 없는 경우(`findIdsByQuery` 경로)가 실제 DB 쿼리 실행 시에도 정상 동작
 확인 — 기동 시 JPQL 파싱만 통과하는 것과 달리, 실제 SELECT 결과가 올바르게 반환됨을 검증.
