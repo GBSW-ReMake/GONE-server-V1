@@ -51,9 +51,12 @@ public class AligoSmsSender implements SmsSender {
     // .body(JsonNode.class)로 바로 받으면 Content-Type 협상 실패로 오탐한다(#152) — 문자열로
     // 받아 Content-Type과 무관하게 직접 파싱한다.
     JsonNode body = parseBody(rawBody);
-
-    if (body == null || !body.hasNonNull("result_code")) {
-      log.error("Aligo SMS API 응답 바디 없음 또는 result_code 누락");
+    if (body == null) {
+      // 바디 없음/파싱 실패 원인은 parseBody()가 이미 로그로 남겼다 — 중복 로그 방지.
+      throw new CustomException(AuthErrorCode.SMS_SEND_FAILED);
+    }
+    if (!body.hasNonNull("result_code")) {
+      log.error("Aligo SMS API 응답에 result_code 필드 없음");
       throw new CustomException(AuthErrorCode.SMS_SEND_FAILED);
     }
 
@@ -67,6 +70,7 @@ public class AligoSmsSender implements SmsSender {
 
   private JsonNode parseBody(String rawBody) {
     if (rawBody == null || rawBody.isBlank()) {
+      log.error("Aligo SMS API 응답 바디 없음");
       return null;
     }
     try {
