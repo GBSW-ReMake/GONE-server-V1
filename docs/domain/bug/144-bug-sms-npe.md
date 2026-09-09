@@ -40,8 +40,8 @@ int resultCode = body.path("result_code").asInt();
 
 **변경 후**:
 ```java
-if (body == null) {
-  log.error("Aligo SMS API 응답 바디 없음");
+if (body == null || !body.has("result_code")) {
+  log.error("Aligo SMS API 응답 바디 없음 또는 result_code 누락");
   throw new CustomException(AuthErrorCode.SMS_SEND_FAILED);
 }
 
@@ -50,11 +50,21 @@ int resultCode = body.path("result_code").asInt();
 `body`가 `null`이면 `RestClientException`과 동일하게 `CustomException(SMS_SEND_FAILED)`로
 명시 처리한다(NPE로 새는 대신 실패 케이스로 정상 합류).
 
+**범위 확장(코드 리뷰 반영, 2026-09-09)**: 코드 리뷰에서 `body`가 non-null이어도
+`result_code` 필드 자체가 없으면 `.path(...).asInt()`가 기본값 `0`을 반환해 실패를 성공으로
+오판할 수 있다는 Medium 지적이 나왔다. `body == null` 체크와 같은 자리에서 함께 방어할 수
+있는 간단한 조건 추가라 이번 이슈 범위로 포함해 같이 고쳤다(`!body.has("result_code")` 조건
+추가).
+
 - 영향 코드: `src/main/java/com/remake/gone/sms/AligoSmsSender.java`
-- 영향 테스트: `src/test/java/com/remake/gone/sms/AligoSmsSenderTest.java` — `RestClient`가
-  성공 응답(2xx)이지만 빈 바디를 반환하는 경우(`MockRestServiceServer`의 `withSuccess()`에
-  바디를 주지 않는 방식)를 흉내 내어, `CustomException(SMS_SEND_FAILED)`를 던지는지
-  검증하는 케이스를 추가한다.
+- 영향 테스트: `src/test/java/com/remake/gone/sms/AligoSmsSenderTest.java`
+  - `RestClient`가 성공 응답(2xx)이지만 빈 바디를 반환하는 경우(`MockRestServiceServer`의
+    `withSuccess()`에 바디를 주지 않는 방식)를 흉내 내어, `CustomException(SMS_SEND_FAILED)`를
+    던지는지 검증하는 케이스를 추가한다.
+  - `result_code` 필드가 없는 JSON 바디를 흉내 내어 동일하게 검증하는 케이스를 추가한다.
+  - 코드 리뷰에서 함께 지적된 `test-convention.md`의 `@Nested` 그룹화 규칙 미준수도, 이
+    파일이 `send()` 메서드 하나만 다루므로 전체를 `@Nested class Send`로 감싸 같이
+    정리한다(기존 3개 테스트 포함).
 
 ## 리스크 및 고려사항
 - API 디자인 원칙([api-design.md](../../rules/api-design.md))은 새 엔드포인트가 없으므로
@@ -68,3 +78,5 @@ int resultCode = body.path("result_code").asInt();
   불일치(#143으로 분리) 항목도 포함하고 있었으나, 두 항목 모두 별도 이슈가 이미 열려 있어
   중복을 피하려고 이번에 범위를 좁혔다(파일명도 `144-bug-pr140-review-fixes.md`에서
   `144-bug-sms-npe.md`로 변경).
+- 코드 리뷰에서 발견된 `NeisClient.java`의 동일 유형(2xx + 빈 바디 → NPE) 버그는 다른
+  도메인 파일이라 이번 이슈 범위에 포함하지 않고 별도 백로그 이슈로 등록한다.
