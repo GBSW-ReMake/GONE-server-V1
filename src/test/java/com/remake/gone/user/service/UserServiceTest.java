@@ -12,9 +12,11 @@ import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.file.service.R2FileService;
 import com.remake.gone.gbsw.entity.Gbsw;
 import com.remake.gone.gbsw.enums.GbswType;
+import com.remake.gone.role.repository.RoleRepository;
 import com.remake.gone.user.dto.MyProfileResponse;
 import com.remake.gone.user.dto.UserSearchResponse;
 import com.remake.gone.user.entity.User;
+import com.remake.gone.user.enums.UserStatus;
 import com.remake.gone.user.exception.UserErrorCode;
 import com.remake.gone.user.repository.UserRepository;
 import java.util.List;
@@ -35,6 +37,9 @@ class UserServiceTest {
 
   @Mock
   private UserRepository userRepository;
+
+  @Mock
+  private RoleRepository roleRepository;
 
   @Mock
   private R2FileService r2FileService;
@@ -116,46 +121,119 @@ class UserServiceTest {
   @DisplayName("search")
   class Search {
 
+    private static final String ACTIVE = "ACTIVE";
+
     @Test
-    @DisplayName("학생 결과는 학년/반을 포함해서 반환한다")
-    void includesGradeAndClassNoForStudent() {
+    @DisplayName("학생 결과는 학번·학년·반·번호를 포함해서 반환한다")
+    void includesStudentFieldsForStudent() {
       User student = User.builder().id(55L).name("영희").gbsw(studentGbsw("이영희")).build();
-      given(userRepository.searchByRealNameContaining("영희")).willReturn(List.of(student));
+      given(userRepository.findIdsByQuery("영희", ACTIVE)).willReturn(List.of(55L));
+      given(userRepository.findAllByIdWithGbsw(List.of(55L))).willReturn(List.of(student));
 
-      List<UserSearchResponse> results = userService.search("영희");
+      List<UserSearchResponse> results = userService.search("영희", List.of());
 
-      assertThat(results).containsExactly(new UserSearchResponse(55L, "영희", "이영희", 3, 1));
+      assertThat(results).containsExactly(
+          new UserSearchResponse(55L, "영희", "이영희", "3118", 3, 1, 18));
     }
 
     @Test
-    @DisplayName("선생님 결과는 학년/반을 null로 반환한다")
-    void excludesGradeAndClassNoForTeacher() {
+    @DisplayName("선생님 결과는 학번·학년·반·번호를 null로 반환한다")
+    void excludesStudentFieldsForTeacher() {
       User teacher = User.builder().id(61L).name("쌤").gbsw(teacherGbsw("이영수")).build();
-      given(userRepository.searchByRealNameContaining("영수")).willReturn(List.of(teacher));
+      given(userRepository.findIdsByQuery("영수", ACTIVE)).willReturn(List.of(61L));
+      given(userRepository.findAllByIdWithGbsw(List.of(61L))).willReturn(List.of(teacher));
 
-      List<UserSearchResponse> results = userService.search("영수");
+      List<UserSearchResponse> results = userService.search("영수", List.of());
 
-      assertThat(results).containsExactly(new UserSearchResponse(61L, "쌤", "이영수", null, null));
+      assertThat(results).containsExactly(
+          new UserSearchResponse(61L, "쌤", "이영수", null, null, null, null));
     }
 
     @Test
     @DisplayName("일치하는 결과가 없으면 빈 목록을 반환한다")
     void returnsEmptyListWhenNoMatch() {
-      given(userRepository.searchByRealNameContaining("없는이름")).willReturn(List.of());
+      given(userRepository.findIdsByQuery("없는이름", ACTIVE)).willReturn(List.of());
 
-      List<UserSearchResponse> results = userService.search("없는이름");
+      List<UserSearchResponse> results = userService.search("없는이름", List.of());
 
       assertThat(results).isEmpty();
+      verify(userRepository, never()).findAllByIdWithGbsw(any());
     }
 
     @Test
     @DisplayName("검색어의 LIKE 와일드카드 문자를 이스케이프해서 리포지토리에 전달한다")
     void escapesLikeWildcardsBeforeQuerying() {
-      given(userRepository.searchByRealNameContaining(any())).willReturn(List.of());
+      given(userRepository.findIdsByQuery(any(), any())).willReturn(List.of());
 
-      userService.search("100%_할인\\");
+      userService.search("100%_할인\\", List.of());
 
-      verify(userRepository).searchByRealNameContaining("100\\%\\_할인\\\\");
+      verify(userRepository).findIdsByQuery("100\\%\\_할인\\\\", ACTIVE);
+    }
+
+    @Test
+    @DisplayName("역할 목록이 비어 있으면 역할 검증 없이 findIdsByQuery를 호출한다")
+    void skipsRoleValidationWhenRolesEmpty() {
+      given(userRepository.findIdsByQuery("김", ACTIVE)).willReturn(List.of());
+
+      userService.search("김", List.of());
+
+      verify(roleRepository, never()).existsByCode(any());
+      verify(userRepository).findIdsByQuery("김", ACTIVE);
+      verify(userRepository, never()).findIdsByQueryAndRoles(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("유효한 역할 코드를 넘기면 검증 후 findIdsByQueryAndRoles를 호출한다")
+    void callsRepoWithValidRoleCode() {
+      List<String> roles = List.of("TEACHER");
+      given(roleRepository.existsByCode("TEACHER")).willReturn(true);
+      given(userRepository.findIdsByQueryAndRoles("김", roles, ACTIVE)).willReturn(List.of());
+
+      userService.search("김", roles);
+
+      verify(userRepository).findIdsByQueryAndRoles("김", roles, ACTIVE);
+      verify(userRepository, never()).findIdsByQuery(any(), any());
+    }
+
+    @Test
+    @DisplayName("여러 역할 코드가 모두 유효하면 모두 검증하고 findIdsByQueryAndRoles를 호출한다")
+    void callsRepoWithMultipleValidRoleCodes() {
+      List<String> roles = List.of("TEACHER", "DISCIPLINE");
+      given(roleRepository.existsByCode("TEACHER")).willReturn(true);
+      given(roleRepository.existsByCode("DISCIPLINE")).willReturn(true);
+      given(userRepository.findIdsByQueryAndRoles("김", roles, ACTIVE)).willReturn(List.of());
+
+      userService.search("김", roles);
+
+      verify(userRepository).findIdsByQueryAndRoles("김", roles, ACTIVE);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 역할 코드를 넘기면 400을 던지고 리포지토리는 호출하지 않는다")
+    void throwsWhenUnknownRoleCode() {
+      given(roleRepository.existsByCode("UNKNOWN")).willReturn(false);
+
+      assertThatThrownBy(() -> userService.search("김", List.of("UNKNOWN")))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(CommonErrorCode.INVALID_REQUEST);
+
+      verify(userRepository, never()).findIdsByQuery(any(), any());
+      verify(userRepository, never()).findIdsByQueryAndRoles(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("유효한 코드와 유효하지 않은 코드가 섞이면 첫 번째 유효하지 않은 코드에서 400을 던진다")
+    void throwsOnFirstInvalidCodeInMixedList() {
+      given(roleRepository.existsByCode("TEACHER")).willReturn(true);
+      given(roleRepository.existsByCode("INVALID")).willReturn(false);
+
+      assertThatThrownBy(() -> userService.search("김", List.of("TEACHER", "INVALID")))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(CommonErrorCode.INVALID_REQUEST);
+
+      verify(userRepository, never()).findIdsByQueryAndRoles(any(), any(), any());
     }
   }
 

@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "GONE - User API",
-    "description": "회원 정보 조회/검색(User) 도메인 API 컬렉션. 최상위에는 이 도메인에 실제 구현된 3개 엔드포인트만 두고, 테스트를 위한 로그인(다른 도메인 엔드포인트)은 \"사전 준비\" 폴더로 분리했습니다.\n\n**환경**: `GONE - Local Dev`를 선택하세요. \"사전 준비 > 로그인\"을 먼저 실행해 `accessToken`을 채운 뒤 나머지 요청을 실행합니다.",
+    "description": "회원 정보 조회/검색(User) 도메인 API 컬렉션. 최상위에는 이 도메인에 실제 구현된 엔드포인트만 두고, 테스트를 위한 로그인(다른 도메인 엔드포인트)은 \"사전 준비\" 폴더로 분리했습니다.\n\n**환경**: `GONE - Local Dev`를 선택하세요. \"사전 준비 > 로그인\"을 먼저 실행해 `accessToken`을 채운 뒤 나머지 요청을 실행합니다.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -116,36 +116,287 @@
       "response": []
     },
     {
-      "name": "사용자 검색 (실명 부분 일치)",
-      "request": {
-        "method": "GET",
-        "header": [
-          { "key": "Authorization", "value": "Bearer {{accessToken}}" }
-        ],
-        "url": {
-          "raw": "{{baseUrl}}/api/v1/users/search?query={{searchQuery}}",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "v1", "users", "search"],
-          "query": [
-            { "key": "query", "value": "{{searchQuery}}" }
-          ]
-        },
-        "description": "`query`는 실명(Gbsw.name) 부분 일치 검색입니다. 학생이면 학년/반이 같이, 선생님이면 빠진 채로 반환됩니다."
-      },
-      "event": [
+      "name": "사용자 검색",
+      "description": "`query`로 실명·학번 부분 일치 검색. `role`(선택)로 역할 필터링(쉼표 구분, 예: `TEACHER,DISCIPLINE`). 학생이면 `studentNumber`·`grade`·`classNo`·`number` 포함, 선생님이면 모두 `null`.",
+      "item": [
         {
-          "listen": "test",
-          "script": {
-            "type": "text/javascript",
-            "exec": [
-              "pm.test(\"200 OK\", function () {",
-              "    pm.response.to.have.status(200);",
-              "});"
-            ]
-          }
+          "name": "USER-SEARCH-001 역할 없이 검색 (전체 대상)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/search?query={{searchQuery}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "search"],
+              "query": [
+                { "key": "query", "value": "{{searchQuery}}" }
+              ]
+            },
+            "description": "role 파라미터 없이 호출 → 빈 리스트로 처리, 역할 무관 전체 검색. 학생 결과에 `studentNumber`·`number` 필드가 포함되는지 확인."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"success true\", function () {",
+                  "    pm.expect(pm.response.json().success).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "USER-SEARCH-002 학번으로 검색",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/search?query=31",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "search"],
+              "query": [
+                { "key": "query", "value": "31" }
+              ]
+            },
+            "description": "학번 부분 일치 검색. 3학년 1반 학생이 결과에 포함되는지 확인."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "USER-SEARCH-003 역할 필터 (TEACHER)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/search?query={{searchQuery}}&role=TEACHER",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "search"],
+              "query": [
+                { "key": "query", "value": "{{searchQuery}}" },
+                { "key": "role", "value": "TEACHER" }
+              ]
+            },
+            "description": "TEACHER 역할만 필터링. 결과가 모두 교사(grade/classNo/number=null)인지 확인."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"결과가 있으면 교사(studentNumber=null)만 반환\", function () {",
+                  "    const items = pm.response.json().data;",
+                  "    items.forEach(function (u) {",
+                  "        pm.expect(u.studentNumber).to.be.null;",
+                  "        pm.expect(u.grade).to.be.null;",
+                  "    });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "USER-SEARCH-004 역할 필터 (복수: TEACHER,DISCIPLINE)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/search?query={{searchQuery}}&role=TEACHER,DISCIPLINE",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "search"],
+              "query": [
+                { "key": "query", "value": "{{searchQuery}}" },
+                { "key": "role", "value": "TEACHER,DISCIPLINE" }
+              ]
+            },
+            "description": "TEACHER 또는 DISCIPLINE 역할 사용자만 반환. 쉼표 구분 복수 역할 필터 동작 확인."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "USER-SEARCH-005 LIKE 와일드카드 이스케이프 (%)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/search?query=%25",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "search"],
+              "query": [
+                { "key": "query", "value": "%25" }
+              ]
+            },
+            "description": "검색어 `%`(URL 인코딩: `%25`) → 이스케이프되어 빈 배열 반환 예상. 수정 전이라면 전체 사용자가 매칭됐을 케이스."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"빈 배열 반환 (와일드카드 이스케이프)\", function () {",
+                  "    pm.expect(pm.response.json().data).to.be.an('array').that.is.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "USER-SEARCH-006 알 수 없는 역할 코드 → 400",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/search?query={{searchQuery}}&role=UNKNOWN_CODE",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "search"],
+              "query": [
+                { "key": "query", "value": "{{searchQuery}}" },
+                { "key": "role", "value": "UNKNOWN_CODE" }
+              ]
+            },
+            "description": "존재하지 않는 역할 코드 → 400 COMMON_001."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test(\"COMMON_001 에러 코드\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"COMMON_001\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "USER-SEARCH-007 빈 query → 400",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/search?query=",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "search"],
+              "query": [
+                { "key": "query", "value": "" }
+              ]
+            },
+            "description": "빈 검색어 → 400."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "USER-SEARCH-008 인증 없이 → 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/search?query={{searchQuery}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "search"],
+              "query": [
+                { "key": "query", "value": "{{searchQuery}}" }
+              ]
+            },
+            "description": "인증 토큰 없이 호출 → 401 COMMON_002."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401 Unauthorized\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
         }
-      ],
-      "response": []
+      ]
     }
   ],
   "variable": []
