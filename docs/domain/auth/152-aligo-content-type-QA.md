@@ -16,7 +16,7 @@
 2. **로컬 빌드/테스트**:
    - `./gradlew checkstyleMain checkstyleTest` — 통과(경고 0건).
    - `./gradlew test --tests com.remake.gone.sms.AligoSmsSenderTest` — 10건 전부 통과
-     (기존 6건 + 신규 3건, 로그 중복 수정 후 재검증 1건 포함).
+     (기존 7건 + 신규 3건, 로그 중복 수정 후 재검증 포함).
    - `./gradlew checkstyleMain checkstyleTest build -x javadoc` — 전체 616건 테스트 전부
      통과(실패 0건, 에러 0건).
 3. **staging 재배포 확인은 이번 QA 범위 밖**: 이 수정은 아직 PR 병합 전이라 staging에
@@ -33,5 +33,9 @@
 Content-Type과 무관하게 JSON을 파싱하도록 고쳐 이번 버그의 근본 원인(Aligo의 잘못된
 `Content-Type` 헤더에 대한 과도한 신뢰)을 없앴고, 기존 동작(에러코드, `result_code` 판정,
 호출부 계약)은 전혀 바꾸지 않았다. 코드 리뷰(9단계)와 로컬 빌드/테스트가 모두 통과해 이
-이슈의 완료 조건 중 로컬 검증 부분은 충족했다. CI 통과와 staging 실제 재확인은 병합 후
-자연히 이뤄진다.
+이슈의 완료 조건 중 로컬 검증 부분은 충족했다.
+
+**다만 이 이슈는 병합·재배포만으로 완료 처리하지 않는다.** CI 통과 확인과 별개로,
+staging(`gone-dev.gbsw.hs.kr`) 재배포 후 `POST /api/v1/auth/phone/send-code`를 실제로
+호출해 `HTTP 200`(`AUTH_009` 미발생)을 재확인해야 하고, 그 결과(배포된 버전/커밋,
+요청, 응답, 확인 시각)를 이 문서나 이슈 코멘트에 기록한 뒤에야 완료로 처리한다.

@@ -3,14 +3,17 @@
 관련 기획서: [152-aligo-content-type.md](./152-aligo-content-type.md)
 
 ## 리뷰 범위/방법
-- 대상: `fix/#152-aligo-content-type` 브랜치가 `dev`에서 분기된 이후 커밋 2개를 각각
-  `git show`로 개별 확인해 아래 2개 파일 외 변경이 없음을 확인했다:
+- 대상: `fix/#152-aligo-content-type` 브랜치가 `dev`에서 분기된 이후 구현/테스트 커밋
+  3개를 각각 `git show`로 개별 확인해 아래 2개 파일 외 변경이 없음을 확인했다:
   - `9f1a91c` fix(sms): #152 Aligo 응답 Content-Type과 무관하게 JSON 파싱 —
     `src/main/java/com/remake/gone/sms/AligoSmsSender.java` (23 insertions, 3 deletions)
   - `cf4d36f` test(sms): #152 Content-Type이 text/html인 Aligo 응답 재현 테스트 추가 —
     `src/test/java/com/remake/gone/sms/AligoSmsSenderTest.java` (43 insertions, 1 deletion)
+  - `c6bf4dd` fix(sms): #152 코드 리뷰 지적(중복 에러 로그) 반영 —
+    `src/main/java/com/remake/gone/sms/AligoSmsSender.java` (7 insertions, 3 deletions,
+    이 문서의 "코드 리뷰 지적 사항" 1번 항목 반영)
   (이 worktree의 로컬 `dev` ref가 원격보다 크게 뒤처져 있어 `git diff dev...HEAD`는
-  `origin/dev` 기준으로도 #144/#149 등 관련 없는 커밋 10여 개가 섞여 나온다 — 위 두 커밋
+  `origin/dev` 기준으로도 #144/#149 등 관련 없는 커밋 10여 개가 섞여 나온다 — 위 세 커밋
   각각의 diff로만 이슈 #152 범위를 확인했다.)
 - 방법: 기획서와 diff만으로 독립적으로 점검했다.
   - 기획서 "변경 전/후" 코드 블록이 실제 diff와 일치하는지 대조.
@@ -42,7 +45,7 @@
   - `./gradlew checkstyleMain checkstyleTest --rerun-tasks` 실행 — BUILD SUCCESSFUL
     (경고 0건).
   - `./gradlew test --tests com.remake.gone.sms.AligoSmsSenderTest --rerun-tasks` 실행 —
-    BUILD SUCCESSFUL (신규 3개 + 기존 6개, 총 9개 전부 통과).
+    BUILD SUCCESSFUL (신규 3개 + 기존 7개, 총 10개 전부 통과).
   - `code-review` 스킬 기반 독립 리뷰 에이전트를 별도로 실행(컨텍스트 격리 —
     구현 대화 이력 없이 diff와 기획서만 전달).
 
@@ -117,4 +120,4 @@ ERROR 로그가 정확히 한 줄만 남게 했다. 로그 원인 구분(파싱 
 별도 에이전트로 `code-review` 스킬 기반 독립 리뷰를 실행했다. 결과도 Medium 이상 findings
 없음으로 일치했고, 같은 로그 중복(파싱 실패 시 ERROR 로그 2줄) 관찰을 Low로 독립적으로
 지적해 이 문서의 1번 항목과 교차 확인됐다. 그 외에 범위 일치, checkstyle 통과,
-`AligoSmsSenderTest` 9/9 통과, PII 미노출도 동일하게 확인했다.
+`AligoSmsSenderTest` 10/10 통과, PII 미노출도 동일하게 확인했다.
