@@ -105,4 +105,18 @@ class NeisClientTest {
         .extracting(e -> ((CustomException) e).getErrorCode())
         .isEqualTo(NeisErrorCode.EXTERNAL_API_ERROR);
   }
+
+  @Test
+  @DisplayName("응답은 200이지만 바디가 없으면 NPE 대신 NeisErrorCode.EXTERNAL_API_ERROR를 던진다")
+  void throwsWhenBodyIsEmpty() {
+    mockServer.expect(requestTo(containsString("/mealServiceDietInfo")))
+        .andRespond(withSuccess());
+
+    assertThatThrownBy(() -> neisClient.fetch(
+        "/mealServiceDietInfo", Map.of("MLSV_YMD", "20260810"),
+        "mealServiceDietInfo", NeisMealRow.class))
+        .isInstanceOf(CustomException.class)
+        .extracting(e -> ((CustomException) e).getErrorCode())
+        .isEqualTo(NeisErrorCode.EXTERNAL_API_ERROR);
+  }
 }
