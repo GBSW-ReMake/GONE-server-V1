@@ -40,7 +40,7 @@ public class AligoSmsSender implements SmsSender {
           .retrieve()
           .body(JsonNode.class);
     } catch (RestClientException e) {
-      log.error("Aligo SMS API 호출 실패: phoneNumber={}", phoneNumber, e);
+      log.error("Aligo SMS API 호출 실패", e);
       throw new CustomException(AuthErrorCode.SMS_SEND_FAILED);
     }
 

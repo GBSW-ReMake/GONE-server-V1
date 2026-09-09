@@ -1,5 +1,6 @@
 package com.remake.gone.sms;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.containsString;
@@ -8,13 +9,19 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.remake.gone.auth.exception.AuthErrorCode;
 import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.sms.config.AligoProperties;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.util.LinkedMultiValueMap;
@@ -36,6 +43,7 @@ class AligoSmsSenderTest {
 
     private MockRestServiceServer mockServer;
     private AligoSmsSender aligoSmsSender;
+    private ListAppender<ILoggingEvent> logAppender;
 
     @BeforeEach
     void setUp() {
@@ -43,6 +51,19 @@ class AligoSmsSenderTest {
       mockServer = MockRestServiceServer.bindTo(builder).build();
       AligoProperties properties = new AligoProperties("test-key", "test-user-id", "01000000000");
       aligoSmsSender = new AligoSmsSender(builder.build(), properties);
+
+      logAppender = new ListAppender<>();
+      logAppender.start();
+      logger().addAppender(logAppender);
+    }
+
+    @AfterEach
+    void detachLogAppender() {
+      logger().detachAppender(logAppender);
+    }
+
+    private Logger logger() {
+      return (Logger) LoggerFactory.getLogger(AligoSmsSender.class);
     }
 
     @Test
@@ -90,6 +111,21 @@ class AligoSmsSenderTest {
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(AuthErrorCode.SMS_SEND_FAILED);
+    }
+
+    @Test
+    @DisplayName("네트워크/서버 오류 로그에 수신자 전화번호를 남기지 않는다")
+    void doesNotLogPhoneNumberOnServerError() {
+      mockServer.expect(requestTo(containsString("/send/")))
+          .andRespond(withServerError());
+
+      assertThatThrownBy(() -> aligoSmsSender.send(PHONE_NUMBER, MESSAGE))
+          .isInstanceOf(CustomException.class);
+
+      assertThat(logAppender.list).hasSize(1);
+      ILoggingEvent event = logAppender.list.get(0);
+      assertThat(event.getLevel()).isEqualTo(Level.ERROR);
+      assertThat(event.getFormattedMessage()).doesNotContain(PHONE_NUMBER);
     }
 
     @Test
