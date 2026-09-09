@@ -85,6 +85,7 @@ public class SchoolCampService {
   private final UserRoleRepository userRoleRepository;
   private final NotificationService notificationService;
   private final OutingRepository outingRepository;
+  private final SchoolCampWaitlistService waitlistService;
 
   /**
    * 다음 달 스쿨캠핑 가능 날짜를 일괄 등록합니다. 요일 검증/중복 검증 중 하나라도 위반하는
@@ -141,10 +142,12 @@ public class SchoolCampService {
    * 배치 조회한다(N+1 방지) — 코드 리뷰(#68) 지적 사항.
    *
    * @param month 조회할 달
+   * @param now   "지금"(KST) — 유예시간이 지난 유령 점유 후보를 OPEN으로 보여줄지
+   *              판단하는 기준 시각(#84)
    * @return 그 달의 세션별 캘린더 정보
    */
   @Transactional(readOnly = true)
-  public List<SchoolCampCalendarResponse> getCalendar(YearMonth month) {
+  public List<SchoolCampCalendarResponse> getCalendar(YearMonth month, LocalDateTime now) {
     List<SchoolCampSession> sessions =
         sessionRepository.findByCampDateBetween(month.atDay(1), month.atEndOfMonth());
 
@@ -159,20 +162,26 @@ public class SchoolCampService {
                 application -> application.getSession().getId(), application -> application));
 
     return sessions.stream()
-        .map(session -> toCalendarResponse(session, applicationsBySessionId.get(session.getId())))
+        .map(session -> toCalendarResponse(
+            session, applicationsBySessionId.get(session.getId()), now))
         .toList();
   }
 
   /**
    * 점유되지 않은 세션은 즉시 {@code OPEN}으로 반환한다. 점유된 세션인데 활성 신청이 없으면
    * (claim 이후 release 실패로 남은 "유령 점유" — {@code 68-schoolcamp-application.md}
-   * "잔여 리스크" 참고) 예외로 전체 요청을 실패시키지 않고, 그 세션 하나만 이름 없이
-   * {@code CLOSED}로 방어적으로 채운 뒤 경고 로그를 남긴다 — 코드 리뷰(#68)에서 지적된 대로,
-   * 여기서 예외를 던지면 그 세션 하나가 아니라 이 메서드가 처리하던 스트림 전체가 중단되어
-   * 그 달의 캘린더 조회 자체가 500으로 막힌다.
+   * "잔여 리스크" 참고) 예외로 전체 요청을 실패시키지 않는다 — 코드 리뷰(#68)에서 지적된
+   * 대로, 여기서 예외를 던지면 그 세션 하나가 아니라 이 메서드가 처리하던 스트림 전체가
+   * 중단되어 그 달의 캘린더 조회 자체가 500으로 막힌다.
+   *
+   * <p>이 유령 후보가 {@link SchoolCampSessionClaimService#GRACE_PERIOD}보다 오래됐으면
+   * {@code claim}도 이미 재점유를 허용하는 상태이므로(#84) 화면도 {@code OPEN}으로
+   * 맞춘다 — 안 그러면 유저가 "마감"으로 보이는 날짜를 재신청 시도조차 하지 않아 즉시
+   * 회수 메커니즘이 실전에서 쓰이지 않는다. 아직 유예시간 안이면 정상 처리 중일 가능성을
+   * 배려해 기존처럼 방어적으로 {@code CLOSED}를 유지하고 경고 로그를 남긴다.
    */
   private SchoolCampCalendarResponse toCalendarResponse(
-      SchoolCampSession session, SchoolCampApplication application) {
+      SchoolCampSession session, SchoolCampApplication application, LocalDateTime now) {
     if (session.getTakenAt() == null) {
       return new SchoolCampCalendarResponse(
           session.getId(), session.getCampDate().format(YMD_FORMATTER),
@@ -180,7 +189,15 @@ public class SchoolCampService {
     }
 
     if (application == null) {
-      log.warn("점유된 세션에 활성 신청이 없습니다(유령 점유 의심): sessionId={}", session.getId());
+      boolean expired = session.getTakenAt()
+          .isBefore(now.minus(SchoolCampSessionClaimService.GRACE_PERIOD));
+      if (expired) {
+        return new SchoolCampCalendarResponse(
+            session.getId(), session.getCampDate().format(YMD_FORMATTER),
+            SchoolCampStatus.OPEN, null, null);
+      }
+      log.warn("점유된 세션에 활성 신청이 없습니다(유령 점유 의심, 유예시간 내): sessionId={}",
+          session.getId());
       return new SchoolCampCalendarResponse(
           session.getId(), session.getCampDate().format(YMD_FORMATTER),
           SchoolCampStatus.CLOSED, null, null);
@@ -230,7 +247,7 @@ public class SchoolCampService {
     try {
       return completeApplication(applicantUserId, session, request, additionalMembers);
     } catch (RuntimeException e) {
-      releaseQuietly(sessionId, e);
+      releaseQuietly(sessionId, now, e);
       throw e;
     }
   }
@@ -241,9 +258,10 @@ public class SchoolCampService {
    * 않고 그대로 다시 던질 수 있도록, release 실패는 로그로만 남기고 삼킨다 — 코드
    * 리뷰(#68) 지적 사항.
    */
-  private void releaseQuietly(Long sessionId, RuntimeException originalFailure) {
+  private void releaseQuietly(
+      Long sessionId, LocalDateTime takenAt, RuntimeException originalFailure) {
     try {
-      sessionClaimService.release(sessionId);
+      sessionClaimService.release(sessionId, takenAt);
     } catch (RuntimeException releaseFailure) {
       log.error("claim 이후 실패 처리 중 release마저 실패했습니다: sessionId={}, "
           + "원래 실패 원인={}", sessionId, originalFailure.toString(), releaseFailure);
@@ -261,6 +279,10 @@ public class SchoolCampService {
    * 반환을 같은 트랜잭션으로 묶어야, 이후 어떤 이유로든 커밋이 실패했을 때 두 변경이 함께
    * 롤백돼 "신청은 취소됐는데 세션은 여전히 잠긴" 불일치가 생기지 않는다 — claim/release가
    * REQUIRES_NEW라서 안았던 "release 실패 시 유령 점유" 잔여 리스크가 이 메서드에는 없다.
+   *
+   * <p>세션 반환 직후 그 세션이 속한 달의 대기자 전원에게 "자리가 났어요" 알림을
+   * 발송한다({@code SchoolCampWaitlistService#notifyForMonth}, #83). 같은 트랜잭션 안에서
+   * 실행되어, 취소 자체가 롤백되면 알림 저장도 함께 롤백된다.
    *
    * @param applicantUserId 취소를 요청한 사용자 ID(Access Token에서 추출됨)
    * @param applicationId   취소할 신청의 PK
@@ -281,7 +303,9 @@ public class SchoolCampService {
 
     application.setCancelledAt(now);
     applicationRepository.save(application);
-    sessionRepository.release(application.getSession().getId());
+    sessionRepository.release(
+        application.getSession().getId(), application.getSession().getTakenAt());
+    waitlistService.notifyForMonth(YearMonth.from(application.getSession().getCampDate()));
   }
 
   /**

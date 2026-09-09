@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "GONE - SchoolCamp API",
-    "description": "스쿨캠핑(SchoolCamp) 도메인 API 컬렉션. #67(세션 등록 + 캘린더 조회) 2개 + #68(신청) 1개 + #70(취소/수정) 2개 + #69(참여 내역 목록/상세) 2개, 총 7개 엔드포인트를 다룹니다.\n\n**폴더 구성**: \"사전 준비\" 폴더(관리자/학생/팀원 로그인 + 토큰 준비) 뒤에 최상위 \"스쿨캠핑 날짜 등록\"/\"스쿨캠핑 캘린더 조회\"/\"스쿨캠핑 신청\"/\"스쿨캠핑 신청 취소\"/\"스쿨캠핑 신청 수정\" → \"에러 케이스\" 폴더(관련 없는 순서로 무엇이든 실행 가능).\n\n**사전 준비**: `teacherLoginId`(teacher1)/`studentLoginId`(user1)/`loginId`(testuser01, #68 팀원용)/`loginId2`(testuser02, #70 월중복 시나리오용) 테스트 계정이 DB에 있어야 합니다. 관리자/학생 역할 부여 API가 아직 없어(#15 진행 중), `teacher1` 계정에 ADMIN 역할을, `testuser01`/`testuser02` 계정에 STUDENT 역할을 DB에서 직접 부여해야 각각 \"스쿨캠핑 날짜 등록\"과 팀원 관련 요청이 성공합니다(user_role 테이블에 직접 INSERT, 실행 후 원복 권장). #69의 선생님 조회(16~17단계)를 실행하려면 `testuser01` 계정에 TEACHER 역할도 추가로 임시 부여해야 합니다(같은 방식).\n\n**검증 폴더**: 두 엔드포인트를 처음부터 끝까지 순서대로 확인하는 \"#67 세션 등록 + 캘린더 조회 확인\" 폴더, 신청 엔드포인트의 정상/에러 시나리오를 재현하는 \"#68 스쿨캠핑 신청 확인\" 폴더, 취소/수정 시나리오를 재현하는 \"#70 스쿨캠핑 신청 취소/수정 확인\" 폴더, 참여 내역 목록/상세와 참여자 아님 403을 재현하는 \"#69 스쿨캠핑 참여 내역 확인\" 폴더를 각각 추가했습니다. #70 폴더의 \"당일 취소 금지\" 검증 요청은 실행 시점의 로컬 머신 날짜(KST 가정)를 pre-request 스크립트로 계산해 오늘 날짜 세션을 등록하므로, 금/토/일에 실행하면 그 등록 요청 자체가 400으로 실패한다.",
+    "description": "스쿨캠핑(SchoolCamp) 도메인 API 컬렉션. #67(세션 등록 + 캘린더 조회) 2개 + #68(신청) 1개 + #70(취소/수정) 2개 + #69(참여 내역 목록/상세) 2개 + #83(자리나면 알림받기 등록/취소/조회) 3개, 총 10개 엔드포인트를 다룹니다.\n\n**폴더 구성**: \"사전 준비\" 폴더(관리자/학생/팀원 로그인 + 토큰 준비) 뒤에 최상위 \"스쿨캠핑 날짜 등록\"/\"스쿨캠핑 캘린더 조회\"/\"스쿨캠핑 신청\"/\"스쿨캠핑 신청 취소\"/\"스쿨캠핑 신청 수정\"/\"스쿨캠핑 자리나면 알림받기 등록\"/\"스쿨캠핑 자리나면 알림받기 취소\"/\"스쿨캠핑 자리나면 알림받기 상태 조회\" → \"에러 케이스\" 폴더(관련 없는 순서로 무엇이든 실행 가능).\n\n**사전 준비**: `teacherLoginId`(teacher1)/`studentLoginId`(user1)/`loginId`(testuser01, #68 팀원용)/`loginId2`(testuser02, #70 월중복 시나리오용) 테스트 계정이 DB에 있어야 합니다. 관리자/학생 역할 부여 API가 아직 없어(#15 진행 중), `teacher1` 계정에 ADMIN 역할을, `testuser01`/`testuser02` 계정에 STUDENT 역할을 DB에서 직접 부여해야 각각 \"스쿨캠핑 날짜 등록\"과 팀원 관련 요청이 성공합니다(user_role 테이블에 직접 INSERT, 실행 후 원복 권장). #69의 선생님 조회(16~17단계)를 실행하려면 `testuser01` 계정에 TEACHER 역할도 추가로 임시 부여해야 합니다(같은 방식).\n\n**검증 폴더**: 두 엔드포인트를 처음부터 끝까지 순서대로 확인하는 \"#67 세션 등록 + 캘린더 조회 확인\" 폴더, 신청 엔드포인트의 정상/에러 시나리오를 재현하는 \"#68 스쿨캠핑 신청 확인\" 폴더, 취소/수정 시나리오를 재현하는 \"#70 스쿨캠핑 신청 취소/수정 확인\" 폴더, 참여 내역 목록/상세와 참여자 아님 403을 재현하는 \"#69 스쿨캠핑 참여 내역 확인\" 폴더, 대기 등록 후 다른 학생의 취소가 실제로 알림을 발송시키는지(그리고 releaseQuietly 경로는 발송시키지 않는지는 QA 문서에서 별도 확인) 재현하는 \"#83 스쿨캠핑 자리나면 알림받기 확인\" 폴더를 각각 추가했습니다. #70 폴더의 \"당일 취소 금지\" 검증 요청은 실행 시점의 로컬 머신 날짜(KST 가정)를 pre-request 스크립트로 계산해 오늘 날짜 세션을 등록하므로, 금/토/일에 실행하면 그 등록 요청 자체가 400으로 실패한다. \"#83 스쿨캠핑 자리나면 알림받기 확인\" 폴더의 campDateWaitlistTrigger도 실행 시점의 \"이번 달\" 안의 미등록 평일 날짜로 미리 맞춰둬야 한다(자동 계산 아님, 환경 변수 직접 수정).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -567,6 +567,124 @@
           ]
         },
         "description": "참여 신청 1건의 상세(담당 선생님/팀원 전체)를 조회한다(#69). STUDENT/TEACHER 둘 다 호출 가능. 본인이 그 신청의 참여자(대표, 팀원, 또는 담당 선생님)가 아니면 403 SCHOOLCAMP_013. 취소된 신청도 조회할 수 있다. 실행 전에 schoolCampApplicationId가 studentAccessToken/memberAccessToken 소유(또는 참여 중인) 신청을 가리켜야 한다 — 상세 순서는 \"#69 스쿨캠핑 참여 내역 확인\" 폴더 참고."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "스쿨캠핑 자리나면 알림받기 등록",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{studentAccessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/school-camps/waitlist",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "school-camps",
+            "waitlist"
+          ]
+        },
+        "description": "이번 달(요청 시점 기준) \"자리나면 알림받기\"를 등록한다(#83). 파라미터 없음 — 서버가 항상 \"지금 이 순간의 이번 달\"만 다룬다. 이미 취소된 적 있는 같은 달 행이 있으면 새로 만들지 않고 재활성화한다. 201 Created."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"201 Created\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "스쿨캠핑 자리나면 알림받기 취소",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{studentAccessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/school-camps/waitlist",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "school-camps",
+            "waitlist"
+          ]
+        },
+        "description": "이번 달 \"자리나면 알림받기\"를 취소한다(#83). 파라미터 없음. 200 OK, data는 null. 실행 전에 등록이 먼저 되어 있어야 한다."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "스쿨캠핑 자리나면 알림받기 상태 조회",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{studentAccessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/school-camps/waitlist/me",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "school-camps",
+            "waitlist",
+            "me"
+          ]
+        },
+        "description": "이번 달 \"자리나면 알림받기\" 등록 상태를 조회한다(#83). 파라미터 없음. registered=true/false와 registeredAt을 반환한다."
       },
       "response": [],
       "event": [
@@ -1247,6 +1365,222 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "이번 달에 이미 등록된 상태에서 재등록 시도 → 409 SCHOOLCAMP_014 (#83)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/waitlist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "waitlist"
+              ]
+            },
+            "description": "실행 전에 '스쿨캠핑 자리나면 알림받기 등록'을 먼저 실행해 이번 달 등록이 유효한 상태여야 한다."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409 SCHOOLCAMP_014 (#83)\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "등록된 적 없는 상태에서 대기 취소 시도 → 404 SCHOOLCAMP_015 (#83)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/waitlist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "waitlist"
+              ]
+            },
+            "description": "실행 전에 이번 달 대기 등록이 없는(또는 이미 취소된) 상태여야 한다."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"404 SCHOOLCAMP_015 (#83)\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "TEACHER 계정으로 대기 등록 시도 → 403 (#83, STUDENT 전용)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/waitlist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "waitlist"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403 (#83, STUDENT 전용)\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "인증 없이 대기 등록 시도 → 401 (#83)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/waitlist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "waitlist"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401 (#83)\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "인증 없이 대기 취소 시도 → 401 (#83)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/waitlist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "waitlist"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401 (#83)\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "인증 없이 대기 상태 조회 시도 → 401 (#83)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/waitlist/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "waitlist",
+                "me"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401 (#83)\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -4625,6 +4959,537 @@
                   "    pm.response.to.have.status(200);",
                   "    pm.expect(pm.response.json().data.myRole).to.eql(\"TEACHER\");",
                   "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "#83 스쿨캠핑 자리나면 알림받기 확인",
+      "item": [
+        {
+          "name": "1. 학생 로그인 (user1)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"identifier\": \"{{studentLoginId}}\", \"password\": \"{{studentPassword}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"studentAccessToken\", body.data.accessToken);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. 등록 전 상태 조회 → registered:false",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/waitlist/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "waitlist",
+                "me"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"registered:false\", function () {",
+                  "    pm.expect(pm.response.json().data.registered).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. 이번 달 대기 등록 → 201",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/waitlist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "waitlist"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", function () { pm.response.to.have.status(201); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. 등록 후 상태 조회 → registered:true",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/waitlist/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "waitlist",
+                "me"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"registered:true\", function () {",
+                  "    pm.expect(pm.response.json().data.registered).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. 중복 등록 시도 → 409 SCHOOLCAMP_014",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/waitlist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "waitlist"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409\", function () { pm.response.to.have.status(409); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6. 관리자 로그인 (teacher1, ADMIN)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"identifier\": \"{{teacherLoginId}}\", \"password\": \"{{teacherPassword}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"teacherAccessToken\", body.data.accessToken);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7. 날짜 등록 (campDateWaitlistTrigger, 이번 달)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"campDates\": [\"{{campDateWaitlistTrigger}}\"]}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "campDateWaitlistTrigger는 이 컬렉션을 실행하는 시점의 \"이번 달\" 안의 미등록 평일 날짜로 미리 맞춰둬야 한다 - 자리나면 알림받기는 세션의 캠핑 날짜가 속한 달로 대기자를 조회하므로, 2번에서 등록한 대기와 같은 달이어야 알림이 발송된다."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", function () { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    pm.environment.set(\"schoolCampSessionIdWaitlist\", body.data[0].sessionId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "8. 팀원2 학생 로그인 (testuser02)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"identifier\": \"{{loginId2}}\", \"password\": \"{{password2}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"member2AccessToken\", body.data.accessToken);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9. 신청 (testuser02, 7번 세션)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{member2AccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/{{schoolCampSessionIdWaitlist}}/applications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "{{schoolCampSessionIdWaitlist}}",
+                "applications"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"teacherName\": \"QA선생님\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", function () { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    pm.environment.set(\"schoolCampApplicationIdWaitlist\", body.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10. 신청 취소 → 1번 학생에게 알림 발송(서버 DB로 별도 확인, QA 문서 참고)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{member2AccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/applications/{{schoolCampApplicationIdWaitlist}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "applications",
+                "{{schoolCampApplicationIdWaitlist}}"
+              ]
+            },
+            "description": "이 취소로 SchoolCampService.cancelApplication이 waitlistService.notifyForMonth를 호출해, 2/3번에서 등록한 1번 학생(user1)에게 \"스쿨캠핑 자리가 났어요!\" 알림이 저장된다. 조회 API가 아직 없어(#59/#65 범위 밖) Postman에서 직접 확인할 수는 없다 - 실제 발송 여부는 QA 문서(83-schoolcamp-waitlist-notification-QA.md)에서 DB로 확인했다."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11. 상태 재조회(1번 학생) → 알림 받아도 등록은 자동 해제되지 않음",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/waitlist/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "waitlist",
+                "me"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"registered:true 유지\", function () {",
+                  "    pm.expect(pm.response.json().data.registered).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12. 정리: 대기 취소",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/school-camps/waitlist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "school-camps",
+                "waitlist"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () { pm.response.to.have.status(200); });"
                 ]
               }
             }

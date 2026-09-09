@@ -10,11 +10,15 @@ import com.remake.gone.schoolcamp.dto.SchoolCampCalendarResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampMyParticipationResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampMyParticipationSummaryResponse;
 import com.remake.gone.schoolcamp.dto.SchoolCampSessionResponse;
+import com.remake.gone.schoolcamp.dto.SchoolCampWaitlistResponse;
+import com.remake.gone.schoolcamp.dto.SchoolCampWaitlistStatusResponse;
 import com.remake.gone.schoolcamp.service.SchoolCampService;
+import com.remake.gone.schoolcamp.service.SchoolCampWaitlistService;
 import jakarta.validation.Valid;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -43,6 +47,7 @@ public class SchoolCampController {
   private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
   private final SchoolCampService schoolCampService;
+  private final SchoolCampWaitlistService schoolCampWaitlistService;
 
   /**
    * 다음 달 스쿨캠핑 가능 날짜를 관리자가 일괄 등록합니다.
@@ -73,7 +78,8 @@ public class SchoolCampController {
   public ApiResponse<List<SchoolCampCalendarResponse>> getCalendar(
       @RequestParam @DateTimeFormat(pattern = "yyyyMM") YearMonth month
   ) {
-    List<SchoolCampCalendarResponse> response = schoolCampService.getCalendar(month);
+    List<SchoolCampCalendarResponse> response =
+        schoolCampService.getCalendar(month, LocalDateTime.now(KST));
     return ApiResponse.success(response, "스쿨캠핑 일정을 조회했습니다.");
   }
 
@@ -138,8 +144,13 @@ public class SchoolCampController {
       @PathVariable Long sessionId,
       @Valid @RequestBody SchoolCampApplyRequest request
   ) {
-    SchoolCampApplicationResponse response = schoolCampService.applyToCamp(
-        principal.userId(), sessionId, request, LocalDateTime.now(KST));
+    // MySQL의 taken_at 컬럼은 DATETIME(소수점 이하 초 없음)이라 저장 시 나노초가
+    // 잘려나간다 — claim에 쓰는 시각을 여기서 미리 초 단위로 잘라둬야, claim 이후 실패
+    // 시 release(sessionId, now)의 CAS 비교(taken_at = :expectedTakenAt, #84)가 DB에
+    // 실제로 저장된 값과 항상 정확히 일치한다(안 그러면 release가 조용히 매번 실패한다).
+    LocalDateTime now = LocalDateTime.now(KST).truncatedTo(ChronoUnit.SECONDS);
+    SchoolCampApplicationResponse response =
+        schoolCampService.applyToCamp(principal.userId(), sessionId, request, now);
     return ApiResponse.success(response, "스쿨캠핑 신청이 완료되었습니다.");
   }
 
@@ -181,5 +192,55 @@ public class SchoolCampController {
     SchoolCampApplicationResponse response =
         schoolCampService.updateApplication(principal.userId(), applicationId, request);
     return ApiResponse.success(response, "신청 정보가 수정되었습니다.");
+  }
+
+  /**
+   * 이번 달 "자리나면 알림받기"를 등록합니다. 파라미터 없이 요청 시점의 "이번 달"만
+   * 다룹니다(#83). {@code STUDENT} 역할만 등록할 수 있습니다.
+   *
+   * @param principal 인증 필터가 Access Token에서 추출한 현재 사용자
+   * @return 등록된 대기 정보
+   */
+  @PostMapping("/waitlist")
+  @ResponseStatus(HttpStatus.CREATED)
+  @PreAuthorize("hasRole('STUDENT')")
+  public ApiResponse<SchoolCampWaitlistResponse> registerWaitlist(
+      @AuthenticationPrincipal UserPrincipal principal
+  ) {
+    SchoolCampWaitlistResponse response =
+        schoolCampWaitlistService.register(principal.userId(), LocalDateTime.now(KST));
+    return ApiResponse.success(response, "자리나면 알림받기를 등록했습니다.");
+  }
+
+  /**
+   * 이번 달 "자리나면 알림받기"를 취소합니다(#83).
+   *
+   * @param principal 인증 필터가 Access Token에서 추출한 현재 사용자
+   * @return 데이터 없는 성공 응답
+   */
+  @DeleteMapping("/waitlist")
+  @PreAuthorize("hasRole('STUDENT')")
+  public ApiResponse<Void> cancelWaitlist(
+      @AuthenticationPrincipal UserPrincipal principal
+  ) {
+    schoolCampWaitlistService.cancel(principal.userId(), LocalDateTime.now(KST));
+    return ApiResponse.success(null, "자리나면 알림받기를 취소했습니다.");
+  }
+
+  /**
+   * 이번 달 "자리나면 알림받기" 등록 상태를 조회합니다(#83). 캘린더에서 버튼을 "등록됨"/
+   * "등록 안 됨" 어느 상태로 그릴지 판단하는 용도입니다.
+   *
+   * @param principal 인증 필터가 Access Token에서 추출한 현재 사용자
+   * @return 등록 상태
+   */
+  @GetMapping("/waitlist/me")
+  @PreAuthorize("hasRole('STUDENT')")
+  public ApiResponse<SchoolCampWaitlistStatusResponse> getWaitlistStatus(
+      @AuthenticationPrincipal UserPrincipal principal
+  ) {
+    SchoolCampWaitlistStatusResponse response =
+        schoolCampWaitlistService.getStatus(principal.userId(), LocalDateTime.now(KST));
+    return ApiResponse.success(response, "대기 등록 상태를 조회했습니다.");
   }
 }

@@ -9,7 +9,7 @@ import org.springframework.http.HttpStatus;
  * <p>코드 네이밍 규칙: {@code SCHOOLCAMP_NNN} (NNN은 3자리 순번). 번호는 마스터 기획서
  * (`docs/domain/schoolcamp/1_schoolcamp-domain.md`)의 전체 목록 중 실제로 구현되는 순서대로
  * 채운다 — #67에서는 005/006만 쓰였고, #68은 001/002/003/004/008을, #70은
- * 007/009/010/011을, #69는 012/013을 쓴다.
+ * 007/009/010/011을, #69는 012/013을, #83은 014/015를 쓴다.
  *
  * @see ErrorCode
  */
@@ -119,7 +119,22 @@ public enum SchoolCampErrorCode implements ErrorCode {
    * 이 코드는 읽기 전용 상세 조회에서, 대표든 팀원이든 참여자가 아니면 쓴다.
    */
   NOT_APPLICATION_PARTICIPANT(
-      HttpStatus.FORBIDDEN, "SCHOOLCAMP_013", "본인이 참여한 신청만 조회할 수 있습니다.");
+      HttpStatus.FORBIDDEN, "SCHOOLCAMP_013", "본인이 참여한 신청만 조회할 수 있습니다."),
+
+  /**
+   * 이번 달에 이미 유효한 "자리나면 알림받기" 대기 등록이 있습니다({@code #83}).
+   *
+   * <p>{@code (student_user_id, month)} 유니크 제약(V14) 위반({@code DataIntegrityViolation
+   * Exception}, 동시 등록 레이스)도 이 코드로 변환한다.
+   */
+  ALREADY_REGISTERED_WAITLIST(HttpStatus.CONFLICT, "SCHOOLCAMP_014", "이미 대기 등록되어 있습니다."),
+
+  /**
+   * 이번 달에 유효한 "자리나면 알림받기" 대기 등록을 찾을 수 없습니다({@code #83}).
+   *
+   * <p>등록된 적이 없거나 이미 취소된 상태에서 다시 취소를 시도할 때 쓴다.
+   */
+  WAITLIST_NOT_FOUND(HttpStatus.NOT_FOUND, "SCHOOLCAMP_015", "유효한 대기 등록을 찾을 수 없습니다.");
 
   private final HttpStatus httpStatus;
   private final String code;

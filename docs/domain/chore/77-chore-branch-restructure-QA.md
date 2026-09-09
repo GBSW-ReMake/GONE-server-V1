@@ -21,11 +21,15 @@ QA 대상: `chore/#77-branch-restructure` 브랜치(기획서 "구현 순서" 4�
    생성 직후 Actions에서 `checkstyle`(pass, 1m52s), `build-and-test`(pass, 3m3s) 확인,
    `build-and-push-image`/`deploy-staging`은 의도대로 `skipping` 처리됨(PR 컨텍스트라
    push 조건 불충족 — 기획서 "테스트/검증" 절이 요구한 그대로 동작).
-2. **`staging` 실제 배포 검증은 이 PR의 머지만으로는 불가능**: 기획서 "구현 순서" 5~6번대로,
-   `deploy-staging` job의 새 조건(`environment: STAGING`, `refs/heads/staging`)과 새
-   Discord 알림 포맷은 `dev` → `staging` **승격 PR**이 머지돼 `staging`에 실제로 push가
-   일어나야 실행된다. 이 QA 시점(← `dev`로의 PR)에서는 해당 없음 — 승격 PR 이후 별도로
-   헬스체크·Discord 알림 포맷을 확인해야 한다(기획서 "테스트/검증" 절 그대로).
+2. ~~`staging` 실제 배포 검증은 이 PR의 머지만으로는 불가능~~ → **해소됨**: PR #87(승격
+   PR) 머지로 `staging`에 실제 push 발생, 워크플로우 런
+   [32438648615](https://github.com/GBSW-ReMake/GONE-server-V1/actions/runs/32438648615)에서
+   `checkstyle`→`build-and-test`→`build-and-push-image`→`deploy-staging` 전부
+   success 확인. 파이프라인 내장 헬스체크 통과 + 외부에서 직접
+   `curl http://<EC2_HOST>:80`으로 재확인(HTTP 404, "5xx 아니면 정상" 기준 정상). 새
+   Discord 알림도 "Discord 알림 (staging 배포 성공)" 스텝에서 698바이트 payload
+   정상 전송(에러 없음), 로그의 모든 시크릿 값이 `***`로 마스킹됨을 확인해 유출
+   없음도 함께 확인했다.
 
 ### Low
 없음(코드 리뷰의 Low 1건은 이미 반영해 커밋함).
@@ -43,8 +47,11 @@ QA 대상: `chore/#77-branch-restructure` 브랜치(기획서 "구현 순서" 4�
 - `docs/rules/pr-template.md`, `docs/rules/progress-tracking.md`도 기획서 "문서 갱신 대상"
   절이 요구한 내용을 전부 반영했는지 재확인 — 반영 완료(코드 리뷰 문서에서도 동일하게 확인됨).
 
-## 남은 절차 (QA 범위 밖, 참고용)
-1. 이 PR을 `dev`로 생성 → 머지 → Actions에서 CI 통과 확인(Medium 1번 해소)
-2. `dev` → `staging` 승격 PR 생성 → 머지 → 헬스체크 + 새 Discord 알림 포맷 확인(Medium 2번
-   해소)
-3. 검증 끝나면 기존 `DEV` GitHub Environment 삭제
+## 남은 절차 (완료)
+1. ~~이 PR을 `dev`로 생성 → 머지 → Actions에서 CI 통과 확인~~ 완료(PR #85, #86)
+2. ~~`dev` → `staging` 승격 PR 생성 → 머지 → 헬스체크 + 새 Discord 알림 포맷 확인~~
+   완료(PR #87)
+3. ~~검증 끝나면 기존 `DEV` GitHub Environment 삭제~~ 완료 — 이제 Environment는
+   `copilot`, `STAGING` 둘만 남음
+
+Critical/High/Medium/Low 전부 해소되어 #77 작업이 최종 완료됐다.

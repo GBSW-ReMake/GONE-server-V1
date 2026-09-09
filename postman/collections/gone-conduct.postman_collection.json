@@ -1,0 +1,2634 @@
+{
+  "info": {
+    "name": "GONE - Conduct API",
+    "description": "GONE - Conduct API 컬렉션. #92 카테고리 목록 조회, #94 상/벌점 부여, #107 정정·취소 엔드포인트 포함.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "사전 준비",
+      "item": [
+        {
+          "name": "학생 로그인",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{studentLoginId}}\",\n  \"password\": \"{{studentPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"studentAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));",
+                  "        pm.environment.set(\"studentUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "교사 로그인",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{teacherLoginId}}\",\n  \"password\": \"{{teacherPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"teacherAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));",
+                  "        pm.environment.set(\"teacherUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "선도부 로그인",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{disciplineLoginId}}\",\n  \"password\": \"{{disciplinePassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"disciplineAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split(\".\")[1].replace(/-/g,\"+\").replace(/_/g,\"/\")));",
+                  "        pm.environment.set(\"disciplineUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "카테고리 목록 조회",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{studentAccessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/conduct-records/categories",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "conduct-records",
+            "categories"
+          ]
+        },
+        "description": "활성 카테고리 목록을 조회합니다. 인증된 사용자 전체가 접근할 수 있습니다(#92).\n\n**응답**: `data` 배열에 `id`/`label`/`type`/`points` 포함. `id`는 이후 부여 요청의 `categoryId`로 그대로 사용합니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"success true\", function () {",
+              "    pm.expect(pm.response.json().success).to.be.true;",
+              "});",
+              "",
+              "pm.test(\"72개 카테고리 반환\", function () {",
+              "    pm.expect(pm.response.json().data.length).to.eql(72);",
+              "});",
+              "",
+              "pm.test(\"첫 항목이 MERIT\", function () {",
+              "    pm.expect(pm.response.json().data[0].type).to.eql(\"MERIT\");",
+              "});",
+              "",
+              "pm.test(\"points 필드 존재\", function () {",
+              "    const first = pm.response.json().data[0];",
+              "    pm.expect(first).to.have.property(\"id\");",
+              "    pm.expect(first).to.have.property(\"label\");",
+              "    pm.expect(first).to.have.property(\"type\");",
+              "    pm.expect(first).to.have.property(\"points\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "상/벌점 부여",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{teacherAccessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"studentUserId\": {{studentUserId}},\n  \"categoryId\": 1,\n  \"detail\": \"테스트 사유\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/conduct-records",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "conduct-records"
+          ]
+        },
+        "description": "교사가 학생에게 상점 또는 벌점을 부여합니다(#94).\n\n**권한**: TEACHER 전용. 학생/미인증 요청은 403/401 반환.\n\n**응답**: `201 Created`. `data`에 `id`/`studentUserId`/`studentNickname`/`teacherUserId`/`teacherNickname`/`categoryId`/`categoryLabel`/`type`/`points`/`detail`/`status`/`createdAt` 포함.\n\n**사전 조건**: \"사전 준비 > 교사 로그인\"으로 `teacherAccessToken` 설정, \"사전 준비 > 학생 로그인\"으로 `studentUserId` 설정."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"201 Created\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"success true\", function () {",
+              "    pm.expect(pm.response.json().success).to.be.true;",
+              "});",
+              "",
+              "pm.test(\"응답 필드 존재\", function () {",
+              "    const data = pm.response.json().data;",
+              "    pm.expect(data).to.have.property(\"id\");",
+              "    pm.expect(data).to.have.property(\"studentUserId\");",
+              "    pm.expect(data).to.have.property(\"studentNickname\");",
+              "    pm.expect(data).to.have.property(\"teacherUserId\");",
+              "    pm.expect(data).to.have.property(\"teacherNickname\");",
+              "    pm.expect(data).to.have.property(\"categoryId\");",
+              "    pm.expect(data).to.have.property(\"categoryLabel\");",
+              "    pm.expect(data).to.have.property(\"type\");",
+              "    pm.expect(data).to.have.property(\"points\");",
+              "    pm.expect(data).to.have.property(\"status\");",
+              "    pm.expect(data).to.have.property(\"createdAt\");",
+              "});",
+              "",
+              "pm.test(\"status가 ACTIVE\", function () {",
+              "    pm.expect(pm.response.json().data.status).to.eql(\"ACTIVE\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "상/벌점 정정",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{teacherAccessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"categoryId\": 20, \"detail\": \"수정된 상세 사유\"}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/conduct-records/{{recordId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "conduct-records",
+            "{{recordId}}"
+          ]
+        },
+        "description": "TEACHER 또는 ADMIN이 기존 상/벌점 기록을 정정한다. categoryId 또는 detail 중 하나 이상 필수."
+      },
+      "response": []
+    },
+    {
+      "name": "상/벌점 취소",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{teacherAccessToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"cancelReason\": \"오인 부여로 확인됨\"}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/conduct-records/{{recordId}}/cancel",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "conduct-records",
+            "{{recordId}}",
+            "cancel"
+          ]
+        },
+        "description": "TEACHER 또는 ADMIN이 기존 상/벌점 기록을 취소한다. 취소는 되돌릴 수 없다."
+      },
+      "response": []
+    },
+    {
+      "name": "학생 본인 누적 점수 요약 조회",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{studentAccessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/conduct-records/me/summary",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "conduct-records",
+            "me",
+            "summary"
+          ]
+        }
+      }
+    },
+    {
+      "name": "학생 본인 이력 조회",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{studentAccessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/conduct-records/me?type=DEMERIT&page=0&size=20",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "conduct-records",
+            "me"
+          ],
+          "query": [
+            {
+              "key": "type",
+              "value": "DEMERIT"
+            },
+            {
+              "key": "page",
+              "value": "0"
+            },
+            {
+              "key": "size",
+              "value": "20"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "특정 학생 누적 점수 요약 조회",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{teacherAccessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/conduct-records/summary?studentUserId=1",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "conduct-records",
+            "summary"
+          ],
+          "query": [
+            {
+              "key": "studentUserId",
+              "value": "1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "전체·특정 학생 이력 조회",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{teacherAccessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/conduct-records?page=0&size=20",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "conduct-records"
+          ],
+          "query": [
+            {
+              "key": "page",
+              "value": "0"
+            },
+            {
+              "key": "size",
+              "value": "20"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "상/벌점 요청 생성",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{disciplineAccessToken}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"studentUserId\": {{studentUserId}},\n  \"assigneeUserId\": {{teacherUserId}},\n  \"categoryId\": 1,\n  \"detail\": \"3교시 10분 지각\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/conduct-requests",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "conduct-requests"
+          ]
+        },
+        "description": "선도부가 교사·관리자에게 상/벌점 부여를 요청합니다(#122).\n\n**권한**: DISCIPLINE\n**응답**: `201 Created`, `status: PENDING`"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"201 Created\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"success true\", function () {",
+              "    pm.expect(pm.response.json().success).to.be.true;",
+              "});",
+              "",
+              "pm.test(\"status PENDING\", function () {",
+              "    pm.expect(pm.response.json().data.status).to.eql(\"PENDING\");",
+              "});",
+              "",
+              "if (pm.response.code === 201) {",
+              "    pm.environment.set(\"conductRequestId\", pm.response.json().data.id);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "상/벌점 요청 취소",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{disciplineAccessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/conduct-requests/{{conductRequestId}}/cancel",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "conduct-requests",
+            "{{conductRequestId}}",
+            "cancel"
+          ]
+        },
+        "description": "선도부가 본인이 등록한 상/벌점 요청을 취소합니다(#122).\n\n**권한**: DISCIPLINE (요청자 본인만)\n**응답**: `200 OK`, `status: CANCELED`"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"success true\", function () {",
+              "    pm.expect(pm.response.json().success).to.be.true;",
+              "});",
+              "",
+              "pm.test(\"status CANCELED\", function () {",
+              "    pm.expect(pm.response.json().data.status).to.eql(\"CANCELED\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "에러 케이스",
+      "item": [
+        {
+          "name": "인증 없이 카테고리 목록 조회 → 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/categories",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "categories"
+              ]
+            },
+            "description": "Authorization 헤더 없이 요청하면 401을 반환해야 합니다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401 Unauthorized\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test(\"success false\", function () {",
+                  "    pm.expect(pm.response.json().success).to.be.false;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "학생 토큰으로 부여 → 403 COMMON_003",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"studentUserId\": {{studentUserId}},\n  \"categoryId\": 1,\n  \"detail\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records"
+              ]
+            },
+            "description": "STUDENT 권한 토큰으로 부여 요청 시 403 COMMON_003을 반환해야 합니다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403 Forbidden\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "",
+                  "pm.test(\"COMMON_003\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"COMMON_003\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "인증 없이 부여 → 401 COMMON_002",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"studentUserId\": 1,\n  \"categoryId\": 1,\n  \"detail\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records"
+              ]
+            },
+            "description": "인증 없이 부여 요청 시 401 COMMON_002를 반환해야 합니다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401 Unauthorized\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test(\"COMMON_002\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"COMMON_002\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "존재하지 않는 studentUserId → 404 CONDUCT_005",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"studentUserId\": 999999,\n  \"categoryId\": 1,\n  \"detail\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records"
+              ]
+            },
+            "description": "존재하지 않는 studentUserId로 요청 시 404 CONDUCT_005를 반환해야 합니다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"404 Not Found\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test(\"CONDUCT_005\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"CONDUCT_005\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "studentUserId에 교사 ID 입력 (역할 불일치) → 400 CONDUCT_006",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"studentUserId\": {{teacherUserId}},\n  \"categoryId\": 1,\n  \"detail\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records"
+              ]
+            },
+            "description": "studentUserId에 교사의 ID를 입력하면 STUDENT 역할이 없으므로 400 CONDUCT_006을 반환해야 합니다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test(\"CONDUCT_006\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"CONDUCT_006\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "존재하지 않는 categoryId → 400 CONDUCT_004",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"studentUserId\": {{studentUserId}},\n  \"categoryId\": 999999,\n  \"detail\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records"
+              ]
+            },
+            "description": "존재하지 않는 categoryId로 요청 시 400 CONDUCT_004를 반환해야 합니다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 Bad Request\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test(\"CONDUCT_004\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"CONDUCT_004\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "존재하지 않는 recordId 정정 → 404 CONDUCT_001",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{teacherAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"detail\": \"없는 기록\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/99999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "99999"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "타 교사 기록 정정 시도 → 403 CONDUCT_002",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{otherTeacherAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"detail\": \"타 교사 수정 시도\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/{{recordId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "{{recordId}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "이미 취소된 기록 재취소 → 409 CONDUCT_003",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{teacherAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"cancelReason\": \"재취소 시도\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/{{canceledRecordId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "{{canceledRecordId}}",
+                "cancel"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "양 필드 모두 null 정정 → 400 COMMON_001",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{teacherAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/{{recordId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "{{recordId}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "page=-1 → 400 CONDUCT_007",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/me?page=-1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "me"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "-1"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "size=101 → 400 CONDUCT_007",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/me?size=101",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "me"
+              ],
+              "query": [
+                {
+                  "key": "size",
+                  "value": "101"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "dateFrom만 제공 → 400 CONDUCT_008",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/me?dateFrom=20260824",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "me"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "20260824"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "dateFrom > dateTo → 400 CONDUCT_008",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/me?dateFrom=20260831&dateTo=20260801",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "me"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "20260831"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "20260801"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "교사 토큰으로 /me/summary → 403 COMMON_003",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/me/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "me",
+                "summary"
+              ]
+            }
+          }
+        },
+        {
+          "name": "studentUserId 없이 /summary 호출 → 400 COMMON_001",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "summary"
+              ]
+            }
+          }
+        },
+        {
+          "name": "존재하지 않는 studentUserId → 404 CONDUCT_005 (summary)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/summary?studentUserId=999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "summary"
+              ],
+              "query": [
+                {
+                  "key": "studentUserId",
+                  "value": "999"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "STUDENT 역할 아닌 userId → 400 CONDUCT_006 (summary)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/summary?studentUserId=2",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "summary"
+              ],
+              "query": [
+                {
+                  "key": "studentUserId",
+                  "value": "2"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "상/벌점 요청 생성 — 배정 대상자 역할 오류 (CONDUCT_013)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{disciplineAccessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"studentUserId\": {{studentUserId}},\n  \"assigneeUserId\": {{studentUserId}},\n  \"categoryId\": 1,\n  \"detail\": \"테스트\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-requests"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 CONDUCT_013\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "    pm.expect(pm.response.json().code).to.eql(\"CONDUCT_013\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "상/벌점 요청 취소 — 타인 요청 취소 시도 (CONDUCT_010)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{discipline2AccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-requests/{{conductRequestId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-requests",
+                "{{conductRequestId}}",
+                "cancel"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403 CONDUCT_010\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "    pm.expect(pm.response.json().code).to.eql(\"CONDUCT_010\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "상/벌점 부여 확인 (#94)",
+      "description": "이슈 #94 부여 엔드포인트 전체 시나리오를 처음부터 끝까지 확인하는 폴더.\n\n**실행 순서**: 교사 로그인 → 학생 로그인 → 카테고리 목록 조회 → 상/벌점 부여.",
+      "item": [
+        {
+          "name": "1. 교사 로그인",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{teacherLoginId}}\",\n  \"password\": \"{{teacherPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"teacherAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));",
+                  "        pm.environment.set(\"teacherUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. 학생 로그인",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{studentLoginId}}\",\n  \"password\": \"{{studentPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"studentAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));",
+                  "        pm.environment.set(\"studentUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. 카테고리 목록 조회",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/categories",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "categories"
+              ]
+            },
+            "description": "부여할 categoryId 확인용."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. 상/벌점 부여",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"studentUserId\": {{studentUserId}},\n  \"categoryId\": 1,\n  \"detail\": \"3교시 10분 지각\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test(\"success true\", function () {",
+                  "    pm.expect(pm.response.json().success).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test(\"status가 ACTIVE\", function () {",
+                  "    pm.expect(pm.response.json().data.status).to.eql(\"ACTIVE\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "상/벌점 정정·취소 확인 (#107)",
+      "item": [
+        {
+          "name": "1. 교사 로그인",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var res = pm.response.json();",
+                  "if (res.success) {",
+                  "  pm.collectionVariables.set('teacherAccessToken', res.data.accessToken);",
+                  "  pm.collectionVariables.set('teacherUserId', res.data.userId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"identifier\": \"qatest_teacher\", \"password\": \"{{teacherPassword}}\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "2. 상/벌점 부여 (정정·취소 대상 기록 생성)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var res = pm.response.json();",
+                  "if (res.success) pm.collectionVariables.set('recordId', res.data.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{teacherAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"studentUserId\": \"{{studentUserId}}\", \"categoryId\": 19, \"detail\": \"QA 테스트 기록\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3. 정정 (categoryId + detail)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{teacherAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"categoryId\": 20, \"detail\": \"수정된 사유\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/{{recordId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "{{recordId}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "4. 취소",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{teacherAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"cancelReason\": \"QA 취소 확인\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/{{recordId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "{{recordId}}",
+                "cancel"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "학생 본인 조회 확인 (#111)",
+      "item": [
+        {
+          "name": "1. 학생 로그인",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"identifier\": \"qatest_student\", \"password\": \"{{studentPassword}}\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          }
+        },
+        {
+          "name": "2. 누적 점수 요약 조회",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/me/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "me",
+                "summary"
+              ]
+            }
+          }
+        },
+        {
+          "name": "3. 이력 전체 조회 (필터 없음)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/me?page=0&size=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "me"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "4. 벌점만 필터 조회",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/me?type=DEMERIT&page=0&size=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "me"
+              ],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "DEMERIT"
+                },
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "5. 날짜 범위 필터 조회",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/me?dateFrom=20260824&dateTo=20260824&page=0&size=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "me"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "20260824"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "20260824"
+                },
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "교사·선도부·관리자 조회 확인 (#117)",
+      "item": [
+        {
+          "name": "1. 교사 로그인",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"identifier\": \"qatest_teacher\", \"password\": \"{{teacherPassword}}\"}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"teacherAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));",
+                  "        pm.environment.set(\"teacherUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. 특정 학생 누적 점수 요약 조회",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records/summary?studentUserId=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records",
+                "summary"
+              ],
+              "query": [
+                {
+                  "key": "studentUserId",
+                  "value": "1"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "3. 전체 학생 이력 조회 (필터 없음)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records?page=0&size=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "4. 특정 학생 이력 조회",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records?studentUserId=1&page=0&size=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records"
+              ],
+              "query": [
+                {
+                  "key": "studentUserId",
+                  "value": "1"
+                },
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "5. MERIT 필터 조회",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records?type=MERIT&page=0&size=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records"
+              ],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "MERIT"
+                },
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "6. 날짜 범위 필터 조회",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-records?dateFrom=20260824&dateTo=20260824&page=0&size=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-records"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "20260824"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "20260824"
+                },
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "상/벌점 요청 생성·취소 확인 (#122)",
+      "item": [
+        {
+          "name": "1. 선도부 로그인",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{disciplineLoginId}}\",\n  \"password\": \"{{disciplinePassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"disciplineAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split(\".\")[1].replace(/-/g,\"+\").replace(/_/g,\"/\")));",
+                  "        pm.environment.set(\"disciplineUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. 교사 로그인",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{teacherLoginId}}\",\n  \"password\": \"{{teacherPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"teacherAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split(\".\")[1].replace(/-/g,\"+\").replace(/_/g,\"/\")));",
+                  "        pm.environment.set(\"teacherUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. 학생 로그인",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{studentLoginId}}\",\n  \"password\": \"{{studentPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"studentAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split(\".\")[1].replace(/-/g,\"+\").replace(/_/g,\"/\")));",
+                  "        pm.environment.set(\"studentUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. 상/벌점 요청 생성 (201 PENDING)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{disciplineAccessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"studentUserId\": {{studentUserId}},\n  \"assigneeUserId\": {{teacherUserId}},\n  \"categoryId\": 1,\n  \"detail\": \"3교시 10분 지각\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-requests"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 Created\", function () { pm.response.to.have.status(201); });",
+                  "pm.test(\"status PENDING\", function () { pm.expect(pm.response.json().data.status).to.eql(\"PENDING\"); });",
+                  "if (pm.response.code === 201) { pm.environment.set(\"conductRequestId\", pm.response.json().data.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. 상/벌점 요청 취소 (200 CANCELED)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{disciplineAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-requests/{{conductRequestId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-requests",
+                "{{conductRequestId}}",
+                "cancel"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"status CANCELED\", function () { pm.expect(pm.response.json().data.status).to.eql(\"CANCELED\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6. 배정 대상자 역할 오류 (400 CONDUCT_013)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{disciplineAccessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"studentUserId\": {{studentUserId}},\n  \"assigneeUserId\": {{studentUserId}},\n  \"categoryId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-requests"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 CONDUCT_013\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "    pm.expect(pm.response.json().code).to.eql(\"CONDUCT_013\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7. 인증 없음 (401 COMMON_002)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"studentUserId\": 1,\n  \"assigneeUserId\": 1,\n  \"categoryId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-requests"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"401 COMMON_002\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "    pm.expect(pm.response.json().code).to.eql(\"COMMON_002\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,24 +1,39 @@
 package com.remake.gone.notification.service;
 
+import com.remake.gone.common.exception.CustomException;
+import com.remake.gone.common.response.PageResponse;
+import com.remake.gone.notification.dto.NotificationResponse;
+import com.remake.gone.notification.dto.UnreadNotificationCountResponse;
 import com.remake.gone.notification.entity.Notification;
 import com.remake.gone.notification.enums.NotificationType;
+import com.remake.gone.notification.exception.NotificationErrorCode;
 import com.remake.gone.notification.repository.NotificationRepository;
 import com.remake.gone.user.entity.User;
 import com.remake.gone.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 알림 저장을 전담하는 공통 발송 모듈.
+ * 알림 저장과 조회를 처리하는 서비스.
  *
  * <p>다른 도메인은 이 빈을 주입받아 {@link #send}만 호출하면 알림 저장이 끝난다. 저장 실패는
  * 그대로 예외로 전파한다 — 알림 저장은 이 모듈의 핵심 책임이라, 호출자(향후 {@code outing}/
  * {@code schoolcamp}) 트랜잭션과 함께 롤백되는 게 맞는 동작이다(마스터 기획서 "정책 가정"
- * 참고). FCM 발송(2단계), 조회/읽음 처리 API(후속 이슈)는 이 이슈 범위 밖이다.
+ * 참고). FCM 발송(후속 이슈)은 이 이슈 범위 밖이다.
  */
 @Service
 @RequiredArgsConstructor
 public class NotificationService {
+
+  private static final int MIN_PAGE_SIZE = 1;
+  private static final int MAX_PAGE_SIZE = 100;
+  private static final Sort LIST_QUERY_SORT = Sort.by(
+      Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
 
   private final NotificationRepository notificationRepository;
   private final UserRepository userRepository;
@@ -45,5 +60,82 @@ public class NotificationService {
         .isRead(false)
         .build();
     notificationRepository.save(notification);
+  }
+
+  /**
+   * 현재 사용자가 받은 알림을 최신순으로 페이지 조회합니다.
+   *
+   * @param userId 현재 인증 사용자 ID
+   * @param page   페이지 번호(0부터 시작)
+   * @param size   페이지 크기(1~100)
+   * @return 페이지네이션된 알림 목록
+   */
+  @Transactional(readOnly = true)
+  public PageResponse<NotificationResponse> getNotifications(Long userId, int page, int size) {
+    validatePageParams(page, size);
+    Pageable pageable = PageRequest.of(page, size, LIST_QUERY_SORT);
+    Page<NotificationResponse> notifications = notificationRepository
+        .findByUserId(userId, pageable)
+        .map(NotificationResponse::from);
+    return PageResponse.of(notifications);
+  }
+
+  /**
+   * 현재 사용자가 받은 알림 하나를 읽음 상태로 변경합니다.
+   *
+   * <p>다른 사용자의 알림은 처리할 수 없으며, 이미 읽은 알림을 다시 요청해도 성공합니다.
+   * 변경 감지는 트랜잭션이 끝날 때 읽음 상태를 저장합니다.
+   *
+   * @param userId 현재 인증 사용자 ID
+   * @param notificationId 읽음 처리할 알림 ID
+   */
+  @Transactional
+  public void markAsRead(Long userId, Long notificationId) {
+    Notification notification = notificationRepository.findById(notificationId)
+        .orElseThrow(() -> new CustomException(NotificationErrorCode.NOTIFICATION_NOT_FOUND));
+
+    if (!notification.getUser().getId().equals(userId)) {
+      throw new CustomException(NotificationErrorCode.NOTIFICATION_ACCESS_DENIED);
+    }
+
+    if (!notification.isRead()) {
+      notification.markAsRead();
+    }
+  }
+
+  /**
+   * 현재 사용자가 받은 읽지 않은 알림을 모두 읽음 상태로 변경합니다.
+   *
+   * <p>벌크 갱신을 사용하므로, 읽지 않은 알림이 없어도 별도 조회 없이 성공합니다. Repository가
+   * 벌크 갱신 전 flush·후 clear를 수행하므로, 이 메서드 호출 뒤에는 기존에 읽어 둔
+   * {@link Notification} 엔티티를 다시 조회해 사용해야 합니다.
+   *
+   * <p>처리 건수는 HTTP 응답에 노출하지 않지만, 호출자가 벌크 갱신 결과를 확인할 수 있도록
+   * 반환한다.
+   *
+   * @param userId 현재 인증 사용자 ID
+   * @return 읽음 처리된 알림 수
+   */
+  @Transactional
+  public int markAllAsRead(Long userId) {
+    return notificationRepository.markAllAsReadByUserId(userId);
+  }
+
+  /**
+   * 현재 사용자가 읽지 않은 알림 개수를 조회합니다.
+   *
+   * @param userId 현재 인증 사용자 ID
+   * @return 읽지 않은 알림 개수 응답
+   */
+  @Transactional(readOnly = true)
+  public UnreadNotificationCountResponse getUnreadCount(Long userId) {
+    long unreadCount = notificationRepository.countByUserIdAndIsReadFalse(userId);
+    return new UnreadNotificationCountResponse(unreadCount);
+  }
+
+  private void validatePageParams(int page, int size) {
+    if (page < 0 || size < MIN_PAGE_SIZE || size > MAX_PAGE_SIZE) {
+      throw new CustomException(NotificationErrorCode.INVALID_PAGE_PARAMS);
+    }
   }
 }

@@ -57,6 +57,12 @@ public class NeisClient {
       log.error("NEIS API 호출 실패: path={}", path, e);
       throw new CustomException(NeisErrorCode.EXTERNAL_API_ERROR);
     }
+
+    if (root == null) {
+      log.error("NEIS API 응답 바디 없음: path={}", path);
+      throw new CustomException(NeisErrorCode.EXTERNAL_API_ERROR);
+    }
+
     return parseRows(root, resourceKey, rowType);
   }
 

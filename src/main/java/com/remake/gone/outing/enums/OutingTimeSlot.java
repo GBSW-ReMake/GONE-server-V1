@@ -11,7 +11,7 @@ import java.time.LocalTime;
  */
 public enum OutingTimeSlot {
   LUNCH(LocalTime.of(12, 30), LocalTime.of(13, 40)),
-  DINNER(LocalTime.of(18, 10), LocalTime.of(21, 10)),
+  DINNER(LocalTime.of(18, 10), LocalTime.of(19, 10)),
   CUSTOM(null, null);
 
   /** 커스텀 시간대의 허용 시작 하한(08:40). */

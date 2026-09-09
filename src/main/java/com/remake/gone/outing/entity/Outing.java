@@ -95,6 +95,20 @@ public class Outing {
   @Column(name = "returned_at")
   private LocalDateTime returnedAt;
 
+  /** 출발 보고 시점의 위도/경도(#43). 학교 반경 판정에 쓰인 좌표를 증거로 남겨둔다. */
+  @Column(name = "departed_latitude")
+  private Double departedLatitude;
+
+  @Column(name = "departed_longitude")
+  private Double departedLongitude;
+
+  /** 도착 보고 시점의 위도/경도(#43). */
+  @Column(name = "returned_latitude")
+  private Double returnedLatitude;
+
+  @Column(name = "returned_longitude")
+  private Double returnedLongitude;
+
   @CreationTimestamp
   @Column(name = "created_at", nullable = false, updatable = false)
   private LocalDateTime createdAt;

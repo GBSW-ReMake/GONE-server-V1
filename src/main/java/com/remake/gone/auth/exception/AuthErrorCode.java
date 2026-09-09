@@ -37,7 +37,10 @@ public enum AuthErrorCode implements ErrorCode {
   INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "AUTH_007", "아이디 또는 비밀번호가 일치하지 않습니다."),
 
   /** Refresh Token이 위조/만료되었거나, Redis에 저장된 최신 토큰과 일치하지 않습니다(재사용 시도 포함). */
-  INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "AUTH_008", "유효하지 않거나 만료된 토큰입니다. 다시 로그인해주세요.");
+  INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "AUTH_008", "유효하지 않거나 만료된 토큰입니다. 다시 로그인해주세요."),
+
+  /** SMS 발송사(알리고) API 호출이 실패했거나, 발송사가 실패 응답을 반환한 경우. */
+  SMS_SEND_FAILED(HttpStatus.BAD_GATEWAY, "AUTH_009", "문자 발송에 실패했습니다. 잠시 후 다시 시도해주세요.");
 
   private final HttpStatus httpStatus;
   private final String code;

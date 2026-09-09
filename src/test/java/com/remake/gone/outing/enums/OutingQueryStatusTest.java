@@ -16,14 +16,8 @@ class OutingQueryStatusTest {
     assertThat(OutingQueryStatus.PENDING.toOutingStatus()).isEqualTo(OutingStatus.PENDING);
     assertThat(OutingQueryStatus.APPROVED.toOutingStatus()).isEqualTo(OutingStatus.APPROVED);
     assertThat(OutingQueryStatus.REJECTED.toOutingStatus()).isEqualTo(OutingStatus.REJECTED);
+    assertThat(OutingQueryStatus.DEPARTED.toOutingStatus()).isEqualTo(OutingStatus.DEPARTED);
+    assertThat(OutingQueryStatus.RETURNED.toOutingStatus()).isEqualTo(OutingStatus.RETURNED);
     assertThat(OutingQueryStatus.MISSED.toOutingStatus()).isEqualTo(OutingStatus.MISSED);
-  }
-
-  @Test
-  @DisplayName("DEPARTED/RETURNED는 필터 값으로 존재하지 않는다")
-  void doesNotIncludeUnreachableStatuses() {
-    assertThat(OutingQueryStatus.values())
-        .extracting(Enum::name)
-        .doesNotContain("DEPARTED", "RETURNED");
   }
 }

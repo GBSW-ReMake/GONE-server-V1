@@ -1,4 +1,4 @@
-package com.remake.gone.auth.utils;
+package com.remake.gone.sms;
 
 /**
  * 문자 메시지 발송을 담당하는 인터페이스.

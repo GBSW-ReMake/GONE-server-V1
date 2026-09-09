@@ -1,4 +1,4 @@
-package com.remake.gone.auth.utils;
+package com.remake.gone.sms;
 
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
