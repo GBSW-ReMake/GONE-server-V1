@@ -104,7 +104,7 @@ GET /api/v1/users/search?query=홍길&role=TEACHER,ADMIN
 |---|---|---|---|
 | `query` 파라미터 자체가 없음 | 400 | `COMMON_001` | 기존 동작 유지 |
 | `query`가 빈 문자열 | 400 | `COMMON_001` | 기존 동작 유지 |
-| `role`에 존재하지 않는 역할 코드 포함 | 400 | `COMMON_001` | `RoleRepository.findByCode`로 검증 |
+| `role`에 존재하지 않는 역할 코드 포함 | 400 | `COMMON_001` | `RoleRepository.existsByCode`로 검증 |
 
 ---
 
@@ -142,7 +142,7 @@ public List<UserSearchResponse> search(String query, List<String> roles) {
 }
 ```
 
-- `RoleRepository.existsByCode(code)` 추가 필요(기존 `findByCode` 재사용 또는 신규 `existsByCode`).
+- `RoleRepository.existsByCode(code)` — 신규 추가(`findByCode`는 없음).
 
 ### `UserRepository` 변경
 
@@ -278,8 +278,7 @@ private UserSearchResponse toSearchResponse(User user) {
 2. **빠른 시작**: 요청 예시 4가지 + 응답 JSON + 에러 표 포함.
 3. **일관성**: `UserSearchResponse` 기존 필드 유지, `studentNumber` 추가. 검색 로직은 기존
    이스케이프/`join fetch`/`status=ACTIVE` 모두 유지.
-4. **의미 있는 오류**: `query` 누락/빈값 → `COMMON_001`(기존). `role` 값 검증 정책은 미결
-   (검토 시 확정 필요).
+4. **의미 있는 오류**: `query` 누락/빈값 → `COMMON_001`(기존). 알 수 없는 `role` 코드 → `COMMON_001`(`existsByCode` 검증 확정).
 5. **확장성/성능**: 페이지네이션 없음 — 학교 규모(200명대)를 감안한 확정 결정, 기획서에
    명시. 역할 필터 EXISTS 서브쿼리 추가로 쿼리 비용 소폭 증가 — 200명 규모에서는 무시할
    수준이나 향후 규모 확대 시 인덱스(`user_role.user_id`, `role.code`) 검토 필요.
@@ -293,14 +292,15 @@ private UserSearchResponse toSearchResponse(User user) {
 - **`GbswUtils.studentNumber()` 포맷 불일치**: Java의 `"%d%d%02d"` 와 SQL의
   `CONCAT(grade, class_no, LPAD(number, 2, '0'))`가 반드시 동일한 문자열을 생성해야 한다.
   단위 테스트에서 양쪽 결과를 같은 입력으로 비교해 검증한다.
-- **JPQL `FUNCTION('LPAD', ...)` 지원**: Hibernate 6 + MySQL 조합에서 동작 확인 필요. 미지원
-  시 네이티브 쿼리로 전환(기획서 즉시 수정).
+- **JPQL `FUNCTION('LPAD', ...)` 미지원 — 확정**: Hibernate 7이 `function()` 래퍼 반환 타입을
+  `Object`로 추론해 `LIKE` 조건에 쓸 수 없다. 두 차례 시도 후 네이티브 SQL로 전환 확정.
+  전환 경위는 `129-user-search-improve-QA.md` 참고.
 - **`role=ADMIN` 필터 결과 부족**: 현재 `ADMIN`/`DISCIPLINE` 등 추가 역할은 관리자가 수동
   부여하는데, 그 관리자 기능 자체가 없다. `role=ADMIN` 검색이 빈 결과를 반환할 수 있다 —
   검색 기능의 결함이 아니라 role 부여 기능 미구현 때문이다. 기능 자체는 정상 동작한다.
 - **서버 페이지네이션 없음**: 학교 규모(200명대)를 감안한 의도적 결정. 향후 규모가 커지면
   재검토.
-- **역할 코드 검증 정책 미결**: 위 "미결 사항" 참고.
+- **역할 코드 검증 정책 — 확정**: 존재하지 않는 코드이면 `COMMON_001`(400) 반환. `existsByCode`로 구현 완료.
 
 ---
 
