@@ -147,45 +147,49 @@ public List<UserSearchResponse> search(String query, List<String> roles) {
 ### `UserRepository` 변경
 
 기존 `searchByRealNameContaining`/`searchByRealNameContainingAndStatus`는 그대로 두고(하위
-호환, 기존 테스트 통과), 신규 `searchByQueryAndRoles`를 추가한다.
+호환, 기존 테스트 통과), 신규 메서드 세 개를 추가한다.
 
 **학번 SQL 계산 방식**: `CONCAT(g.grade, g.class_no, LPAD(g.number, 2, '0'))`
 
 - 이 결과가 `GbswUtils.studentNumber(gbsw)`(`"%d%d%02d".formatted(grade, classNo, number)`)
-  과 동일한 문자열이 나와야 한다. 반드시 일치를 검증할 것.
-- `LPAD`는 JPQL 표준 함수가 아니므로 `FUNCTION('LPAD', g.number, 2, '0')` 방식으로 호출하거나
-  네이티브 쿼리를 사용한다. **이번 구현에서는 JPQL `FUNCTION` 방식을 1순위로 시도하고,
-  Hibernate 6 + MySQL 조합에서 문제가 생기면 네이티브 쿼리로 전환한다.**
+  과 동일한 문자열이 나와야 한다.
+- 실서버 검증 완료: `query="11"` → 1학년 1반 학생(`studentNumber="1101"`) 정상 반환 확인.
 
-**역할 필터**: `UserRole` 테이블에 `EXISTS` 서브쿼리로 조인.
+**JPQL 불가 — 네이티브 SQL 채택 이유**:
 
-```jpql
-SELECT u FROM User u JOIN FETCH u.gbsw g
-WHERE u.status = :status
-AND (
-  g.name LIKE CONCAT('%', :query, '%') ESCAPE '\\'
-  OR (g.type = com.remake.gone.gbsw.enums.GbswType.STUDENT
-    AND FUNCTION('CONCAT',
-          g.grade, g.classNo,
-          FUNCTION('LPAD', g.number, 2, '0'))
-       LIKE CONCAT('%', :query, '%'))
-)
-AND (
-  :rolesEmpty = true
-  OR EXISTS (
-    SELECT ur FROM UserRole ur
-    WHERE ur.user = u AND ur.role.code IN :roles
-  )
-)
+JPQL의 `FUNCTION('LPAD', g.number, 2, '0')` 호출을 시도했으나 Hibernate 7이 `function()`
+래퍼 반환 타입을 항상 `Object`로 추론해, `LIKE` 조건 왼쪽에 쓸 수 없다는 `SemanticException`이
+발생했다. `cast(g.number as string)`으로 인자 타입을 바꾸면 LPAD는 통과되지만 바깥
+`FUNCTION('CONCAT', ...)` 반환 타입이 또 `Object`여서 같은 문제가 반복된다. 이 프로젝트의 다른
+검색 쿼리는 JPQL을 유지한다.
+
+**2-query 패턴 (N+1 방지)**:
+
+- `findIdsByQuery(query, status)` — 역할 필터 없음. **네이티브 SQL**로 ID 목록만 반환.
+- `findIdsByQueryAndRoles(query, roles, status)` — 역할 필터 있음. **네이티브 SQL**로 ID 목록만 반환. `roles`는 비어 있으면 안 됨.
+- `findAllByIdWithGbsw(ids)` — **JPQL `join fetch`** 로 User + Gbsw를 한 번에 조회. N+1 방지.
+
+서비스 호출 흐름:
+```
+String escaped = escapeLikeWildcards(query);
+List<Long> ids = roles.isEmpty()
+    ? findIdsByQuery(escaped, "ACTIVE")
+    : findIdsByQueryAndRoles(escaped, roles, "ACTIVE");
+if (ids.isEmpty()) return List.of();   // findAllByIdWithGbsw 호출 생략
+return findAllByIdWithGbsw(ids).stream().map(this::toSearchResponse).toList();
 ```
 
-- `roles`가 비어있을 때는 `:rolesEmpty = true`로 role 조건 전체를 건너뛴다.
-- `JOIN FETCH`는 유지해 N+1 방지(기존 #32 결정 유지).
+네이티브 SQL 쿼리 (역할 필터 없는 경우):
+```sql
+SELECT u.id FROM user u JOIN gbsw g ON u.gbsw_id = g.id
+WHERE u.status = :status
+  AND (g.name LIKE CONCAT('%', :query, '%') ESCAPE '\\'
+    OR (g.number IS NOT NULL
+        AND CONCAT(g.grade, g.class_no, LPAD(g.number, 2, '0'))
+            LIKE CONCAT('%', :query, '%') ESCAPE '\\'))
+```
 
-> **구현 중 주의**: JPQL에서 `FUNCTION('LPAD', ...)` 가 Hibernate 6 / Spring Boot 4.x
-> 환경에서 정상 동작하는지 테스트로 확인한다. 실패하면 네이티브 쿼리로 전환하고
-> `JOIN FETCH`를 `resultClass` 매핑 또는 DTO Projection으로 대체한다(전환 시 기획서 즉시
-> 수정).
+역할 필터 있는 경우 위 쿼리에 `AND EXISTS (SELECT 1 FROM user_role ur JOIN role r ON ur.role_id = r.id WHERE ur.user_id = u.id AND r.code IN :roles)` 추가.
 
 ### `UserSearchResponse` 변경
 
@@ -231,7 +235,7 @@ private UserSearchResponse toSearchResponse(User user) {
 | `user/controller/UserController.java` | `role` 파라미터 추가 |
 | `user/service/UserService.java` | `roles` 파라미터 수용, role 검증, `toSearchResponse` studentNumber/number 추가 |
 | `role/repository/RoleRepository.java` | `existsByCode` 추가 |
-| `user/repository/UserRepository.java` | `searchByQueryAndRoles` 신규 메서드 추가 |
+| `user/repository/UserRepository.java` | `findIdsByQuery`, `findIdsByQueryAndRoles`(네이티브 SQL), `findAllByIdWithGbsw`(JPQL join fetch) 추가 |
 
 **수정하지 않는 파일**: conduct / schoolcamp / outing 도메인 전체, `GlobalExceptionHandler`,
 `CommonErrorCode`, `GbswUtils`(재사용만), `UserRoleRepository`(재사용만).
