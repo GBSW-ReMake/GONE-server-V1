@@ -47,8 +47,16 @@ NEIS)가 실제로 2xx와 함께 비정상 바디를 반환해야만 실행된�
   이슈로 분리할 계획이었으나, 보스 지시로 이번 이슈에 함께 포함해 위 Medium과 같은 방식으로
   조치 완료.
 
+## PR 리뷰(CodeRabbit) 지적사항 반영
+PR #148에 대한 CodeRabbit 리뷰에서 🟠 Major 1건이 나왔다: `AligoSmsSender.java:47`의
+`!body.has("result_code")`는 `{"result_code": null}`처럼 필드가 JSON `null` 값으로 존재하는
+경우도 "필드가 있다"고 통과시키고, 그 뒤 `.path("result_code").asInt()`가 `NullNode`를
+`0`으로 변환해 `resultCode < 0` 조건을 만족하지 못해 실패를 성공으로 오판한다. `has()`
+대신 `hasNonNull()`로 교체해 조치했고, `result_code`가 JSON `null`인 경우를 흉내 낸 회귀
+테스트(`throwsWhenResultCodeIsJsonNull`)를 추가했다. 재빌드/재테스트 통과 확인.
+
 ## 결론
-로컬 빌드/테스트/checkstyle 모두 통과(SMS + NEIS 양쪽 수정 반영 후 재확인 완료). 실서버
-기동 검증은 위 근거로 생략하고, 라이브러리 소스까지 확인한 단위 테스트로 대체했다. 병합을
-막을 문제는 발견되지 않았다. Low 2번(공통 방어 로직 부재)만 향후 참고 사항으로 남기고
-당장 별도 이슈로 등록하지는 않는다.
+로컬 빌드/테스트/checkstyle 모두 통과(SMS + NEIS 양쪽 수정 및 CodeRabbit 지적 반영 후
+재확인 완료). 실서버 기동 검증은 위 근거로 생략하고, 라이브러리 소스까지 확인한 단위
+테스트로 대체했다. 병합을 막을 문제는 발견되지 않았다. Low 2번(공통 방어 로직 부재)만
+향후 참고 사항으로 남기고 당장 별도 이슈로 등록하지는 않는다.
