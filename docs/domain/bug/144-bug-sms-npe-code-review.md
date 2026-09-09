@@ -1,4 +1,9 @@
-# #144 Aligo SMS API 응답 바디 null 시 NPE 발생 — 코드 리뷰 결과
+# #144 SMS/NEIS 외부 API 응답 바디 null 시 NPE 발생 — 코드 리뷰 결과
+
+> 이 문서의 본문(범위/컨벤션 확인, 발견 사항 1~2)은 `AligoSmsSender` 수정만 있던 시점의
+> 리뷰다. 이후 보스 지시로 `NeisClient`(위 참고 섹션에서 지적된 동일 유형 버그)까지 이슈
+> 범위에 포함해 추가로 고쳤고, 그 부분의 리뷰 결과는 맨 아래
+> "`NeisClient` 추가분 리뷰" 절에 별도로 기록한다.
 
 리뷰 대상: `git diff dev...fix/#144-aligo-sms-npe` (커밋 3개 — 기획서, null 체크 구현, 테스트 추가)
 리뷰 방식: [code-review-isolation.md](../../rules/code-review-isolation.md)에 따라 구현 맥락 없는
@@ -70,3 +75,62 @@ Critical/High 없음. 이번 diff가 다루는 "2xx + 빈 바디 NPE" 문제 자
 테스트)은 기획서 의도와 정확히 일치하고 정확하다. Medium 1건/Low 1건은 모두 간단한 수정이라
 이 브랜치에서 바로 조치했다(위 각 항목 참고). `NeisClient.java`의 동일 유형 버그는 다른
 파일이라 그대로 별도 백로그 이슈로 남긴다.
+
+## `NeisClient` 추가분 리뷰
+
+리뷰 대상: 커밋 `cc8aaae`(`fix(neis): #144 NEIS API 응답 바디 null 시 NPE 대신 명시적 실패
+처리`, `NeisClient.java`)와 `697ec8f`(`test(neis): #144 응답 바디 null 시
+EXTERNAL_API_ERROR 던지는지 검증 테스트 추가`, `NeisClientTest.java`) 두 개를 한 단위로
+묶어 리뷰.
+리뷰 방식: 위와 동일하게 [code-review-isolation.md](../../rules/code-review-isolation.md)에
+따라 구현 맥락 없는 별도 에이전트(`code-review` 스킬)에 두 커밋의 diff와 `AligoSmsSender`
+선행 수정 맥락(같은 버그 유형이 이미 리뷰·수정된 사례)만 전달해 독립 리뷰.
+
+### 범위/컨벤션 확인
+- `NeisClient.fetch()`의 `catch (RestClientException e)` 블록과 `parseRows(...)` 호출
+  사이에 `root == null` 체크를 추가한 것이 전부다. 위 "참고" 절에서 지적된 것과 정확히 같은
+  자리, 같은 방식(`AligoSmsSender`의 `body == null` 체크와 동일 패턴)이며 범위를 벗어난
+  변경은 없다.
+- `MealService`/`TimetableService` 등 `NeisClient.fetch()` 호출부를 확인한 결과 어느 쪽도
+  `NullPointerException`을 별도로 잡지 않으므로, NPE → `CustomException(EXTERNAL_API_ERROR)`
+  로 바뀌는 이번 변경은 호출부 동작에 부작용 없는 순수 개선이다.
+- 새 로그 메시지(`"NEIS API 응답 바디 없음: path={}"`)는 바로 위 `RestClientException` catch
+  블록의 로그 스타일과 형식이 일치하고, PII(전화번호 등)를 포함하지 않는다.
+- 신규 테스트(`throwsWhenBodyIsEmpty`)는 `AligoSmsSenderTest.throwsWhenBodyIsEmpty`와 동일한
+  `MockRestServiceServer.withSuccess()`(바디 없음) 패턴을 사용해, 기존 `catch` 블록이나 다른
+  분기로 우회되지 않고 이번에 추가한 `root == null` 분기를 실제로 태우는지 검증한다. 기존
+  4개 테스트(정상/데이터없음/진짜에러/서버에러)와 케이스가 겹치지 않는다.
+- `NeisClientTest.java`가 파일 전체에 걸쳐 flat `@Test` 구조(`@Nested` 미적용)를 쓰는 것은
+  이번 diff 이전부터 있던 상태이고, [144-bug-sms-npe.md](144-bug-sms-npe.md)에 이번 이슈
+  범위 밖으로 명시돼 있어 지적하지 않았다(신규 테스트도 기존 스타일을 그대로 따름).
+- 체크스타일 관점(줄 길이, 중괄호 스타일, import 순서 등)에서도 걸리는 부분 없음.
+  `Javadoc` 규칙 위반도 없음(이번에 추가된 분기는 `private` 흐름 내부라 신규 public API가
+  아님).
+
+### 발견 사항 및 조치
+Critical/High/Medium 없음.
+
+#### 1. 🟢 Low(참고, 조치 보류) — 동일한 "2xx + 빈 바디 → null" NPE 방어 코드가 클라이언트마다
+개별적으로 중복 구현됨
+
+**문제**: `AligoSmsSender`(`body == null` 체크)에 이어 `NeisClient.java:61`
+(`root == null` 체크)까지, 같은 버그 유형에 대한 방어 로직이 공통 메커니즘 없이 각 도메인
+클래스마다 호출부별로 따로 작성되고 있다. 두 클라이언트 모두 `RestClient`의
+`.retrieve().body(JsonNode.class)`를 쓰지만 이 null 체크는 `NeisConfig`/`AligoConfig`나
+공유 `RestClient` 커스터마이저·인터셉터가 아니라 각 클래스의 `fetch`/`send` 메서드 안에만
+있다. 앞으로 새로운 외부 API 클라이언트를 추가할 때 이 패턴을 알지 못한 채
+`retrieve().body(...)` 호출만 복사하면, 이번 PR과 `AligoSmsSender` PR이 각각 따로 고쳐야
+했던 것과 똑같은 NPE가 조용히 재발할 수 있다.
+
+**제안(조치하지 않음)**: 공통 `RestClient.Builder` 커스터마이저나 작은 유틸리티
+(예: `body == null`이면 지정한 `CustomException`을 던지는 헬퍼)로 추출해 두 클라이언트가
+공유하도록 리팩터링하는 것을 고려할 수 있다. 다만 이는 기존 동작을 바꾸지 않는 순수 리팩터링
+성격이고 이번 이슈(#144)의 "NPE를 명시적 실패로 바꾼다"는 범위를 벗어나므로, 이번 PR에서는
+조치하지 않고 참고 사항으로만 남긴다. 세 번째 외부 API 클라이언트가 추가되는 시점에 별도
+이슈로 다시 검토하는 것을 권장한다.
+
+### 종합
+Critical/High/Medium 없음. `NeisClient`의 `root == null` 체크와 신규 테스트 모두
+`AligoSmsSender`에서 이미 검증된 패턴을 정확히 재사용했고, 로그·에러 코드·테스트 방식이
+일관돼 별도 수정 없이 그대로 반영 가능하다. Low 1건(동일 방어 로직의 클라이언트별 중복)은
+사소한 아키텍처 참고 사항이라 이번 PR에서 조치하지 않고 향후 참고용으로만 기록한다.
