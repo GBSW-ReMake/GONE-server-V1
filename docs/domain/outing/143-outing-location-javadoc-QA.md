@@ -23,10 +23,10 @@ Javadoc 문구 3줄만 바뀐 순수 문서 수정이라(기획서 "개요/목�
 파일만 가져오므로, gitignore 대상인 로컬 설정 파일(`.env`, `application-dev.yml`)이
 비어 있어 처음엔 DB 인증 실패(`Access denied for user 'root'@'localhost'`)와 JWT 설정
 바인딩 실패로 outing 패키지 테스트 전부가 애플리케이션 컨텍스트 로딩 단계에서 막혔다.
-보스에게 실제 로컬 DB 계정(`root`/`1234`, Redis는 이미 기동 중)을 확인받아 원본
-체크아웃의 `application-dev.yml`을 worktree에 복사하고 `SPRING_DATASOURCE_PASSWORD=1234`
-환경변수로 재실행해 해결했다 — 두 파일 모두 gitignore 대상이라 이 변경으로 커밋되는 것은
-없다.
+보스에게 실제 로컬 DB 계정(Redis는 이미 기동 중)을 확인받아 원본 체크아웃의
+`application-dev.yml`을 worktree에 복사하고 `SPRING_DATASOURCE_PASSWORD` 환경변수로
+재실행해 해결했다 — 두 파일 모두 gitignore 대상이라 이 변경으로 커밋되는 것은 없다.
+실제 자격 증명 값은 이 문서에 남기지 않는다.
 
 ## 발견 사항
 - **Critical/High**: 없음.
