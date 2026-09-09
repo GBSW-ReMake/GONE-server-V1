@@ -154,5 +154,20 @@ class AligoSmsSenderTest {
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(AuthErrorCode.SMS_SEND_FAILED);
     }
+
+    @Test
+    @DisplayName("응답 바디의 result_code가 JSON null이면 SMS_SEND_FAILED를 던진다")
+    void throwsWhenResultCodeIsJsonNull() {
+      mockServer.expect(requestTo(containsString("/send/")))
+          .andRespond(withSuccess(
+              """
+                  {"result_code":null,"message":"unexpected"}
+                  """, MediaType.APPLICATION_JSON));
+
+      assertThatThrownBy(() -> aligoSmsSender.send(PHONE_NUMBER, MESSAGE))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(AuthErrorCode.SMS_SEND_FAILED);
+    }
   }
 }
