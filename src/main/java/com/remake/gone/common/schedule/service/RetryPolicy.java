@@ -40,4 +40,12 @@ public record RetryPolicy(int maxFailureCount, Duration baseBackoff, Duration ma
   /** 별도로 재정의하지 않는 모든 핸들러가 쓰는 기본값 — 5회 실패, 30초~30분 백오프. */
   public static final RetryPolicy DEFAULT =
       new RetryPolicy(5, Duration.ofSeconds(30), Duration.ofMinutes(30));
+
+  /**
+   * 재시도로 해결되지 않는 오류에 쓴다(예: handler 미등록). 첫 실패에서 곧장
+   * {@code maxFailureCount}에 도달해 {@code ScheduledTask.markFailed()}가 backoff 없이
+   * 바로 FAILED로 격리하므로, backoff 값 자체는 계산에 쓰이지 않는다.
+   */
+  public static final RetryPolicy NON_RETRYABLE =
+      new RetryPolicy(1, Duration.ofSeconds(30), Duration.ofSeconds(30));
 }

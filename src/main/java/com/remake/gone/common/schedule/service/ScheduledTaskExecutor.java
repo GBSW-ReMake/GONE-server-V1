@@ -53,9 +53,13 @@ public class ScheduledTaskExecutor {
     }
     ScheduledTaskHandler handler = handlers.get(claimed.taskType());
     if (handler == null) {
-      // 매핑이 없다는 건 배포 실수(핸들러 등록을 빠뜨림)일 가능성이 높다 — 다음 폴링
-      // 틱에서 다시 같은 경고가 반복되므로 로그로 바로 드러난다.
+      // 매핑이 없다는 건 배포 실수(핸들러 등록을 빠뜨림)일 가능성이 높다 — 재시도로
+      // 해결되지 않는 구성 오류이므로 NON_RETRYABLE로 즉시 FAILED 격리해, 다음 폴링
+      // 틱부터는 findDueTaskIds(status=PENDING만 조회)에 다시 걸리지 않게 한다.
       log.warn("등록된 ScheduledTaskHandler가 없습니다(taskType={})", claimed.taskType());
+      executionStore.recordFailure(taskId, now,
+          "등록된 ScheduledTaskHandler가 없습니다: taskType=" + claimed.taskType(),
+          RetryPolicy.NON_RETRYABLE);
       return;
     }
     try {

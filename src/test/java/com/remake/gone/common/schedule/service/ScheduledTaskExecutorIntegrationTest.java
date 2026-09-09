@@ -7,6 +7,7 @@ import com.remake.gone.common.schedule.enums.ScheduledTaskStatus;
 import com.remake.gone.common.schedule.repository.ScheduledTaskRepository;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
@@ -43,6 +44,8 @@ class ScheduledTaskExecutorIntegrationTest {
   private static final Long SIDE_EFFECT_REFERENCE_ID = -3L;
   private static final String SIDE_EFFECT_MARK_TASK_TYPE = "QA_INTEGRATION_SIDE_EFFECT_MARK";
   private static final Long SIDE_EFFECT_MARK_REFERENCE_ID = -4L;
+  private static final String UNKNOWN_HANDLER_TASK_TYPE = "QA_INTEGRATION_UNKNOWN_HANDLER";
+  private static final Long UNKNOWN_HANDLER_REFERENCE_ID = -5L;
 
   @Autowired
   private ScheduledTaskService scheduledTaskService;
@@ -61,7 +64,36 @@ class ScheduledTaskExecutorIntegrationTest {
     scheduledTaskService.cancel(THROWING_TASK_TYPE, REFERENCE_ID);
     scheduledTaskService.cancel(SIDE_EFFECT_TASK_TYPE, SIDE_EFFECT_REFERENCE_ID);
     scheduledTaskService.cancel(SIDE_EFFECT_MARK_TASK_TYPE, SIDE_EFFECT_MARK_REFERENCE_ID);
+    scheduledTaskService.cancel(UNKNOWN_HANDLER_TASK_TYPE, UNKNOWN_HANDLER_REFERENCE_ID);
     throwingHandlerProbe.reset();
+  }
+
+  @Test
+  @DisplayName("(d) 등록된 handler가 없는 taskType은 즉시 FAILED로 격리되고 이후 "
+      + "findDueTaskIds 폴링 결과에서 제외된다(#141, #145 CodeRabbit 지적 — 폴링 제외를 "
+      + "커밋된 테스트로 고정)")
+  void excludesTaskFromPollingAfterMarkedFailedForMissingHandler() {
+    LocalDateTime now = LocalDateTime.now();
+    // 배경 폴러와의 경합을 피하는 이유는 위 (a) 테스트의 주석 참고.
+    scheduledTaskService.schedule(
+        UNKNOWN_HANDLER_TASK_TYPE, UNKNOWN_HANDLER_REFERENCE_ID, now.plusDays(1),
+        Duration.ofMinutes(1), null);
+    Long taskId = scheduledTaskRepository
+        .findByTaskTypeAndReferenceId(UNKNOWN_HANDLER_TASK_TYPE, UNKNOWN_HANDLER_REFERENCE_ID)
+        .orElseThrow().getId();
+
+    scheduledTaskExecutor.execute(taskId, now.plusDays(1));
+
+    ScheduledTask reloaded = scheduledTaskRepository.findById(taskId).orElseThrow();
+    assertThat(reloaded.getStatus()).isEqualTo(ScheduledTaskStatus.FAILED);
+    assertThat(reloaded.getFailureCount()).isEqualTo(1);
+    assertThat(reloaded.getLastError()).contains(UNKNOWN_HANDLER_TASK_TYPE);
+    // nextAttemptAt은 원래 scheduledAt(now+1일)로 due 조건(<= now+10분)에 걸리지 않지만,
+    // status=PENDING 조건도 더 이상 만족하지 않으므로 FAILED 이후에는 어느 쪽이든 폴링
+    // 결과에서 빠져야 한다 — 넉넉히 미래 시점(now+2일)까지 조회해 확인한다.
+    List<Long> dueTaskIds = scheduledTaskRepository.findDueTaskIds(
+        ScheduledTaskStatus.PENDING, now.plusDays(2));
+    assertThat(dueTaskIds).doesNotContain(taskId);
   }
 
   @Test
