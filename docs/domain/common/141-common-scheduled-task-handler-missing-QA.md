@@ -10,6 +10,8 @@
 
 1. `./gradlew checkstyleMain checkstyleTest` — 통과.
 2. `./gradlew test --tests ScheduledTaskExecutorTest` — 변경된 테스트 포함 4건 전부 통과.
+   (PR #145 CodeRabbit 지적 반영 후) `./gradlew test --tests
+   ScheduledTaskExecutorIntegrationTest` — 신규 폴링 제외 테스트 포함 4건 전부 통과.
 3. `./gradlew build`(checkstyle + 전체 테스트 607건) — 1건 실패
    (`OutingLocationReminderConcurrencyIntegrationTest.onlyOneNotificationSentWhenConcurrentPingsWithinSchoolRadius`,
    `RedisConnectionFailureException: Unable to connect to Redis`). 이번 변경과 무관한
@@ -26,9 +28,12 @@
    - `ScheduledTaskRepository.findDueTaskIds(PENDING, now+10분)` 조회 결과에 해당
      task id가 더 이상 포함되지 않음 — 다음 폴링 틱부터 재claim되지 않는다는 기획서
      주장이 실제 DB 조회로 확인됨.
-   - 이 검증은 QA 목적의 임시 테스트 파일로 실행 후 즉시 삭제했다(커밋되지 않음) —
-     기획서 "영향받는 기존 코드/테스트" 절이 명시한 범위(`ScheduledTaskExecutorTest`)를
-     벗어나는 신규 테스트를 영구 반영하지 않기 위함.
+   - (PR #145 CodeRabbit 지적 반영) 이 검증은 최초에는 QA 목적의 임시 테스트 파일로
+     실행 후 삭제했었으나, "폴링 제외"라는 핵심 동작이 커밋된 테스트로 고정돼 있지
+     않다는 지적에 따라 `ScheduledTaskExecutorIntegrationTest`에
+     `excludesTaskFromPollingAfterMarkedFailedForMissingHandler()`로 정식 반영했다 —
+     handler 미등록 task를 실제로 등록·실행한 뒤 `findDueTaskIds` 결과에서 빠지는지까지
+     같은 테스트에서 검증한다.
 5. **CI(GitHub Actions) 확인은 이번 QA에서 생략했다.** 이 저장소 CI는 `dev`/`main`/`staging`
    대상 `pull_request` 또는 그 브랜치로의 `push`에서만 트리거되어, feature 브랜치 push만으로는
    확인할 수 없다. CI 확인용 draft PR을 열지 여부를 보스에게 확인했고, 보스가 명시적으로
@@ -43,6 +48,11 @@
 
 ## 결론
 handler 미등록 시 즉시 `FAILED`로 격리되고 이후 폴링에서 빠진다는 기획서의 핵심 동작을
-실제 DB/트랜잭션 경로로 재현·확인했다. 코드 리뷰(9단계)와 로컬 빌드(체크스타일 전체
-통과, 관련 테스트 전체 통과)까지 완료되어 이 이슈의 완료 조건(Definition of Done: 로컬
-빌드/테스트 통과, CI 통과)에서 CI 통과 확인만 16단계 PR 생성 시점으로 남는다.
+실제 DB/트랜잭션 경로로 재현·확인했다. 코드 리뷰(9단계)와 관련 테스트(체크스타일,
+`ScheduledTaskExecutorTest`, `common/schedule` 패키지 전체)는 통과했다.
+
+다만 이 이슈의 완료 조건(Definition of Done: 로컬 빌드 전체 통과, CI 통과)은 아직
+**충족되지 않았다** — `./gradlew build`가 1건 실패했고(위 3번, 이번 변경과 무관하다고
+판단은 했으나 전체 빌드 자체는 실패), CI 확인은 이번 QA에서 생략했다. 두 항목 모두
+16단계 PR 생성 후 실제 CI 결과로 확인되기 전까지는 이 이슈를 **완료로 처리하지 않고
+보류(pending) 상태로 둔다.**

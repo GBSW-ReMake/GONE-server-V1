@@ -3,8 +3,9 @@
 관련 기획서: [141-common-scheduled-task-handler-missing.md](./141-common-scheduled-task-handler-missing.md)
 
 ## 리뷰 범위/방법
-- 대상: `git diff dev...HEAD` (fix/#141-scheduled-task-handler-missing 브랜치가 dev에서
-  분기된 이후 전체 변경, 4 files changed, 106 insertions, 5 deletions):
+- 대상: `git diff dev...HEAD` 중 구현 diff만 (fix/#141-scheduled-task-handler-missing
+  브랜치가 dev에서 분기된 이후 전체 변경 중 아래 4개 파일, 106 insertions, 5 deletions —
+  이 문서와 QA 결과 문서는 리뷰 대상 diff 이후에 추가되어 집계에서 제외):
   - `docs/domain/common/141-common-scheduled-task-handler-missing.md` (신규 기획서)
   - `src/main/java/com/remake/gone/common/schedule/service/RetryPolicy.java`
   - `src/main/java/com/remake/gone/common/schedule/service/ScheduledTaskExecutor.java`
