@@ -86,4 +86,16 @@ class AligoSmsSenderTest {
         .extracting(e -> ((CustomException) e).getErrorCode())
         .isEqualTo(AuthErrorCode.SMS_SEND_FAILED);
   }
+
+  @Test
+  @DisplayName("응답은 200이지만 바디가 없으면 NPE 대신 SMS_SEND_FAILED를 던진다")
+  void throwsWhenBodyIsEmpty() {
+    mockServer.expect(requestTo(containsString("/send/")))
+        .andRespond(withSuccess());
+
+    assertThatThrownBy(() -> aligoSmsSender.send(PHONE_NUMBER, MESSAGE))
+        .isInstanceOf(CustomException.class)
+        .extracting(e -> ((CustomException) e).getErrorCode())
+        .isEqualTo(AuthErrorCode.SMS_SEND_FAILED);
+  }
 }
