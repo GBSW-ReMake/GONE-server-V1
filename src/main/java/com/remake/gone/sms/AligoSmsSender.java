@@ -44,6 +44,11 @@ public class AligoSmsSender implements SmsSender {
       throw new CustomException(AuthErrorCode.SMS_SEND_FAILED);
     }
 
+    if (body == null) {
+      log.error("Aligo SMS API 응답 바디 없음");
+      throw new CustomException(AuthErrorCode.SMS_SEND_FAILED);
+    }
+
     int resultCode = body.path("result_code").asInt();
     if (resultCode < 0) {
       log.error("Aligo SMS 발송 실패: result_code={}, message={}",
