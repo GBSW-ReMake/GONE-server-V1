@@ -27,6 +27,7 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * {@link AligoSmsSender}에 대한 단위 테스트. {@link MockRestServiceServer}로 알리고 API
@@ -50,7 +51,7 @@ class AligoSmsSenderTest {
       RestClient.Builder builder = RestClient.builder().baseUrl("https://apis.aligo.in");
       mockServer = MockRestServiceServer.bindTo(builder).build();
       AligoProperties properties = new AligoProperties("test-key", "test-user-id", "01000000000");
-      aligoSmsSender = new AligoSmsSender(builder.build(), properties);
+      aligoSmsSender = new AligoSmsSender(builder.build(), properties, new ObjectMapper());
 
       logAppender = new ListAppender<>();
       logAppender.start();
@@ -163,6 +164,47 @@ class AligoSmsSenderTest {
               """
                   {"result_code":null,"message":"unexpected"}
                   """, MediaType.APPLICATION_JSON));
+
+      assertThatThrownBy(() -> aligoSmsSender.send(PHONE_NUMBER, MESSAGE))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(AuthErrorCode.SMS_SEND_FAILED);
+    }
+
+    @Test
+    @DisplayName("Content-Type이 text/html이어도 바디가 정상 JSON(result_code>=0)이면 예외 "
+        + "없이 종료한다(#152 — Aligo가 실제로 이렇게 잘못된 Content-Type을 내려준다)")
+    void sendsSuccessfullyWhenContentTypeIsTextHtml() {
+      mockServer.expect(requestTo(containsString("/send/")))
+          .andRespond(withSuccess(
+              """
+                  {"result_code":1,"message":"success","msg_id":100}
+                  """, MediaType.TEXT_HTML));
+
+      assertThatCode(() -> aligoSmsSender.send(PHONE_NUMBER, MESSAGE)).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("Content-Type이 text/html이고 바디가 실패 JSON(result_code<0)이면 여전히 "
+        + "SMS_SEND_FAILED를 던진다")
+    void throwsWhenContentTypeIsTextHtmlAndResultCodeNegative() {
+      mockServer.expect(requestTo(containsString("/send/")))
+          .andRespond(withSuccess(
+              """
+                  {"result_code":-101,"message":"발신번호가 등록되지 않았습니다."}
+                  """, MediaType.TEXT_HTML));
+
+      assertThatThrownBy(() -> aligoSmsSender.send(PHONE_NUMBER, MESSAGE))
+          .isInstanceOf(CustomException.class)
+          .extracting(e -> ((CustomException) e).getErrorCode())
+          .isEqualTo(AuthErrorCode.SMS_SEND_FAILED);
+    }
+
+    @Test
+    @DisplayName("바디가 JSON으로 파싱조차 안 되는 문자열이면 SMS_SEND_FAILED를 던진다")
+    void throwsWhenBodyIsNotParsableJson() {
+      mockServer.expect(requestTo(containsString("/send/")))
+          .andRespond(withSuccess("<html>이건 진짜 에러 페이지입니다</html>", MediaType.TEXT_HTML));
 
       assertThatThrownBy(() -> aligoSmsSender.send(PHONE_NUMBER, MESSAGE))
           .isInstanceOf(CustomException.class)
