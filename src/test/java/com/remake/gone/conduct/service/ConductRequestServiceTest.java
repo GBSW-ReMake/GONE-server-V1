@@ -274,6 +274,22 @@ class ConductRequestServiceTest {
     }
 
     @Test
+    @DisplayName("TEACHER이면 status 필터를 적용해 배정된 요청만 조회한다")
+    void returnsFilteredAssignedRequestsForTeacher() {
+      ConductRequest req = pendingRequest(1L, 33L, userId);
+      given(userRoleRepository.findRoleCodesByUserId(userId)).willReturn(List.of("TEACHER"));
+      given(conductRequestRepository.findByAssigneeIdAndStatus(
+          any(), any(ConductRequestStatus.class), any()))
+          .willReturn(new PageImpl<>(List.of(req), PageRequest.of(0, 20), 1));
+
+      PageResponse<ConductRequestResponse> result =
+          conductRequestService.getRequests(userId, ConductRequestStatus.PENDING, 0, 20);
+
+      assertThat(result.content()).hasSize(1);
+      assertThat(result.content().get(0).status()).isEqualTo(ConductRequestStatus.PENDING);
+    }
+
+    @Test
     @DisplayName("DISCIPLINE이면 본인이 생성한 요청만 조회한다")
     void returnsOwnRequestsForDiscipline() {
       Long disciplineId = 33L;
@@ -288,6 +304,24 @@ class ConductRequestServiceTest {
 
       assertThat(result.content()).hasSize(1);
       assertThat(result.content().get(0).requesterUserId()).isEqualTo(disciplineId);
+    }
+
+    @Test
+    @DisplayName("DISCIPLINE이면 status 필터를 적용해 본인이 생성한 요청만 조회한다")
+    void returnsFilteredOwnRequestsForDiscipline() {
+      Long disciplineId = 33L;
+      ConductRequest req = pendingRequest(1L, disciplineId, 42L);
+      given(userRoleRepository.findRoleCodesByUserId(disciplineId))
+          .willReturn(List.of("DISCIPLINE"));
+      given(conductRequestRepository.findByRequesterIdAndStatus(
+          any(), any(ConductRequestStatus.class), any()))
+          .willReturn(new PageImpl<>(List.of(req), PageRequest.of(0, 20), 1));
+
+      PageResponse<ConductRequestResponse> result =
+          conductRequestService.getRequests(disciplineId, ConductRequestStatus.PENDING, 0, 20);
+
+      assertThat(result.content()).hasSize(1);
+      assertThat(result.content().get(0).status()).isEqualTo(ConductRequestStatus.PENDING);
     }
   }
 
@@ -362,6 +396,27 @@ class ConductRequestServiceTest {
 
       ConductRequestResponse result = conductRequestService.approveRequest(
           assigneeId, requestId, new ConductRequestApproveRequest(overrideCategoryId, null));
+
+      assertThat(result.status()).isEqualTo(ConductRequestStatus.APPROVED);
+    }
+
+    @Test
+    @DisplayName("detail 오버라이드가 있으면 해당 사유로 ConductRecord를 생성한다")
+    void usesDetailOverrideWhenProvided() {
+      ConductRequest req = pendingRequest(requestId, 33L, assigneeId);
+      ConductRecord savedRecord = ConductRecord.builder()
+          .id(11L).student(req.getStudent()).teacher(req.getAssignee())
+          .category(req.getCategory()).type(ConductType.DEMERIT).points(-1).detail("오버라이드 사유")
+          .build();
+
+      given(conductRequestRepository.findById(requestId)).willReturn(Optional.of(req));
+      given(userRoleRepository.findRoleCodesByUserId(assigneeId)).willReturn(List.of("TEACHER"));
+      given(userRepository.findById(assigneeId))
+          .willReturn(Optional.of(User.builder().id(assigneeId).name("김선생").build()));
+      given(conductRecordRepository.save(any(ConductRecord.class))).willReturn(savedRecord);
+
+      ConductRequestResponse result = conductRequestService.approveRequest(
+          assigneeId, requestId, new ConductRequestApproveRequest(null, "오버라이드 사유"));
 
       assertThat(result.status()).isEqualTo(ConductRequestStatus.APPROVED);
     }
