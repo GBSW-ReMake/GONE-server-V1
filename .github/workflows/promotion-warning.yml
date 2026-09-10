@@ -1,0 +1,213 @@
+name: Dev to Staging Promotion Warning
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - dev
+      - staging
+
+permissions:
+  pull-requests: read
+  issues: write
+
+env:
+  PROMOTION_WARNING_THRESHOLD: 5
+
+jobs:
+  check-promotion-lag:
+    # dev를 base로 하는 PR이 머지됐을 때만 집계한다.
+    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'dev'
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: 프로모션 지연 집계 및 경고 이슈 생성/갱신
+        id: check
+        uses: actions/github-script@v7
+        env:
+          PROMOTION_WARNING_THRESHOLD: ${{ env.PROMOTION_WARNING_THRESHOLD }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const threshold = parseInt(process.env.PROMOTION_WARNING_THRESHOLD, 10);
+
+            // 1. 마지막 "dev → staging 배포" PR(merged, base=staging, head=dev)의 머지 시각을 찾는다.
+            const stagingPRs = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              base: 'staging',
+              state: 'closed',
+              per_page: 100,
+            });
+            const promotionPRs = stagingPRs
+              .filter(
+                (pr) =>
+                  pr.merged_at &&
+                  pr.head.ref === 'dev' &&
+                  pr.head.repo &&
+                  pr.head.repo.full_name === `${owner}/${repo}`
+              )
+              .sort((a, b) => new Date(b.merged_at) - new Date(a.merged_at));
+            const lastPromotionAt = promotionPRs.length > 0 ? new Date(promotionPRs[0].merged_at) : null;
+
+            // 2. 그 이후 dev에 머지된 PR 개수를 센다(프로모션 이력이 없으면 전체를 대상으로 한다).
+            // 생성일 내림차순으로 페이지 단위로 가져오다가, 한 페이지가 전부
+            // lastPromotionAt보다 먼저 생성됐으면 그 뒤로는 더 볼 필요가 없다고 보고 멈춘다
+            // (PR 이력이 쌓일수록 매번 전체를 훑지 않도록 하는 조기 종료 — 코드 리뷰 1번 항목).
+            // 트레이드오프: 아주 드물게 "오래전에 생성됐지만 최근에야 머지된" PR은 놓칠 수
+            // 있다 — 이 팀은 PR을 대체로 며칠 안에 머지하므로 실질 영향은 낮다고 판단한다.
+            let count = 0;
+            let page = 1;
+            for (;;) {
+              const { data: prs } = await github.rest.pulls.list({
+                owner,
+                repo,
+                base: 'dev',
+                state: 'closed',
+                per_page: 100,
+                page,
+                sort: 'created',
+                direction: 'desc',
+              });
+              if (prs.length === 0) {
+                break;
+              }
+
+              let sawRecentEnough = false;
+              for (const pr of prs) {
+                if (pr.merged_at && (!lastPromotionAt || new Date(pr.merged_at) > lastPromotionAt)) {
+                  count++;
+                }
+                if (!lastPromotionAt || new Date(pr.created_at) > lastPromotionAt) {
+                  sawRecentEnough = true;
+                }
+              }
+
+              if (!sawRecentEnough || prs.length < 100) {
+                break;
+              }
+              page++;
+            }
+
+            core.exportVariable('PR_COUNT', String(count));
+            core.exportVariable('PROMOTION_WARNING_THRESHOLD', String(threshold));
+
+            if (count < threshold) {
+              core.exportVariable('SHOULD_NOTIFY_DISCORD', 'false');
+              return;
+            }
+
+            // 3. 임계치 이상이면 기존에 열려있는 경고 이슈가 있는지 확인한다.
+            // issues.listForRepo는 PR도 함께 반환하므로(GitHub 내부적으로 PR도 issue다),
+            // 순수 이슈만 걸러낸다 — 누군가 실수로 PR에 needs-promotion 라벨을 달아도
+            // 그 PR을 경고 이슈로 착각해 코멘트/종료하지 않도록 한다.
+            const { data: openIssuesRaw } = await github.rest.issues.listForRepo({
+              owner,
+              repo,
+              labels: 'needs-promotion',
+              state: 'open',
+            });
+            const openIssues = openIssuesRaw.filter((issue) => !issue.pull_request);
+
+            const compareUrl = `${context.payload.repository.html_url}/compare/staging...dev`;
+            const noHistoryNote = lastPromotionAt
+              ? ''
+              : '\n\n⚠️ 마지막 프로모션 이력을 찾지 못해 `dev`의 전체 머지 이력을 기준으로 ' +
+                '계산했습니다 — 프로모션 이력이 유실된 것일 수 있으니 확인해주세요.';
+            const bodyText =
+              `마지막 프로모션 이후 \`dev\`에 머지된 PR이 **${count}건** 쌓였습니다 ` +
+              `(경고 임계치: ${threshold}건).\n\n` +
+              `\`dev\` → \`staging\` 프로모션 PR을 생성해주세요.\n\n` +
+              `[dev와 staging 비교 보기](${compareUrl})` +
+              noHistoryNote;
+
+            if (openIssues.length > 0) {
+              // 이미 경고 중 — Discord는 다시 보내지 않고 누적 건수만 코멘트로 갱신한다.
+              const issue = openIssues[0];
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issue.number,
+                body: bodyText,
+              });
+              core.exportVariable('SHOULD_NOTIFY_DISCORD', 'false');
+              core.exportVariable('ISSUE_URL', issue.html_url);
+              core.exportVariable('ISSUE_NUMBER', String(issue.number));
+            } else {
+              const { data: newIssue } = await github.rest.issues.create({
+                owner,
+                repo,
+                title: `⚠️ dev → staging 프로모션 필요 (누적 ${count}건)`,
+                body: bodyText,
+                labels: ['needs-promotion', 'chore'],
+              });
+              core.exportVariable('SHOULD_NOTIFY_DISCORD', 'true');
+              core.exportVariable('ISSUE_URL', newIssue.html_url);
+              core.exportVariable('ISSUE_NUMBER', String(newIssue.number));
+            }
+
+      - name: Discord 알림 (프로모션 경고, 최초 1회)
+        if: env.SHOULD_NOTIFY_DISCORD == 'true'
+        continue-on-error: true
+        env:
+          DISCORD_CI_WEBHOOK: ${{ secrets.DISCORD_CI_WEBHOOK }}
+        run: |
+          ISSUE_LINK="[#${ISSUE_NUMBER}](${ISSUE_URL})"
+          PAYLOAD=$(jq -n \
+            --arg title "⚠️ dev → staging 프로모션 필요" \
+            --arg count "${PR_COUNT}건 (임계치 ${PROMOTION_WARNING_THRESHOLD}건)" \
+            --arg issue "$ISSUE_LINK" \
+            --arg url "$ISSUE_URL" \
+            '{embeds: [{
+              title: $title,
+              color: 16753920,
+              fields: [
+                {name: "누적 머지 PR", value: $count, inline: true},
+                {name: "경고 이슈", value: $issue, inline: true}
+              ],
+              url: $url
+            }]}')
+          curl --fail --silent --show-error --proto '=https' --connect-timeout 10 --max-time 30 \
+            -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_CI_WEBHOOK"
+
+  close-promotion-warning:
+    # "dev → staging 배포" PR(base=staging, head=dev)이 머지됐을 때만 경고를 해제한다.
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'staging' &&
+      github.event.pull_request.head.ref == 'dev' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: 열린 경고 이슈 자동 종료
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            // issues.listForRepo는 PR도 함께 반환하므로 순수 이슈만 걸러낸다(위 job과 동일한 이유).
+            const { data: openIssuesRaw } = await github.rest.issues.listForRepo({
+              owner,
+              repo,
+              labels: 'needs-promotion',
+              state: 'open',
+            });
+            const openIssues = openIssuesRaw.filter((issue) => !issue.pull_request);
+
+            for (const issue of openIssues) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issue.number,
+                body: '프로모션 완료로 자동 종료합니다.',
+              });
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: issue.number,
+                state: 'closed',
+              });
+            }
