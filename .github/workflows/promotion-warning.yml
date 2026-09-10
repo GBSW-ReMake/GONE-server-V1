@@ -41,7 +41,13 @@ jobs:
               per_page: 100,
             });
             const promotionPRs = stagingPRs
-              .filter((pr) => pr.merged_at && pr.head.ref === 'dev')
+              .filter(
+                (pr) =>
+                  pr.merged_at &&
+                  pr.head.ref === 'dev' &&
+                  pr.head.repo &&
+                  pr.head.repo.full_name === `${owner}/${repo}`
+              )
               .sort((a, b) => new Date(b.merged_at) - new Date(a.merged_at));
             const lastPromotionAt = promotionPRs.length > 0 ? new Date(promotionPRs[0].merged_at) : null;
 
@@ -93,12 +99,16 @@ jobs:
             }
 
             // 3. 임계치 이상이면 기존에 열려있는 경고 이슈가 있는지 확인한다.
-            const { data: openIssues } = await github.rest.issues.listForRepo({
+            // issues.listForRepo는 PR도 함께 반환하므로(GitHub 내부적으로 PR도 issue다),
+            // 순수 이슈만 걸러낸다 — 누군가 실수로 PR에 needs-promotion 라벨을 달아도
+            // 그 PR을 경고 이슈로 착각해 코멘트/종료하지 않도록 한다.
+            const { data: openIssuesRaw } = await github.rest.issues.listForRepo({
               owner,
               repo,
               labels: 'needs-promotion',
               state: 'open',
             });
+            const openIssues = openIssuesRaw.filter((issue) => !issue.pull_request);
 
             const compareUrl = `${context.payload.repository.html_url}/compare/staging...dev`;
             const noHistoryNote = lastPromotionAt
@@ -158,14 +168,16 @@ jobs:
               ],
               url: $url
             }]}')
-          curl --fail --silent --show-error -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_CI_WEBHOOK"
+          curl --fail --silent --show-error --proto '=https' --connect-timeout 10 --max-time 30 \
+            -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_CI_WEBHOOK"
 
   close-promotion-warning:
     # "dev → staging 배포" PR(base=staging, head=dev)이 머지됐을 때만 경고를 해제한다.
     if: >-
       github.event.pull_request.merged == true &&
       github.event.pull_request.base.ref == 'staging' &&
-      github.event.pull_request.head.ref == 'dev'
+      github.event.pull_request.head.ref == 'dev' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-22.04
 
     steps:
@@ -176,12 +188,14 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
-            const { data: openIssues } = await github.rest.issues.listForRepo({
+            // issues.listForRepo는 PR도 함께 반환하므로 순수 이슈만 걸러낸다(위 job과 동일한 이유).
+            const { data: openIssuesRaw } = await github.rest.issues.listForRepo({
               owner,
               repo,
               labels: 'needs-promotion',
               state: 'open',
             });
+            const openIssues = openIssuesRaw.filter((issue) => !issue.pull_request);
 
             for (const issue of openIssues) {
               await github.rest.issues.createComment({
