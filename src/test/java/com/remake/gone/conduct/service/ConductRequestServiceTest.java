@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
 
 import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.common.response.PageResponse;
@@ -28,6 +29,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -398,6 +400,11 @@ class ConductRequestServiceTest {
           assigneeId, requestId, new ConductRequestApproveRequest(overrideCategoryId, null));
 
       assertThat(result.status()).isEqualTo(ConductRequestStatus.APPROVED);
+      ArgumentCaptor<ConductRecord> captor = ArgumentCaptor.forClass(ConductRecord.class);
+      verify(conductRecordRepository).save(captor.capture());
+      assertThat(captor.getValue().getCategory().getId()).isEqualTo(overrideCategoryId);
+      assertThat(captor.getValue().getType()).isEqualTo(ConductType.MERIT);
+      assertThat(captor.getValue().getPoints()).isEqualTo(3);
     }
 
     @Test
@@ -419,6 +426,9 @@ class ConductRequestServiceTest {
           assigneeId, requestId, new ConductRequestApproveRequest(null, "오버라이드 사유"));
 
       assertThat(result.status()).isEqualTo(ConductRequestStatus.APPROVED);
+      ArgumentCaptor<ConductRecord> captor = ArgumentCaptor.forClass(ConductRecord.class);
+      verify(conductRecordRepository).save(captor.capture());
+      assertThat(captor.getValue().getDetail()).isEqualTo("오버라이드 사유");
     }
 
     @Test

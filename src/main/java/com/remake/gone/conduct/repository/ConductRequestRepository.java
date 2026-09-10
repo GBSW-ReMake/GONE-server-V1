@@ -19,7 +19,7 @@ public interface ConductRequestRepository extends JpaRepository<ConductRequest, 
    * @return 요청 페이지
    */
   @Query("SELECT r FROM ConductRequest r WHERE r.requester.id = :requesterId "
-      + "ORDER BY r.createdAt DESC")
+      + "ORDER BY r.createdAt DESC, r.id DESC")
   Page<ConductRequest> findByRequesterId(
       @Param("requesterId") Long requesterId, Pageable pageable);
 
@@ -32,7 +32,7 @@ public interface ConductRequestRepository extends JpaRepository<ConductRequest, 
    * @return 요청 페이지
    */
   @Query("SELECT r FROM ConductRequest r WHERE r.requester.id = :requesterId "
-      + "AND r.status = :status ORDER BY r.createdAt DESC")
+      + "AND r.status = :status ORDER BY r.createdAt DESC, r.id DESC")
   Page<ConductRequest> findByRequesterIdAndStatus(
       @Param("requesterId") Long requesterId,
       @Param("status") ConductRequestStatus status,
@@ -46,7 +46,7 @@ public interface ConductRequestRepository extends JpaRepository<ConductRequest, 
    * @return 요청 페이지
    */
   @Query("SELECT r FROM ConductRequest r WHERE r.assignee.id = :assigneeId "
-      + "ORDER BY r.createdAt DESC")
+      + "ORDER BY r.createdAt DESC, r.id DESC")
   Page<ConductRequest> findByAssigneeId(
       @Param("assigneeId") Long assigneeId, Pageable pageable);
 
@@ -59,7 +59,7 @@ public interface ConductRequestRepository extends JpaRepository<ConductRequest, 
    * @return 요청 페이지
    */
   @Query("SELECT r FROM ConductRequest r WHERE r.assignee.id = :assigneeId "
-      + "AND r.status = :status ORDER BY r.createdAt DESC")
+      + "AND r.status = :status ORDER BY r.createdAt DESC, r.id DESC")
   Page<ConductRequest> findByAssigneeIdAndStatus(
       @Param("assigneeId") Long assigneeId,
       @Param("status") ConductRequestStatus status,
@@ -71,7 +71,7 @@ public interface ConductRequestRepository extends JpaRepository<ConductRequest, 
    * @param pageable 페이지네이션 정보
    * @return 요청 페이지
    */
-  @Query("SELECT r FROM ConductRequest r ORDER BY r.createdAt DESC")
+  @Query("SELECT r FROM ConductRequest r ORDER BY r.createdAt DESC, r.id DESC")
   Page<ConductRequest> findAllSorted(Pageable pageable);
 
   /**
@@ -81,7 +81,8 @@ public interface ConductRequestRepository extends JpaRepository<ConductRequest, 
    * @param pageable 페이지네이션 정보
    * @return 요청 페이지
    */
-  @Query("SELECT r FROM ConductRequest r WHERE r.status = :status ORDER BY r.createdAt DESC")
+  @Query("SELECT r FROM ConductRequest r WHERE r.status = :status "
+      + "ORDER BY r.createdAt DESC, r.id DESC")
   Page<ConductRequest> findByStatus(
       @Param("status") ConductRequestStatus status, Pageable pageable);
 }

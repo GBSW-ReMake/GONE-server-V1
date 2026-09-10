@@ -161,6 +161,10 @@ public record ConductRequestResponse(
 
 **응답** (`200 OK`)
 
+> **정책**: 응답 바디는 원본 `ConductRequest` 엔티티의 값을 반환한다. 승인 시 오버라이드한
+> `categoryId`·`detail`은 응답에 반영되지 않고 생성된 `ConductRecord`에만 적용된다.
+> 실제 적용된 값을 확인하려면 `conductRecordId`로 해당 레코드를 조회한다.
+
 ```json
 {
   "success": true,
@@ -172,10 +176,10 @@ public record ConductRequestResponse(
     "studentNickname": "길동이",
     "assigneeUserId": 42,
     "assigneeNickname": "김선생",
-    "categoryId": 5,
+    "categoryId": 1,
     "categoryLabel": "지각",
     "type": "DEMERIT",
-    "detail": "3교시 10분 지각 (확인됨)",
+    "detail": "3교시 10분 지각",
     "status": "APPROVED",
     "conductRecordId": 7,
     "createdAt": "2026-09-01T09:15:00"
