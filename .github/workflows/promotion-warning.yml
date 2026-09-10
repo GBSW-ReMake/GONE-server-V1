@@ -1,0 +1,169 @@
+name: Dev to Staging Promotion Warning
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - dev
+      - staging
+
+permissions:
+  pull-requests: read
+  issues: write
+
+env:
+  PROMOTION_WARNING_THRESHOLD: 5
+
+jobs:
+  check-promotion-lag:
+    # dev를 base로 하는 PR이 머지됐을 때만 집계한다.
+    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'dev'
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: 프로모션 지연 집계 및 경고 이슈 생성/갱신
+        id: check
+        uses: actions/github-script@v7
+        env:
+          PROMOTION_WARNING_THRESHOLD: ${{ env.PROMOTION_WARNING_THRESHOLD }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const threshold = parseInt(process.env.PROMOTION_WARNING_THRESHOLD, 10);
+
+            // 1. 마지막 "dev → staging 배포" PR(merged, base=staging, head=dev)의 머지 시각을 찾는다.
+            const stagingPRs = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              base: 'staging',
+              state: 'closed',
+              per_page: 100,
+            });
+            const promotionPRs = stagingPRs
+              .filter((pr) => pr.merged_at && pr.head.ref === 'dev')
+              .sort((a, b) => new Date(b.merged_at) - new Date(a.merged_at));
+            const lastPromotionAt = promotionPRs.length > 0 ? new Date(promotionPRs[0].merged_at) : null;
+
+            // 2. 그 이후 dev에 머지된 PR 개수를 센다(프로모션 이력이 없으면 전체를 대상으로 한다).
+            const devPRs = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              base: 'dev',
+              state: 'closed',
+              per_page: 100,
+              sort: 'updated',
+              direction: 'desc',
+            });
+            const count = devPRs.filter(
+              (pr) => pr.merged_at && (!lastPromotionAt || new Date(pr.merged_at) > lastPromotionAt)
+            ).length;
+
+            core.exportVariable('PR_COUNT', String(count));
+            core.exportVariable('PROMOTION_WARNING_THRESHOLD', String(threshold));
+
+            if (count < threshold) {
+              core.exportVariable('SHOULD_NOTIFY_DISCORD', 'false');
+              return;
+            }
+
+            // 3. 임계치 이상이면 기존에 열려있는 경고 이슈가 있는지 확인한다.
+            const { data: openIssues } = await github.rest.issues.listForRepo({
+              owner,
+              repo,
+              labels: 'needs-promotion',
+              state: 'open',
+            });
+
+            const compareUrl = `${context.payload.repository.html_url}/compare/staging...dev`;
+            const bodyText =
+              `마지막 프로모션 이후 \`dev\`에 머지된 PR이 **${count}건** 쌓였습니다 ` +
+              `(경고 임계치: ${threshold}건).\n\n` +
+              `\`dev\` → \`staging\` 프로모션 PR을 생성해주세요.\n\n` +
+              `[dev와 staging 비교 보기](${compareUrl})`;
+
+            if (openIssues.length > 0) {
+              // 이미 경고 중 — Discord는 다시 보내지 않고 누적 건수만 코멘트로 갱신한다.
+              const issue = openIssues[0];
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issue.number,
+                body: bodyText,
+              });
+              core.exportVariable('SHOULD_NOTIFY_DISCORD', 'false');
+              core.exportVariable('ISSUE_URL', issue.html_url);
+              core.exportVariable('ISSUE_NUMBER', String(issue.number));
+            } else {
+              const { data: newIssue } = await github.rest.issues.create({
+                owner,
+                repo,
+                title: `⚠️ dev → staging 프로모션 필요 (누적 ${count}건)`,
+                body: bodyText,
+                labels: ['needs-promotion', 'chore'],
+              });
+              core.exportVariable('SHOULD_NOTIFY_DISCORD', 'true');
+              core.exportVariable('ISSUE_URL', newIssue.html_url);
+              core.exportVariable('ISSUE_NUMBER', String(newIssue.number));
+            }
+
+      - name: Discord 알림 (프로모션 경고, 최초 1회)
+        if: env.SHOULD_NOTIFY_DISCORD == 'true'
+        continue-on-error: true
+        env:
+          DISCORD_CI_WEBHOOK: ${{ secrets.DISCORD_CI_WEBHOOK }}
+        run: |
+          ISSUE_LINK="[#${ISSUE_NUMBER}](${ISSUE_URL})"
+          PAYLOAD=$(jq -n \
+            --arg title "⚠️ dev → staging 프로모션 필요" \
+            --arg count "${PR_COUNT}건 (임계치 ${PROMOTION_WARNING_THRESHOLD}건)" \
+            --arg issue "$ISSUE_LINK" \
+            --arg url "$ISSUE_URL" \
+            '{embeds: [{
+              title: $title,
+              color: 16753920,
+              fields: [
+                {name: "누적 머지 PR", value: $count, inline: true},
+                {name: "경고 이슈", value: $issue, inline: true}
+              ],
+              url: $url
+            }]}')
+          curl --fail --silent --show-error -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_CI_WEBHOOK"
+
+  close-promotion-warning:
+    # "dev → staging 배포" PR(base=staging, head=dev)이 머지됐을 때만 경고를 해제한다.
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'staging' &&
+      github.event.pull_request.head.ref == 'dev'
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: 열린 경고 이슈 자동 종료
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const { data: openIssues } = await github.rest.issues.listForRepo({
+              owner,
+              repo,
+              labels: 'needs-promotion',
+              state: 'open',
+            });
+
+            for (const issue of openIssues) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issue.number,
+                body: '프로모션 완료로 자동 종료합니다.',
+              });
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: issue.number,
+                state: 'closed',
+              });
+            }
