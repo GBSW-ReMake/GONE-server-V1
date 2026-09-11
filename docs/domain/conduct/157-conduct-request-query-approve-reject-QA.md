@@ -35,9 +35,9 @@
 - REQUEST_NOT_PROCESSABLE (CONDUCT_015)
 - 오버라이드 카테고리 inactive → CONDUCT_004
 
-### RejectRequest (5개)
-- TEACHER(assignee) 거절 → REJECTED
-- ADMIN 거절
+### RejectRequest (5개) — rejectedReason 필드 검증 포함
+- TEACHER(assignee) 거절 → REJECTED + rejectedReason 세팅
+- ADMIN 거절 + rejectedReason 세팅
 - REQUEST_NOT_FOUND (CONDUCT_009)
 - REQUEST_APPROVE_FORBIDDEN (CONDUCT_014)
 - REQUEST_NOT_PROCESSABLE (CONDUCT_015)

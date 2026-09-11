@@ -10,6 +10,7 @@ import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.conduct.dto.ConductRequestApproveRequest;
 import com.remake.gone.conduct.dto.ConductRequestCreateRequest;
+import com.remake.gone.conduct.dto.ConductRequestRejectRequest;
 import com.remake.gone.conduct.dto.ConductRequestResponse;
 import com.remake.gone.conduct.entity.ConductCategory;
 import com.remake.gone.conduct.entity.ConductRecord;
@@ -503,9 +504,11 @@ class ConductRequestServiceTest {
 
     private final Long assigneeId = 42L;
     private final Long requestId = 1L;
+    private final ConductRequestRejectRequest rejectReq =
+        new ConductRequestRejectRequest("규정 위반 사항 아님");
 
     @Test
-    @DisplayName("TEACHER(assignee)가 거절하면 REJECTED 상태로 전환된다")
+    @DisplayName("TEACHER(assignee)가 거절하면 REJECTED 상태로 전환되고 rejectedReason이 세팅된다")
     void rejectsRequestByTeacher() {
       ConductRequest req = pendingRequest(requestId, 33L, assigneeId);
 
@@ -513,9 +516,10 @@ class ConductRequestServiceTest {
       given(userRoleRepository.findRoleCodesByUserId(assigneeId)).willReturn(List.of("TEACHER"));
 
       ConductRequestResponse result =
-          conductRequestService.rejectRequest(assigneeId, requestId);
+          conductRequestService.rejectRequest(assigneeId, requestId, rejectReq);
 
       assertThat(result.status()).isEqualTo(ConductRequestStatus.REJECTED);
+      assertThat(result.rejectedReason()).isEqualTo("규정 위반 사항 아님");
     }
 
     @Test
@@ -528,9 +532,10 @@ class ConductRequestServiceTest {
       given(userRoleRepository.findRoleCodesByUserId(adminId)).willReturn(List.of("ADMIN"));
 
       ConductRequestResponse result =
-          conductRequestService.rejectRequest(adminId, requestId);
+          conductRequestService.rejectRequest(adminId, requestId, rejectReq);
 
       assertThat(result.status()).isEqualTo(ConductRequestStatus.REJECTED);
+      assertThat(result.rejectedReason()).isEqualTo("규정 위반 사항 아님");
     }
 
     @Test
@@ -538,7 +543,8 @@ class ConductRequestServiceTest {
     void throwsWhenRequestNotFound() {
       given(conductRequestRepository.findById(requestId)).willReturn(Optional.empty());
 
-      assertThatThrownBy(() -> conductRequestService.rejectRequest(assigneeId, requestId))
+      assertThatThrownBy(
+          () -> conductRequestService.rejectRequest(assigneeId, requestId, rejectReq))
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(ConductErrorCode.REQUEST_NOT_FOUND);
@@ -553,7 +559,8 @@ class ConductRequestServiceTest {
       given(conductRequestRepository.findById(requestId)).willReturn(Optional.of(req));
       given(userRoleRepository.findRoleCodesByUserId(otherId)).willReturn(List.of("TEACHER"));
 
-      assertThatThrownBy(() -> conductRequestService.rejectRequest(otherId, requestId))
+      assertThatThrownBy(
+          () -> conductRequestService.rejectRequest(otherId, requestId, rejectReq))
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(ConductErrorCode.REQUEST_APPROVE_FORBIDDEN);
@@ -568,7 +575,8 @@ class ConductRequestServiceTest {
       given(conductRequestRepository.findById(requestId)).willReturn(Optional.of(req));
       given(userRoleRepository.findRoleCodesByUserId(assigneeId)).willReturn(List.of("TEACHER"));
 
-      assertThatThrownBy(() -> conductRequestService.rejectRequest(assigneeId, requestId))
+      assertThatThrownBy(
+          () -> conductRequestService.rejectRequest(assigneeId, requestId, rejectReq))
           .isInstanceOf(CustomException.class)
           .extracting(e -> ((CustomException) e).getErrorCode())
           .isEqualTo(ConductErrorCode.REQUEST_NOT_PROCESSABLE);

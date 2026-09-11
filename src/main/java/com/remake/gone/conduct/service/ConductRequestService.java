@@ -5,6 +5,7 @@ import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.conduct.dto.ConductRequestApproveRequest;
 import com.remake.gone.conduct.dto.ConductRequestCreateRequest;
+import com.remake.gone.conduct.dto.ConductRequestRejectRequest;
 import com.remake.gone.conduct.dto.ConductRequestResponse;
 import com.remake.gone.conduct.entity.ConductCategory;
 import com.remake.gone.conduct.entity.ConductRecord;
@@ -190,10 +191,12 @@ public class ConductRequestService {
    *
    * @param rejecterUserId 거절자 사용자 ID (Access Token에서 추출됨)
    * @param requestId      거절할 요청 ID
+   * @param rejectRequest  거절 사유
    * @return 거절된 상/벌점 요청
    */
   @Transactional
-  public ConductRequestResponse rejectRequest(Long rejecterUserId, Long requestId) {
+  public ConductRequestResponse rejectRequest(
+      Long rejecterUserId, Long requestId, ConductRequestRejectRequest rejectRequest) {
     ConductRequest conductRequest = conductRequestRepository.findById(requestId)
         .orElseThrow(() -> new CustomException(ConductErrorCode.REQUEST_NOT_FOUND));
 
@@ -209,6 +212,7 @@ public class ConductRequestService {
     }
 
     conductRequest.setStatus(ConductRequestStatus.REJECTED);
+    conductRequest.setRejectedReason(rejectRequest.reason());
 
     return ConductRequestResponse.from(conductRequest);
   }

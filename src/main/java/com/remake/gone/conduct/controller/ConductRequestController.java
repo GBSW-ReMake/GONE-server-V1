@@ -5,6 +5,7 @@ import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.common.security.UserPrincipal;
 import com.remake.gone.conduct.dto.ConductRequestApproveRequest;
 import com.remake.gone.conduct.dto.ConductRequestCreateRequest;
+import com.remake.gone.conduct.dto.ConductRequestRejectRequest;
 import com.remake.gone.conduct.dto.ConductRequestResponse;
 import com.remake.gone.conduct.enums.ConductRequestStatus;
 import com.remake.gone.conduct.service.ConductRequestService;
@@ -104,17 +105,19 @@ public class ConductRequestController {
    *
    * <p>TEACHER는 본인에게 배정된 요청만 거절할 수 있습니다.
    *
-   * @param principal 인증된 담당자 정보
-   * @param id        거절할 요청 ID
+   * @param principal     인증된 담당자 정보
+   * @param id            거절할 요청 ID
+   * @param rejectRequest 거절 사유
    * @return 거절된 상/벌점 요청
    */
   @PatchMapping("/{id}/reject")
   @PreAuthorize("hasAnyRole('TEACHER','ADMIN')")
   public ApiResponse<ConductRequestResponse> rejectRequest(
       @AuthenticationPrincipal UserPrincipal principal,
-      @PathVariable Long id) {
+      @PathVariable Long id,
+      @Valid @RequestBody ConductRequestRejectRequest rejectRequest) {
     return ApiResponse.success(
-        conductRequestService.rejectRequest(principal.userId(), id),
+        conductRequestService.rejectRequest(principal.userId(), id, rejectRequest),
         "상/벌점 요청이 거절되었습니다.");
   }
 

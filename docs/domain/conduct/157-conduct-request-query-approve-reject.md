@@ -381,7 +381,9 @@ Page<ConductRequest> findByStatusOrderByCreatedAtDesc(
   업데이트는 단일 `@Transactional` 내에서 처리. 중간에 예외가 나면 둘 다 롤백되어 일관성 유지.
 - **낙관적 락 동시 승인**: 두 담당자가 동시에 같은 요청을 승인·거절하면
   `ObjectOptimisticLockingFailureException` → 409 (#121 핸들러).
-- **거절 사유 미지원**: 현재 `ConductRequest` 엔티티에 `rejected_reason` 컬럼이 없다.
-  이번 범위에서는 추가하지 않고, 필요 시 후속 이슈에서 ALTER TABLE + 응답 필드 추가로 확장한다.
+- **거절 사유 미지원 → 해결됨**: `rejected_reason VARCHAR(500) NULL` 컬럼을
+  `V20260911120000__add_conduct_request_rejected_reason.sql`로 추가하고, `ConductRequestRejectRequest`
+  DTO(필수 `reason` 필드), `ConductRequestResponse.rejectedReason` 응답 필드, 서비스·컨트롤러
+  변경을 이번 브랜치에서 함께 반영했다.
 - **조회 역할 분기 복잡도**: 서비스에서 역할별로 다른 쿼리 메서드를 호출하는 if-else가 생긴다.
   클래스 분리 없이 `ConductRequestService` 내부에서 처리한다(현재 규모에서 과도한 추상화 지양).

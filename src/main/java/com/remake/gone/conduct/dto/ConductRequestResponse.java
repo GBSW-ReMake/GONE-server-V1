@@ -21,6 +21,7 @@ import java.time.LocalDateTime;
  * @param detail            추가 상세 사유(없으면 {@code null})
  * @param status            요청 상태
  * @param conductRecordId   승인 시 생성된 {@code ConductRecord} ID (승인 전에는 {@code null})
+ * @param rejectedReason    거절 사유 ({@code REJECTED} 상태가 아니면 {@code null})
  * @param createdAt         요청 등록 일시
  */
 public record ConductRequestResponse(
@@ -37,6 +38,7 @@ public record ConductRequestResponse(
     String detail,
     ConductRequestStatus status,
     Long conductRecordId,
+    String rejectedReason,
     LocalDateTime createdAt
 ) {
 
@@ -61,6 +63,7 @@ public record ConductRequestResponse(
         request.getDetail(),
         request.getStatus(),
         request.getConductRecordId(),
+        request.getRejectedReason(),
         request.getCreatedAt()
     );
   }
