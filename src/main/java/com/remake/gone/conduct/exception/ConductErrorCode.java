@@ -51,7 +51,15 @@ public enum ConductErrorCode implements ErrorCode {
 
   /** 배정 대상자가 TEACHER 또는 ADMIN 역할이 아닙니다. */
   ASSIGNEE_INVALID_ROLE(HttpStatus.BAD_REQUEST, "CONDUCT_013",
-      "배정 대상자가 TEACHER 또는 ADMIN 역할이 아닙니다.");
+      "배정 대상자가 TEACHER 또는 ADMIN 역할이 아닙니다."),
+
+  /** 해당 요청의 담당자만 승인·거절할 수 있습니다. */
+  REQUEST_APPROVE_FORBIDDEN(HttpStatus.FORBIDDEN, "CONDUCT_014",
+      "해당 요청의 담당자만 승인·거절할 수 있습니다."),
+
+  /** PENDING 상태의 요청만 승인·거절할 수 있습니다. */
+  REQUEST_NOT_PROCESSABLE(HttpStatus.CONFLICT, "CONDUCT_015",
+      "PENDING 상태의 요청만 승인·거절할 수 있습니다.");
 
   private final HttpStatus httpStatus;
   private final String code;
