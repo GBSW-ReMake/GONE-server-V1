@@ -69,9 +69,9 @@ MVP에서는 사용자당 최신 디바이스 토큰 하나만 보관한다. 같
 - `DeviceToken.user`는 `User`를 `LAZY`로 참조한다.
 - 엔티티에 `updateFcmToken(String fcmToken)` 메서드를 두고, Service가 필드에 직접 대입하지
   않는다.
-- `updatedAt`은 `@UpdateTimestamp`로 관리한다. 신규 생성 직후에도 값이 필요하므로 생성 시각을
-  함께 채우는 방식(`@CreationTimestamp`와 `@UpdateTimestamp` 병용 또는 동등한 명시적 설정)을
-  구현 시 기존 엔티티 관례와 대조해 확정한다.
+- `updatedAt`은 기존 `ConductRequest`·`ConductRecord`와 동일하게 애플리케이션에서
+  `@UpdateTimestamp`로 관리한다. 마이그레이션의 `DEFAULT CURRENT_TIMESTAMP ON UPDATE`는 DB
+  수준의 기본값이며, 엔티티 메서드는 시각을 직접 변경하지 않는다.
 
 ### 4.2 Flyway 마이그레이션
 
@@ -138,7 +138,7 @@ HTTP 상태 코드: `200 OK`
 {
   "success": false,
   "data": null,
-  "message": "FCM 토큰은 비어 있을 수 없습니다.",
+  "message": "fcmToken: FCM 토큰은 비어 있을 수 없습니다.",
   "code": "COMMON_001"
 }
 ```
@@ -158,9 +158,11 @@ HTTP 상태 코드: `200 OK`
 
 1. Security가 Access Token을 검증하고 현재 사용자 ID를 `UserPrincipal`에 넣는다.
 2. Controller가 요청 본문의 `fcmToken`을 검증하고 사용자 ID와 함께 Service에 전달한다.
-3. Service가 `findByUserId(userId)`로 기존 행을 조회한다.
-4. 기존 행이 있으면 엔티티 메서드로 토큰을 갱신한다.
-5. 기존 행이 없으면 현재 사용자 참조와 토큰으로 새 `DeviceToken`을 저장한다.
+3. Service가 `findByIdForUpdate(userId)`로 사용자 행을 잠근다. 사용자가 없으면 stale JWT로
+   판단해 `401 COMMON_002`를 반환한다.
+4. Service가 `findByUserId(userId)`로 기존 행을 조회한다.
+5. 기존 행이 있으면 엔티티 메서드로 토큰을 갱신한다.
+6. 기존 행이 없으면 조회한 사용자와 토큰으로 새 `DeviceToken`을 저장한다.
 
 ### 5.2 `DELETE /api/v1/notifications/device-token`
 
@@ -201,8 +203,10 @@ HTTP 상태 코드: `200 OK`
 
 1. Security가 현재 사용자 ID를 `UserPrincipal`에 넣는다.
 2. Controller가 사용자 ID만 Service에 전달한다.
-3. Service가 `deleteByUserId(userId)`를 실행한다.
-4. 삭제 건수가 0이어도 예외 없이 성공 응답을 반환한다.
+3. Service가 `findByIdForUpdate(userId)`로 사용자 행을 잠근다. 이 락은 같은 사용자의 등록과
+   삭제가 동시에 실행되지 않게 한다.
+4. Service가 `deleteByUserId(userId)`를 실행한다.
+5. 삭제 건수가 0이어도 예외 없이 성공 응답을 반환한다.
 
 ## 6. 구현 구조
 
@@ -216,9 +220,10 @@ HTTP 상태 코드: `200 OK`
 
 ### Service
 
-- `registerDeviceToken(Long userId, String fcmToken)`은 트랜잭션 안에서 기존 토큰을 조회해
-  갱신 또는 생성한다.
-- `deleteDeviceToken(Long userId)`은 사용자 ID 조건으로 삭제한다.
+- `registerDeviceToken(Long userId, String fcmToken)`은 트랜잭션 안에서 사용자 행에 배타적
+  락을 건 뒤 기존 토큰을 조회해 갱신 또는 생성한다.
+- `deleteDeviceToken(Long userId)`도 같은 사용자 행 잠금을 획득한 뒤 사용자 ID 조건으로
+  삭제한다.
 - 사용자 ID는 Controller의 인증 principal에서만 오므로, 외부 입력을 신뢰하지 않는다.
 - 향후 푸시 발송 이슈에서 이 Service 또는 별도 FCM 전송 컴포넌트가 `DeviceTokenRepository`를
   조회해 사용한다.
@@ -269,10 +274,9 @@ public record RegisterDeviceTokenRequest(
 
 ## 8. 리스크 및 고려사항
 
-- **동시 등록**: 같은 사용자의 여러 클라이언트 요청이 동시에 토큰을 등록하면 애플리케이션 조회 후 생성 경로가
-  경합할 수 있다. DB UNIQUE 제약은 중복 저장을 막는다. 실제 다중 요청에서 충돌 응답을
-  사용자에게 노출하지 않도록, 구현 시 기존 프로젝트의 동시성 처리 관례를 확인하고 필요하면
-  중복 키 예외 재조회·갱신 방식을 적용한다.
+- **동시 등록·삭제**: 같은 사용자의 요청은 `UserRepository.findByIdForUpdate()`의 배타적 락으로
+  직렬화한다. 먼저 시작한 트랜잭션이 끝난 뒤 다음 요청이 최신 토큰 상태를 조회하므로,
+  동시 등록에서도 `user_id` UNIQUE 충돌을 사용자에게 노출하지 않는다.
 - **토큰의 실제 유효성**: 이 단계에서는 문자열의 비어 있음과 길이만 검증한다. 토큰이 실제
   FCM에서 유효한지는 다음 푸시 발송 단계의 Firebase 응답으로만 알 수 있다.
 - **FCM 실패와 분리**: 이번 이슈는 외부 Firebase 의존성이 없으므로, 로컬·CI에서 Firebase
