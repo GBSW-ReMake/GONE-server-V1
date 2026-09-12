@@ -1,12 +1,15 @@
 package com.remake.gone.notification.service;
 
+import com.remake.gone.common.exception.CommonErrorCode;
 import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.notification.dto.NotificationResponse;
 import com.remake.gone.notification.dto.UnreadNotificationCountResponse;
+import com.remake.gone.notification.entity.DeviceToken;
 import com.remake.gone.notification.entity.Notification;
 import com.remake.gone.notification.enums.NotificationType;
 import com.remake.gone.notification.exception.NotificationErrorCode;
+import com.remake.gone.notification.repository.DeviceTokenRepository;
 import com.remake.gone.notification.repository.NotificationRepository;
 import com.remake.gone.user.entity.User;
 import com.remake.gone.user.repository.UserRepository;
@@ -36,7 +39,41 @@ public class NotificationService {
       Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
 
   private final NotificationRepository notificationRepository;
+  private final DeviceTokenRepository deviceTokenRepository;
   private final UserRepository userRepository;
+
+  /**
+   * 현재 사용자의 FCM 디바이스 토큰을 등록하거나 갱신합니다.
+   *
+   * <p>사용자당 토큰 하나만 유지하며, 기존 행이 있으면 새 토큰으로 교체합니다.
+   *
+   * @param userId 현재 인증 사용자 ID
+   * @param fcmToken 클라이언트가 Firebase에서 발급받은 FCM 토큰
+   */
+  @Transactional
+  public void registerDeviceToken(Long userId, String fcmToken) {
+    User user = findAuthenticatedUserForUpdate(userId);
+    deviceTokenRepository.findByUserId(userId)
+        .ifPresentOrElse(
+            deviceToken -> deviceToken.updateFcmToken(fcmToken),
+            () -> deviceTokenRepository.save(DeviceToken.builder()
+                .user(user)
+                .fcmToken(fcmToken)
+                .build()));
+  }
+
+  /**
+   * 현재 사용자의 FCM 디바이스 토큰을 삭제합니다.
+   *
+   * <p>등록된 토큰이 없어도 예외 없이 성공합니다.
+   *
+   * @param userId 현재 인증 사용자 ID
+   */
+  @Transactional
+  public void deleteDeviceToken(Long userId) {
+    findAuthenticatedUserForUpdate(userId);
+    deviceTokenRepository.deleteByUserId(userId);
+  }
 
   /**
    * 알림을 저장합니다.
@@ -137,5 +174,10 @@ public class NotificationService {
     if (page < 0 || size < MIN_PAGE_SIZE || size > MAX_PAGE_SIZE) {
       throw new CustomException(NotificationErrorCode.INVALID_PAGE_PARAMS);
     }
+  }
+
+  private User findAuthenticatedUserForUpdate(Long userId) {
+    return userRepository.findByIdForUpdate(userId)
+        .orElseThrow(() -> new CustomException(CommonErrorCode.UNAUTHORIZED));
   }
 }
