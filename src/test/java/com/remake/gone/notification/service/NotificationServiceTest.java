@@ -6,14 +6,19 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
+import com.remake.gone.common.exception.CommonErrorCode;
 import com.remake.gone.common.exception.CustomException;
 import com.remake.gone.common.response.PageResponse;
 import com.remake.gone.notification.dto.NotificationResponse;
 import com.remake.gone.notification.dto.UnreadNotificationCountResponse;
+import com.remake.gone.notification.entity.DeviceToken;
 import com.remake.gone.notification.entity.Notification;
 import com.remake.gone.notification.enums.NotificationType;
 import com.remake.gone.notification.exception.NotificationErrorCode;
+import com.remake.gone.notification.repository.DeviceTokenRepository;
 import com.remake.gone.notification.repository.NotificationRepository;
 import com.remake.gone.user.entity.User;
 import com.remake.gone.user.repository.UserRepository;
@@ -43,10 +48,98 @@ class NotificationServiceTest {
   private NotificationRepository notificationRepository;
 
   @Mock
+  private DeviceTokenRepository deviceTokenRepository;
+
+  @Mock
   private UserRepository userRepository;
 
   @InjectMocks
   private NotificationService notificationService;
+
+  @Nested
+  @DisplayName("registerDeviceToken")
+  class RegisterDeviceToken {
+
+    @Test
+    @DisplayName("등록된 토큰이 없으면 현재 사용자 토큰을 새로 저장한다")
+    void savesNewDeviceToken() {
+      User user = User.builder().id(USER_ID).build();
+      given(userRepository.findByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+      given(deviceTokenRepository.findByUserId(USER_ID)).willReturn(Optional.empty());
+
+      notificationService.registerDeviceToken(USER_ID, "new-fcm-token");
+
+      verify(deviceTokenRepository).save(argThat(deviceToken ->
+          deviceToken.getUser().getId().equals(USER_ID)
+              && deviceToken.getFcmToken().equals("new-fcm-token")));
+    }
+
+    @Test
+    @DisplayName("등록된 토큰이 있으면 기존 엔티티의 토큰과 갱신 시각을 변경한다")
+    void updatesExistingDeviceToken() {
+      LocalDateTime previousUpdatedAt = LocalDateTime.of(2026, 9, 1, 9, 0);
+      DeviceToken deviceToken = DeviceToken.builder()
+          .id(10L)
+          .user(User.builder().id(USER_ID).build())
+          .fcmToken("old-fcm-token")
+          .updatedAt(previousUpdatedAt)
+          .build();
+      given(userRepository.findByIdForUpdate(USER_ID))
+          .willReturn(Optional.of(User.builder().id(USER_ID).build()));
+      given(deviceTokenRepository.findByUserId(USER_ID)).willReturn(Optional.of(deviceToken));
+
+      notificationService.registerDeviceToken(USER_ID, "new-fcm-token");
+
+      assertThat(deviceToken.getFcmToken()).isEqualTo("new-fcm-token");
+      assertThat(deviceToken.getUpdatedAt()).isEqualTo(previousUpdatedAt);
+      verify(deviceTokenRepository).findByUserId(USER_ID);
+      verifyNoMoreInteractions(deviceTokenRepository);
+      verify(userRepository).findByIdForUpdate(USER_ID);
+    }
+
+    @Test
+    @DisplayName("Access Token의 사용자가 존재하지 않으면 401 예외를 던진다")
+    void rejectsMissingAuthenticatedUser() {
+      given(userRepository.findByIdForUpdate(USER_ID)).willReturn(Optional.empty());
+
+      assertThatThrownBy(() ->
+          notificationService.registerDeviceToken(USER_ID, "new-fcm-token"))
+          .isInstanceOf(CustomException.class)
+          .extracting("errorCode")
+          .isEqualTo(CommonErrorCode.UNAUTHORIZED);
+
+      verifyNoInteractions(deviceTokenRepository);
+    }
+  }
+
+  @Nested
+  @DisplayName("deleteDeviceToken")
+  class DeleteDeviceToken {
+
+    @Test
+    @DisplayName("현재 사용자의 디바이스 토큰을 삭제한다")
+    void deletesCurrentUsersDeviceToken() {
+      given(userRepository.findByIdForUpdate(USER_ID))
+          .willReturn(Optional.of(User.builder().id(USER_ID).build()));
+
+      notificationService.deleteDeviceToken(USER_ID);
+
+      verify(deviceTokenRepository).deleteByUserId(USER_ID);
+    }
+
+    @Test
+    @DisplayName("Access Token의 사용자가 존재하지 않으면 토큰을 삭제하지 않는다")
+    void doesNotDeleteTokenForMissingAuthenticatedUser() {
+      given(userRepository.findByIdForUpdate(USER_ID)).willReturn(Optional.empty());
+
+      assertThatThrownBy(() -> notificationService.deleteDeviceToken(USER_ID))
+          .isInstanceOf(CustomException.class)
+          .extracting("errorCode")
+          .isEqualTo(CommonErrorCode.UNAUTHORIZED);
+
+      verifyNoInteractions(deviceTokenRepository);
+    }
+  }
 
   @Nested
   @DisplayName("getNotifications")
