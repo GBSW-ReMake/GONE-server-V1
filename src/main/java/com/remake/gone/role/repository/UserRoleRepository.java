@@ -1,5 +1,6 @@
 package com.remake.gone.role.repository;
 
+import com.remake.gone.role.entity.Role;
 import com.remake.gone.role.entity.UserRole;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -28,4 +29,14 @@ public interface UserRoleRepository extends JpaRepository<UserRole, Long> {
    */
   @Query("select ur.user.id from UserRole ur where ur.role.code = :roleCode")
   List<Long> findUserIdsByRoleCode(@Param("roleCode") String roleCode);
+
+
+  /**
+   * 특정 사용자가 가진 역할 엔티티(코드 + 한글명) 목록을 조회합니다.
+   *
+   * @param userId 조회할 사용자 ID
+   * @return 역할 엔티티 목록
+   */
+  @Query("select ur.role from UserRole ur where ur.user.id = :userId")
+  List<Role> findRolesByUserId(@Param("userId") Long userId);
 }
