@@ -22,6 +22,7 @@ import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -139,6 +140,25 @@ class GlobalExceptionHandlerTest {
       assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
       assertThat(response.getBody().success()).isFalse();
       assertThat(response.getBody().code()).isEqualTo("COMMON_001");
+    }
+  }
+
+  @Nested
+  @DisplayName("handleOptimisticLockingFailure")
+  class HandleOptimisticLockingFailure {
+
+    @Test
+    @DisplayName("낙관적 락 충돌이 발생하면 500이 아니라 409 COMMON_006으로 응답한다")
+    void returns409InsteadOfInternalServerError() {
+      ObjectOptimisticLockingFailureException exception =
+          new ObjectOptimisticLockingFailureException("ConductRequest", 1L);
+
+      ResponseEntity<ApiResponse<Void>> response =
+          handler.handleOptimisticLockingFailure(exception);
+
+      assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+      assertThat(response.getBody().success()).isFalse();
+      assertThat(response.getBody().code()).isEqualTo("COMMON_006");
     }
   }
 

@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "GONE - Conduct API",
-    "description": "GONE - Conduct API 컬렉션. #92 카테고리 목록 조회, #94 상/벌점 부여, #107 정정·취소 엔드포인트 포함.",
+    "description": "GONE - Conduct API 컬렉션. #92 카테고리 목록 조회, #94 상/벌점 부여, #107 정정·취소, #122 요청 생성·취소, #157 요청 조회·승인·거절 엔드포인트 포함.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -632,6 +632,178 @@
               "",
               "pm.test(\"status CANCELED\", function () {",
               "    pm.expect(pm.response.json().data.status).to.eql(\"CANCELED\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "상/벌점 요청 목록 조회",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{teacherAccessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/conduct-requests?page=0&size=20",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "conduct-requests"
+          ],
+          "query": [
+            {
+              "key": "status",
+              "value": "PENDING",
+              "disabled": true
+            },
+            {
+              "key": "page",
+              "value": "0"
+            },
+            {
+              "key": "size",
+              "value": "20"
+            }
+          ]
+        },
+        "description": "역할에 따라 조회 범위가 달라집니다(#157).\n\n- **DISCIPLINE**: 본인이 생성한 요청\n- **TEACHER**: 본인에게 배정된 요청\n- **ADMIN**: 전체 요청\n\n`status` 파라미터(PENDING/APPROVED/REJECTED/CANCELED)로 필터링할 수 있습니다.\n\n**응답**: `200 OK`, `data.content` 배열에 요청 목록"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"success true\", function () {",
+              "    pm.expect(pm.response.json().success).to.be.true;",
+              "});",
+              "",
+              "pm.test(\"content 배열 존재\", function () {",
+              "    pm.expect(pm.response.json().data).to.have.property(\"content\");",
+              "    pm.expect(pm.response.json().data.content).to.be.an(\"array\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "상/벌점 요청 승인",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{teacherAccessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/conduct-requests/{{conductRequestId}}/approve",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "conduct-requests",
+            "{{conductRequestId}}",
+            "approve"
+          ]
+        },
+        "description": "TEACHER(담당자) 또는 ADMIN이 PENDING 요청을 승인합니다(#157).\n\n승인 시 `ConductRecord`가 자동 생성되며 응답의 `conductRecordId`에 반영됩니다.\n\n바디에 `categoryId`·`detail`을 포함하면 오버라이드됩니다(바디 자체는 생략 가능).\n\n**권한**: TEACHER (본인 배정 요청만), ADMIN (전체)\n**응답**: `200 OK`, `status: APPROVED`, `conductRecordId` 세팅"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"success true\", function () {",
+              "    pm.expect(pm.response.json().success).to.be.true;",
+              "});",
+              "",
+              "pm.test(\"status APPROVED\", function () {",
+              "    pm.expect(pm.response.json().data.status).to.eql(\"APPROVED\");",
+              "});",
+              "",
+              "pm.test(\"conductRecordId 존재\", function () {",
+              "    pm.expect(pm.response.json().data.conductRecordId).to.not.be.null;",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "상/벌점 요청 거절",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{teacherAccessToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/conduct-requests/{{conductRequestId}}/reject",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "conduct-requests",
+            "{{conductRequestId}}",
+            "reject"
+          ]
+        },
+        "description": "TEACHER(담당자) 또는 ADMIN이 PENDING 요청을 거절합니다(#157).\n\n**권한**: TEACHER (본인 배정 요청만), ADMIN (전체)\n**응답**: `200 OK`, `status: REJECTED`"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"success true\", function () {",
+              "    pm.expect(pm.response.json().success).to.be.true;",
+              "});",
+              "",
+              "pm.test(\"status REJECTED\", function () {",
+              "    pm.expect(pm.response.json().data.status).to.eql(\"REJECTED\");",
               "});"
             ]
           }
@@ -1449,6 +1621,86 @@
                   "pm.test(\"403 CONDUCT_010\", function () {",
                   "    pm.response.to.have.status(403);",
                   "    pm.expect(pm.response.json().code).to.eql(\"CONDUCT_010\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "담당자 아닌 TEACHER가 승인 시도 → 403 CONDUCT_014",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{otherTeacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-requests/{{conductRequestId}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-requests",
+                "{{conductRequestId}}",
+                "approve"
+              ]
+            },
+            "description": "배정된 담당자가 아닌 다른 TEACHER가 승인 시도 시 403 CONDUCT_014를 반환해야 합니다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"403 CONDUCT_014\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "    pm.expect(pm.response.json().code).to.eql(\"CONDUCT_014\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PENDING 아닌 요청 승인 시도 → 409 CONDUCT_015",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-requests/{{approvedRequestId}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-requests",
+                "{{approvedRequestId}}",
+                "approve"
+              ]
+            },
+            "description": "이미 APPROVED·REJECTED·CANCELED 상태인 요청에 승인 시도 시 409 CONDUCT_015를 반환해야 합니다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"409 CONDUCT_015\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "    pm.expect(pm.response.json().code).to.eql(\"CONDUCT_015\");",
                   "});"
                 ]
               }
@@ -2622,6 +2874,406 @@
                   "pm.test(\"401 COMMON_002\", function () {",
                   "    pm.response.to.have.status(401);",
                   "    pm.expect(pm.response.json().code).to.eql(\"COMMON_002\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "상/벌점 요청 조회·승인·거절 확인 (#157)",
+      "description": "이슈 #157 엔드포인트 전체 시나리오 확인 폴더.\n\n**실행 순서**: 선도부 로그인 → 교사 로그인 → 학생 로그인 → 요청 생성 → 목록 조회 → 요청 승인 → 두 번째 요청 생성 → 요청 거절",
+      "item": [
+        {
+          "name": "1. 선도부 로그인",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{disciplineLoginId}}\",\n  \"password\": \"{{disciplinePassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"disciplineAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split(\".\")[1].replace(/-/g,\"+\").replace(/_/g,\"/\")));",
+                  "        pm.environment.set(\"disciplineUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. 교사 로그인",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{teacherLoginId}}\",\n  \"password\": \"{{teacherPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"teacherAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split(\".\")[1].replace(/-/g,\"+\").replace(/_/g,\"/\")));",
+                  "        pm.environment.set(\"teacherUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. 학생 로그인",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{studentLoginId}}\",\n  \"password\": \"{{studentPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) {",
+                  "        pm.environment.set(\"studentAccessToken\", body.data.accessToken);",
+                  "        const payload = JSON.parse(atob(body.data.accessToken.split(\".\")[1].replace(/-/g,\"+\").replace(/_/g,\"/\")));",
+                  "        pm.environment.set(\"studentUserId\", payload.sub);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. 상/벌점 요청 생성 (승인용)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{disciplineAccessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"studentUserId\": {{studentUserId}},\n  \"assigneeUserId\": {{teacherUserId}},\n  \"categoryId\": 1,\n  \"detail\": \"3교시 10분 지각\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-requests"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 PENDING\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "    pm.expect(pm.response.json().data.status).to.eql(\"PENDING\");",
+                  "});",
+                  "if (pm.response.code === 201) {",
+                  "    pm.environment.set(\"conductRequestId\", pm.response.json().data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. 요청 목록 조회 (TEACHER — 배정된 요청)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-requests?status=PENDING&page=0&size=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-requests"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "PENDING"
+                },
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"content 배열 존재\", function () {",
+                  "    pm.expect(pm.response.json().data.content).to.be.an(\"array\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6. 요청 승인 → APPROVED + conductRecordId",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-requests/{{conductRequestId}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-requests",
+                "{{conductRequestId}}",
+                "approve"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 APPROVED\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().data.status).to.eql(\"APPROVED\");",
+                  "});",
+                  "pm.test(\"conductRecordId 세팅\", function () {",
+                  "    pm.expect(pm.response.json().data.conductRecordId).to.not.be.null;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7. 두 번째 요청 생성 (거절용)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{disciplineAccessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"studentUserId\": {{studentUserId}},\n  \"assigneeUserId\": {{teacherUserId}},\n  \"categoryId\": 2,\n  \"detail\": \"거절 테스트용 요청\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-requests"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"201 PENDING\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "    pm.expect(pm.response.json().data.status).to.eql(\"PENDING\");",
+                  "});",
+                  "if (pm.response.code === 201) {",
+                  "    pm.environment.set(\"conductRequestId2\", pm.response.json().data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "8. 요청 거절 → REJECTED",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherAccessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/conduct-requests/{{conductRequestId2}}/reject",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conduct-requests",
+                "{{conductRequestId2}}",
+                "reject"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 REJECTED\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().data.status).to.eql(\"REJECTED\");",
                   "});"
                 ]
               }

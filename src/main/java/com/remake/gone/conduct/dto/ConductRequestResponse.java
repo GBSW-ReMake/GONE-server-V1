@@ -8,19 +8,21 @@ import java.time.LocalDateTime;
 /**
  * 상/벌점 요청 응답 DTO.
  *
- * @param id               요청 식별자
- * @param requesterUserId  요청자(선도부) 사용자 ID
+ * @param id                요청 식별자
+ * @param requesterUserId   요청자(선도부) 사용자 ID
  * @param requesterNickname 요청자 별명
- * @param studentUserId    대상 학생 사용자 ID
- * @param studentNickname  대상 학생 별명
- * @param assigneeUserId   처리 담당자 사용자 ID
- * @param assigneeNickname 처리 담당자 별명
- * @param categoryId       카테고리 ID
- * @param categoryLabel    카테고리 표시명
- * @param type             상점({@code MERIT}) 또는 벌점({@code DEMERIT})
- * @param detail           추가 상세 사유(없으면 {@code null})
- * @param status           요청 상태
- * @param createdAt        요청 등록 일시
+ * @param studentUserId     대상 학생 사용자 ID
+ * @param studentNickname   대상 학생 별명
+ * @param assigneeUserId    처리 담당자 사용자 ID
+ * @param assigneeNickname  처리 담당자 별명
+ * @param categoryId        카테고리 ID
+ * @param categoryLabel     카테고리 표시명
+ * @param type              상점({@code MERIT}) 또는 벌점({@code DEMERIT})
+ * @param detail            추가 상세 사유(없으면 {@code null})
+ * @param status            요청 상태
+ * @param conductRecordId   승인 시 생성된 {@code ConductRecord} ID (승인 전에는 {@code null})
+ * @param rejectedReason    거절 사유 ({@code REJECTED} 상태가 아니면 {@code null})
+ * @param createdAt         요청 등록 일시
  */
 public record ConductRequestResponse(
     Long id,
@@ -35,6 +37,8 @@ public record ConductRequestResponse(
     ConductType type,
     String detail,
     ConductRequestStatus status,
+    Long conductRecordId,
+    String rejectedReason,
     LocalDateTime createdAt
 ) {
 
@@ -58,6 +62,8 @@ public record ConductRequestResponse(
         request.getCategory().getType(),
         request.getDetail(),
         request.getStatus(),
+        request.getConductRecordId(),
+        request.getRejectedReason(),
         request.getCreatedAt()
     );
   }

@@ -79,6 +79,10 @@ public class ConductRequest {
   @Column(name = "conduct_record_id")
   private Long conductRecordId;
 
+  /** 거절 사유. REJECTED 상태인 경우에만 값이 있다. */
+  @Column(name = "rejected_reason", length = 500)
+  private String rejectedReason;
+
   @Version
   @Column(nullable = false)
   private Long version;
