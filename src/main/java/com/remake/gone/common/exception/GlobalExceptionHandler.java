@@ -6,6 +6,7 @@ import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
@@ -67,6 +68,23 @@ public class GlobalExceptionHandler {
     return ResponseEntity
         .status(CommonErrorCode.INVALID_REQUEST.getStatus())
         .body(ApiResponse.fail(null, message, CommonErrorCode.INVALID_REQUEST.getCode()));
+  }
+
+  /**
+   * 요청 본문을 읽거나 JSON을 요청 DTO로 변환하지 못한 경우를 처리합니다.
+   *
+   * @param e 발생한 요청 본문 변환 예외
+   * @return {@code 400 Bad Request} 응답
+   */
+  @ExceptionHandler(HttpMessageNotReadableException.class)
+  public ResponseEntity<ApiResponse<Void>> handleHttpMessageNotReadable(
+      HttpMessageNotReadableException e) {
+    return ResponseEntity
+        .status(CommonErrorCode.INVALID_REQUEST.getStatus())
+        .body(ApiResponse.fail(
+            null,
+            CommonErrorCode.INVALID_REQUEST.getDefaultMessage(),
+            CommonErrorCode.INVALID_REQUEST.getCode()));
   }
 
   /**

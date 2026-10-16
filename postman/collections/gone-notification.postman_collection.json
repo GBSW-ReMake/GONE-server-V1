@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "GONE - Notification API",
-    "description": "알림(Notification) 도메인 API 컬렉션. #119 알림 목록 조회와 #128 단건 읽음·전체 읽음·안 읽은 개수 조회를 포함합니다.\n\n**사전 조건**: 로컬 서버를 실행하고, `studentLoginId`/`studentPassword` 테스트 계정이 있어야 합니다. 단건 읽음 테스트 전에는 목록 조회 결과에서 알림 ID를 골라 `notificationId` 환경 변수에 입력하세요. 알림 생성 API는 후속 이슈이므로 이 컬렉션은 기존 알림 데이터를 사용합니다.\n\n**#128 검증 순서**: `#128 알림 읽음 처리 확인` 폴더에서 학생 로그인 → 안 읽은 개수 조회 → 단건 읽음 처리 → 안 읽은 개수 재조회 → 전체 읽음 처리를 순서대로 실행합니다.",
+    "description": "알림(Notification) 도메인 API 컬렉션. #119 알림 목록 조회, #128 단건 읽음·전체 읽음·안 읽은 개수 조회, #163 FCM 디바이스 토큰 등록·삭제를 포함합니다.\n\n**사전 조건**: 로컬 서버를 실행하고, `studentLoginId`/`studentPassword` 테스트 계정이 있어야 합니다. 단건 읽음 테스트 전에는 목록 조회 결과에서 알림 ID를 골라 `notificationId` 환경 변수에 입력하세요. 알림 생성 API는 후속 이슈이므로 이 컬렉션은 기존 알림 데이터를 사용합니다.\n\n**#128 검증 순서**: `#128 알림 읽음 처리 확인` 폴더에서 학생 로그인 → 안 읽은 개수 조회 → 단건 읽음 처리 → 안 읽은 개수 재조회 → 전체 읽음 처리를 순서대로 실행합니다.\n\n**#163 검증 순서**: `#163 FCM 디바이스 토큰 등록·삭제 확인` 폴더에서 학생 로그인 → 신규 토큰 등록 → 다른 토큰으로 갱신 → 삭제 → 재삭제를 순서대로 실행합니다. 이 단계에서는 Firebase 유효성을 확인하지 않으므로 테스트용 가짜 토큰을 사용합니다.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -197,6 +197,86 @@
       "response": []
     },
     {
+      "name": "디바이스 토큰 등록·갱신",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{studentAccessToken}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"fcmToken\": \"postman-fcm-token\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/notifications/device-token",
+          "host": [ "{{baseUrl}}" ],
+          "path": [ "api", "v1", "notifications", "device-token" ]
+        },
+        "description": "클라이언트 앱이 Firebase에서 발급받은 현재 기기의 FCM 토큰을 등록하거나 갱신합니다(#163). 같은 사용자의 기존 토큰이 있으면 새 값으로 교체하며, 응답에는 토큰을 노출하지 않습니다. 현재 단계에서는 Firebase 유효성 검사를 하지 않으므로 테스트용 문자열을 사용할 수 있습니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"디바이스 토큰 등록 성공 응답\", function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(body.success).to.eql(true);",
+              "    pm.expect(body.data).to.eql(null);",
+              "    pm.expect(body.message).to.eql('디바이스 토큰이 등록되었습니다.');",
+              "    pm.expect(body.code).to.eql(null);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "디바이스 토큰 삭제",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{studentAccessToken}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/notifications/device-token",
+          "host": [ "{{baseUrl}}" ],
+          "path": [ "api", "v1", "notifications", "device-token" ]
+        },
+        "description": "현재 사용자의 FCM 디바이스 토큰을 삭제합니다(#163). 등록된 토큰이 없어도 200으로 성공하는 멱등 API입니다."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"200 OK\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"디바이스 토큰 삭제 성공 응답\", function () {",
+              "    const body = pm.response.json();",
+              "    pm.expect(body.success).to.eql(true);",
+              "    pm.expect(body.data).to.eql(null);",
+              "    pm.expect(body.message).to.eql('디바이스 토큰이 삭제되었습니다.');",
+              "    pm.expect(body.code).to.eql(null);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
       "name": "#128 알림 읽음 처리 확인",
       "description": "학생 로그인 뒤 기존 본인 알림 ID를 `notificationId` 환경 변수에 설정한 뒤 순서대로 실행합니다. 단건 처리와 전체 처리 후 안 읽은 개수가 바뀌는지 확인합니다.",
       "item": [
@@ -276,6 +356,155 @@
       ]
     },
     {
+      "name": "#163 FCM 디바이스 토큰 등록·삭제 확인",
+      "description": "학생 로그인 뒤 신규 등록, 다른 값으로 갱신, 삭제, 재삭제를 순서대로 실행합니다. 서버 DB의 사용자당 토큰 한 개 정책과 삭제의 멱등성을 확인하는 흐름이며 실제 Firebase 연결은 필요하지 않습니다.",
+      "item": [
+        {
+          "name": "1. 학생 로그인",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{studentLoginId}}\",\n  \"password\": \"{{studentPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/login", "host": [ "{{baseUrl}}" ], "path": [ "api", "v1", "auth", "login" ] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () { pm.response.to.have.status(200); });",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.success && body.data) { pm.environment.set(\"studentAccessToken\", body.data.accessToken); }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. 디바이스 토큰 신규 등록",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{studentAccessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fcmToken\": \"postman-fcm-token-initial\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/notifications/device-token", "host": [ "{{baseUrl}}" ], "path": [ "api", "v1", "notifications", "device-token" ] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"신규 토큰 등록 성공\", function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.success).to.eql(true);",
+                  "    pm.expect(body.data).to.eql(null);",
+                  "    pm.expect(body.message).to.eql('디바이스 토큰이 등록되었습니다.');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. 디바이스 토큰 갱신",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{studentAccessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fcmToken\": \"postman-fcm-token-updated\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/notifications/device-token", "host": [ "{{baseUrl}}" ], "path": [ "api", "v1", "notifications", "device-token" ] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"기존 토큰 갱신 성공\", function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.success).to.eql(true);",
+                  "    pm.expect(body.data).to.eql(null);",
+                  "    pm.expect(body.message).to.eql('디바이스 토큰이 등록되었습니다.');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. 디바이스 토큰 삭제",
+          "request": {
+            "method": "DELETE",
+            "header": [ { "key": "Authorization", "value": "Bearer {{studentAccessToken}}" } ],
+            "url": { "raw": "{{baseUrl}}/api/v1/notifications/device-token", "host": [ "{{baseUrl}}" ], "path": [ "api", "v1", "notifications", "device-token" ] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"토큰 삭제 성공\", function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.success).to.eql(true);",
+                  "    pm.expect(body.message).to.eql('디바이스 토큰이 삭제되었습니다.');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. 없는 디바이스 토큰 재삭제",
+          "request": {
+            "method": "DELETE",
+            "header": [ { "key": "Authorization", "value": "Bearer {{studentAccessToken}}" } ],
+            "url": { "raw": "{{baseUrl}}/api/v1/notifications/device-token", "host": [ "{{baseUrl}}" ], "path": [ "api", "v1", "notifications", "device-token" ] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"200 OK\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"없는 토큰 삭제도 성공\", function () {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.success).to.eql(true);",
+                  "    pm.expect(body.data).to.eql(null);",
+                  "    pm.expect(body.message).to.eql('디바이스 토큰이 삭제되었습니다.');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "에러 케이스",
       "item": [
         {
@@ -293,6 +522,100 @@
             "method": "PATCH",
             "header": [ { "key": "Authorization", "value": "Bearer {{studentAccessToken}}" } ],
             "url": { "raw": "{{baseUrl}}/api/v1/notifications/0/read", "host": [ "{{baseUrl}}" ], "path": [ "api", "v1", "notifications", "0", "read" ] }
+          },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [ "pm.test(\"400 COMMON_001\", function () {", "    pm.response.to.have.status(400);", "    pm.expect(pm.response.json().code).to.eql('COMMON_001');", "});" ] } } ]
+        },
+        {
+          "name": "디바이스 토큰 등록 - 인증 없음 (401 COMMON_002)",
+          "request": {
+            "method": "PUT",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fcmToken\": \"postman-fcm-token\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/notifications/device-token", "host": [ "{{baseUrl}}" ], "path": [ "api", "v1", "notifications", "device-token" ] }
+          },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [ "pm.test(\"401 COMMON_002\", function () {", "    pm.response.to.have.status(401);", "    pm.expect(pm.response.json().code).to.eql('COMMON_002');", "});" ] } } ]
+        },
+        {
+          "name": "디바이스 토큰 삭제 - 인증 없음 (401 COMMON_002)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/notifications/device-token", "host": [ "{{baseUrl}}" ], "path": [ "api", "v1", "notifications", "device-token" ] }
+          },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [ "pm.test(\"401 COMMON_002\", function () {", "    pm.response.to.have.status(401);", "    pm.expect(pm.response.json().code).to.eql('COMMON_002');", "});" ] } } ]
+        },
+        {
+          "name": "디바이스 토큰 등록 - 빈 토큰 (400 COMMON_001)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{studentAccessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fcmToken\": \"   \"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/notifications/device-token", "host": [ "{{baseUrl}}" ], "path": [ "api", "v1", "notifications", "device-token" ] }
+          },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [ "pm.test(\"400 COMMON_001\", function () {", "    pm.response.to.have.status(400);", "    pm.expect(pm.response.json().code).to.eql('COMMON_001');", "});" ] } } ]
+        },
+        {
+          "name": "디바이스 토큰 등록 - 256자 초과 (400 COMMON_001)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [ "pm.variables.set(\"overlongFcmToken\", 'a'.repeat(256));" ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"400 COMMON_001\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "    pm.expect(pm.response.json().code).to.eql('COMMON_001');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{studentAccessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fcmToken\": \"{{overlongFcmToken}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/notifications/device-token", "host": [ "{{baseUrl}}" ], "path": [ "api", "v1", "notifications", "device-token" ] }
+          }
+        },
+        {
+          "name": "디바이스 토큰 등록 - 잘못된 JSON (400 COMMON_001)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{studentAccessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fcmToken\": \"broken\"",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/notifications/device-token", "host": [ "{{baseUrl}}" ], "path": [ "api", "v1", "notifications", "device-token" ] }
           },
           "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [ "pm.test(\"400 COMMON_001\", function () {", "    pm.response.to.have.status(400);", "    pm.expect(pm.response.json().code).to.eql('COMMON_001');", "});" ] } } ]
         }

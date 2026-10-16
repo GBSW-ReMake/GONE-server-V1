@@ -2,6 +2,7 @@ package com.remake.gone.common.exception;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
@@ -22,6 +23,7 @@ import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -99,6 +101,24 @@ class GlobalExceptionHandlerTest {
     void returns400InsteadOfInternalServerError() {
       ResponseEntity<ApiResponse<Void>> response = handler.handleMissingServletRequestParameter(
           new MissingServletRequestParameterException("query", "String"));
+
+      assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+      assertThat(response.getBody().success()).isFalse();
+      assertThat(response.getBody().code()).isEqualTo("COMMON_001");
+    }
+  }
+
+  @Nested
+  @DisplayName("handleHttpMessageNotReadable")
+  class HandleHttpMessageNotReadable {
+
+    @Test
+    @DisplayName("읽을 수 없는 JSON 요청 본문이면 400 COMMON_001로 응답한다")
+    void returns400ForMalformedJson() {
+      HttpMessageNotReadableException exception = mock(HttpMessageNotReadableException.class);
+
+      ResponseEntity<ApiResponse<Void>> response =
+          handler.handleHttpMessageNotReadable(exception);
 
       assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
       assertThat(response.getBody().success()).isFalse();
